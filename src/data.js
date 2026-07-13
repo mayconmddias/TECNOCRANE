@@ -452,133 +452,14 @@ function normalizeCompanies(list) {
     }).filter(Boolean);
 }
 
-export let companies = normalizeCompanies(getStoredData('crane_companies', [
-    { name: "Mineradora Vale", cnpj: "33.592.510/0001-54", endereco: "AV. DAS NAÇÕES", numero: "1000", bairro: "DISTRITO INDUSTRIAL", cep: "34006-056", cidade: "CONGONHAS", estado: "MG", logo: "" },
-    { name: "Porto Brasil", cnpj: "99.888.777/0001-11", endereco: "AV. PORTUÁRIA", numero: "S/N", bairro: "CAIS DO PORTO", cep: "11000-000", cidade: "SANTOS", estado: "SP", logo: "" }
-])).sort((a, b) => a.name.localeCompare(b.name));
+export let companies = normalizeCompanies(getStoredData('crane_companies', [])).sort((a, b) => a.name.localeCompare(b.name));
 
 export function setCompanies(newList) {
     companies = normalizeCompanies(newList).sort((a, b) => a.name.localeCompare(b.name));
     setStoredData('crane_companies', companies);
 }
 
-const initialAssets = [
-    {
-        id: "#EQP-2093",
-        empresa: "Mineradora Vale",
-        nome: "GUINDASTE DE COLUNA",
-        tipo: "GUINDASTE DE COLUNA",
-        local: "SETOR MINA SUL",
-        fabricante: "LIEBHERR",
-        capacidade: "20.00 TON",
-        caboPrincipal: "16MM",
-        capacidadeAuxiliar: "5.00 TON",
-        caboAuxiliar: "10MM",
-        altura: "60.00 MTS",
-        vao: "40.00 MTS",
-        tensaoAlimentacao: "440V",
-        tensaoComando: "24V",
-        alimentacaoEquipamento: "BARRAMENTO",
-        motorElevPrincipalAlta: "22 kW / 45 A",
-        motorElevPrincipalBaixa: "3.7 kW / 9 A",
-        motorElevAuxiliarAlta: "7.5 kW / 15 A",
-        motorElevAuxiliarBaixa: "1.2 kW / 3 A",
-        motorDirecaoCarro: "2.2 kW / 5.5 A",
-        motorTranslacaoPonte: "2x 5.5 kW / 12 A"
-    },
-    {
-        id: "#EQP-4482",
-        empresa: "Mineradora Vale",
-        nome: "PONTE ROLANTE",
-        tipo: "PONTE ROLANTE",
-        local: "PÁTIO DE APOIO C",
-        fabricante: "DEMAG",
-        capacidade: "15.00 TON",
-        caboPrincipal: "12MM",
-        capacidadeAuxiliar: "3.00 TON",
-        caboAuxiliar: "8MM",
-        altura: "9.00 MTS",
-        vao: "18.00 MTS",
-        tensaoAlimentacao: "380V",
-        tensaoComando: "24V",
-        alimentacaoEquipamento: "FESTOON",
-        motorElevPrincipalAlta: "11 kW / 23 A",
-        motorElevPrincipalBaixa: "1.8 kW / 5 A",
-        motorElevAuxiliarAlta: "4.0 kW / 9.5 A",
-        motorElevAuxiliarBaixa: "0.7 kW / 2 A",
-        motorDirecaoCarro: "1.1 kW / 3 A",
-        motorTranslacaoPonte: "2x 2.2 kW / 5.5 A"
-    },
-    {
-        id: "#EQP-9001",
-        empresa: "Mineradora Vale",
-        nome: "SEMIPÓRTICO",
-        tipo: "SEMIPÓRTICO",
-        local: "SETOR ENERGIA",
-        fabricante: "CUMMINS",
-        capacidade: "10.00 TON",
-        caboPrincipal: "10MM",
-        capacidadeAuxiliar: "2.00 TON",
-        caboAuxiliar: "6MM",
-        altura: "6.00 MTS",
-        vao: "12.00 MTS",
-        tensaoAlimentacao: "380V",
-        tensaoComando: "24V",
-        alimentacaoEquipamento: "FESTOON",
-        motorElevPrincipalAlta: "7.5 kW / 16 A",
-        motorElevPrincipalBaixa: "1.2 kW / 3.5 A",
-        motorElevAuxiliarAlta: "3.0 kW / 7.5 A",
-        motorElevAuxiliarBaixa: "0.5 kW / 1.5 A",
-        motorDirecaoCarro: "0.75 kW / 2.2 A",
-        motorTranslacaoPonte: "2x 1.5 kW / 4 A"
-    },
-    {
-        id: "#EQP-5522",
-        empresa: "Porto Brasil",
-        nome: "PÓRTICO",
-        tipo: "PÓRTICO",
-        local: "DOCA 04",
-        fabricante: "HYSTER",
-        capacidade: "7.00 TON",
-        caboPrincipal: "10MM",
-        capacidadeAuxiliar: "2.00 TON",
-        caboAuxiliar: "6MM",
-        altura: "4.50 MTS",
-        vao: "8.00 MTS",
-        tensaoAlimentacao: "380V",
-        tensaoComando: "24V",
-        alimentacaoEquipamento: "ENROLADOR DE CABO",
-        motorElevPrincipalAlta: "5.5 kW / 12 A",
-        motorElevPrincipalBaixa: "0.9 kW / 2.5 A",
-        motorElevAuxiliarAlta: "2.2 kW / 5.5 A",
-        motorElevAuxiliarBaixa: "0.4 kW / 1.2 A",
-        motorDirecaoCarro: "0.55 kW / 1.8 A",
-        motorTranslacaoPonte: "2x 1.1 kW / 3 A"
-    },
-    {
-        id: "#EQP-1122",
-        empresa: "Porto Brasil",
-        nome: "PÓRTICO",
-        tipo: "PÓRTICO",
-        local: "ARMAZÉM B",
-        fabricante: "GH CRANES",
-        capacidade: "25.00 TON",
-        caboPrincipal: "18MM",
-        capacidadeAuxiliar: "5.00 TON",
-        caboAuxiliar: "10MM",
-        altura: "12.00 MTS",
-        vao: "22.00 MTS",
-        tensaoAlimentacao: "440V",
-        tensaoComando: "24V",
-        alimentacaoEquipamento: "BARRAMENTO REBLINDADO",
-        motorElevPrincipalAlta: "30 kW / 60 A",
-        motorElevPrincipalBaixa: "5.0 kW / 12 A",
-        motorElevAuxiliarAlta: "7.5 kW / 15 A",
-        motorElevAuxiliarBaixa: "1.2 kW / 3 A",
-        motorDirecaoCarro: "3.0 kW / 7.5 A",
-        motorTranslacaoPonte: "2x 7.5 kW / 16 A"
-    }
-];
+const initialAssets = [];
 
 // Migração: se o localStorage já possuir dados, atualiza apenas os 8 ativos de referência padrão.
 const storedTechnicalAssets = getStoredData('crane_all_assets', null);
