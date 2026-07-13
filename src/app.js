@@ -3705,7 +3705,7 @@ window.saveUnifiedRegistration = function() {
         });
 
         // Sincronizar ordens de serviço em aberto e relatórios finalizados
-        if (isEdit && oldId && oldId !== id) {
+        if (isEdit && oldId) {
             openOrders = openOrders.map(order => {
                 if (order.equipamentoId === oldId || order.equipamento === oldId) {
                     return { ...order, equipamentoId: id, equipamento: id, empresa, tipo };
