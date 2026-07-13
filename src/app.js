@@ -3683,6 +3683,7 @@ window.saveUnifiedRegistration = function() {
         const existingIdx = allAssetsList.findIndex(a => a.id === searchId);
         if (existingIdx !== -1) {
             allAssetsList[existingIdx] = assetData;
+            setAllAssetsList(allAssetsList);
         } else {
             setAllAssetsList([...allAssetsList, assetData]);
         }
