@@ -2,6 +2,8 @@
 
 import { isSupabaseConfigured, dbFetchAll, dbUpsert, dbDelete } from './supabase.js';
 
+export let isInitialLoad = true;
+
 // --- IndexedDB Configuration & State ---
 const DB_NAME = 'crane_pro_db';
 const DB_VERSION = 1;
@@ -71,8 +73,8 @@ export function setStoredData(key, data) {
         console.error(`Erro ao gravar ${key} no IndexedDB:`, err);
     });
 
-    // Sincroniza em segundo plano se o Supabase estiver configurado
-    if (isSupabaseConfigured) {
+    // Sincroniza em segundo plano se o Supabase estiver configurado e não for o carregamento inicial
+    if (isSupabaseConfigured && !isInitialLoad) {
         syncKeyToSupabase(key, data);
     }
 }
@@ -659,14 +661,18 @@ export async function loadAllDataFromDB() {
     if (isSupabaseConfigured) {
         syncAllFromSupabase().then(() => {
             console.log('SUPABASE: Carregamento em segundo plano concluído. Atualizando visões...');
+            isInitialLoad = false; // Permite sincronizações futuras de salvamento
             if (typeof window.renderCompanies === 'function') window.renderCompanies();
             if (typeof window.renderAssets === 'function') window.renderAssets();
             if (typeof window.renderCalendar === 'function') window.renderCalendar();
             if (typeof window.renderOpenOrders === 'function') window.renderOpenOrders();
             if (typeof window.renderReportsView === 'function') window.renderReportsView();
         }).catch(err => {
+            isInitialLoad = false;
             console.error('SUPABASE: Falha na sincronização em segundo plano:', err);
         });
+    } else {
+        isInitialLoad = false;
     }
 }
 
