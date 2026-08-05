@@ -988,6 +988,10 @@ function generateNextReportId() {
     }
 
     window.closeChecklistModal();
+    if (newReport && newReport.empresa) {
+        reportsSelectedCompany = newReport.empresa;
+    }
+    reportsSelectedAssetId = null;
     renderOpenOrders();
     renderReportsView();
     window.showAlert('RELATÓRIO ENVIADO COM SUCESSO.', 'success');
@@ -3109,9 +3113,21 @@ function editReport(id) {
     }
 }
 
-window.finalizarExclusaoDefinitiva = function() {
-    finalizedReports = finalizedReports.filter(r => r.id !== window.reportIdParaExcluir);
+window.finalizarExclusaoDefinitiva = async function() {
+    const targetId = window.reportIdParaExcluir;
+    if (!targetId) return;
+
+    finalizedReports = finalizedReports.filter(r => r.id !== targetId);
     setStoredData('crane_reports', finalizedReports);
+
+    if (typeof deleteReportFromCloud === 'function') {
+        try {
+            await deleteReportFromCloud(targetId);
+        } catch (e) {
+            console.error("Erro ao excluir relatório da nuvem:", e);
+        }
+    }
+
     renderReportsView();
     const modal = document.getElementById('modal-confirm-exclusao');
     if (modal) modal.classList.add('hidden');
