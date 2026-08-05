@@ -1,6 +1,7 @@
 // Crane Pro - Data Layer
 
 import { isSupabaseConfigured, dbFetchAll, dbUpsert, dbDelete } from './supabase.js';
+export { dbFetchAll, isSupabaseConfigured };
 import { hashPassword } from './utils.js';
 
 export let isInitialLoad = true;

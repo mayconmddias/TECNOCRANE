@@ -1,4 +1,4 @@
-import { companies, allAssetsList, getStoredData, setStoredData, setStoredDataAsync, normalizeReportObject, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud } from './data.js';
+import { companies, allAssetsList, getStoredData, setStoredData, setStoredDataAsync, normalizeReportObject, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, dbFetchAll, isSupabaseConfigured, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud } from './data.js';
 import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay, hashPassword } from './utils.js';
 import { renderCompanies as renderCompaniesUI, renderAssetsTable } from './ui-render.js';
 import { renderObservationBlock, renderNode, renderResponsibleBlock } from './checklist-render.js';
@@ -915,9 +915,35 @@ window.generateWorkOrder = async function() {
         btn.classList.add('opacity-50', 'pointer-events-none');
     }
 
-function generateNextReportId() {
+async function generateNextReportId() {
     let maxNum = 0;
-    const allReports = getStoredData('crane_reports', finalizedReports || []);
+
+    // Fonte de verdade: lê diretamente do Supabase (contém todos os relatórios, incluindo os ainda não sincronizados localmente)
+    try {
+        if (isSupabaseConfigured) {
+            const cloudReports = await dbFetchAll('finalized_reports');
+            if (cloudReports && cloudReports.length > 0) {
+                cloudReports.forEach(r => {
+                    if (r && r.id) {
+                        const match = String(r.id).match(/\d+/);
+                        if (match) {
+                            const num = parseInt(match[0], 10);
+                            if (num > maxNum) maxNum = num;
+                        }
+                    }
+                });
+                return `REL - ${String(maxNum + 1).padStart(2, '0')}`;
+            }
+        }
+    } catch (e) {
+        console.warn('generateNextReportId: Supabase indisponível, usando dados locais como fallback.', e);
+    }
+
+    // Fallback: usa o que está em memória + localStorage
+    const allReports = finalizedReports.length > 0
+        ? finalizedReports
+        : getStoredData('crane_reports', []);
+
     (allReports || []).forEach(r => {
         if (r && r.id) {
             const match = String(r.id).match(/\d+/);
@@ -927,13 +953,12 @@ function generateNextReportId() {
             }
         }
     });
-    const nextNum = maxNum + 1;
-    return `REL - ${String(nextNum).padStart(2, '0')}`;
+    return `REL - ${String(maxNum + 1).padStart(2, '0')}`;
 }
 
     const formData = collectFormData(formRoot);
     const isEditingRel = editingOrderId && (String(editingOrderId).startsWith('REL-') || String(editingOrderId).startsWith('REL - '));
-    const reportId = isEditingRel ? editingOrderId : generateNextReportId();
+    const reportId = isEditingRel ? editingOrderId : await generateNextReportId();
 
     const userName = document.getElementById('user-name-display')?.innerText || "MAYCON DIAS";
     const newReport = createInspectionDocument(currentChecklistContext, {
@@ -2501,22 +2526,36 @@ window.printReportPDF = function(reportId) {
         </div>
         ${(() => {
             if (report && report.responsibles && Array.isArray(report.responsibles) && report.responsibles.length > 0) {
+                const n = report.responsibles.length;
+                // Grid sempre 2 colunas (exceto 1 responsável = 1 coluna centralizada)
+                const gridCols = n === 1 ? '1fr' : 'repeat(2, 1fr)';
+
                 const sigBlocks = report.responsibles.map(r => `
-                    <div class="signature-block" style="text-align: center; border-top: 1px solid #374151; padding-top: 8px;">
-                        ${r.signatureImage ? `<div style="height: 50px; margin-bottom: 4px; display: flex; align-items: center; justify-content: center;"><img src="${r.signatureImage}" style="max-height: 50px; max-width: 180px; object-fit: contain;" /></div>` : '<div style="height: 30px;"></div>'}
-                        <strong style="display: block; text-transform: uppercase; font-size: 9.5px; color: #111827;">${escapeHTML(r.name || '')}</strong>
-                        <span style="color: #6b7280; text-transform: uppercase; font-size: 8px;">${escapeHTML(r.role || 'RESPONSÁVEL TÉCNICO')}</span>
+                    <div class="signature-block" style="text-align: center;">
+                        <div style="height: 60px; display: flex; align-items: flex-end; justify-content: center; margin-bottom: 6px;">
+                            ${r.signatureImage
+                                ? `<img src="${r.signatureImage}" style="max-height: 56px; max-width: 180px; object-fit: contain;" />`
+                                : '<div style="height: 56px;"></div>'
+                            }
+                        </div>
+                        <div style="border-top: 2px solid #374151; padding-top: 6px;">
+                            <strong style="display: block; text-transform: uppercase; font-size: 9.5px; color: #111827;">${escapeHTML(r.name || '')}</strong>
+                            <span style="color: #6b7280; text-transform: uppercase; font-size: 8px;">${escapeHTML(r.role || 'RESPONSÁVEL TÉCNICO')}</span>
+                        </div>
                     </div>
                 `).join('');
-                const cols = Math.min(report.responsibles.length, 3);
-                return `<div id="temp-signatures" class="signature-footer" style="margin-top: 40px; display: grid; grid-template-columns: repeat(${cols}, 1fr); gap: 40px; width: 100%; page-break-inside: avoid;">${sigBlocks}</div>`;
+
+                return `<div id="temp-signatures" class="signature-footer" style="margin-top: 40px; display: grid; grid-template-columns: ${gridCols}; gap: 40px 60px; width: 100%; page-break-inside: avoid;">${sigBlocks}</div>`;
             } else {
                 const techName = report ? report.tecnico || 'MAYCON DIAS' : 'MAYCON DIAS';
                 return `
                 <div id="temp-signatures" class="signature-footer" style="margin-top: 40px; display: flex; justify-content: center; width: 100%; page-break-inside: avoid;">
-                    <div class="signature-block" style="text-align: center; border-top: 1px solid #374151; padding-top: 8px; min-width: 250px;">
-                        <strong style="display: block; text-transform: uppercase; font-size: 9.5px; color: #111827;">${escapeHTML(techName)}</strong>
-                        <span style="color: #6b7280; text-transform: uppercase; font-size: 8px;">RESPONSÁVEL TÉCNICO</span>
+                    <div class="signature-block" style="text-align: center; min-width: 250px;">
+                        <div style="height: 60px; margin-bottom: 6px;"></div>
+                        <div style="border-top: 2px solid #374151; padding-top: 6px;">
+                            <strong style="display: block; text-transform: uppercase; font-size: 9.5px; color: #111827;">${escapeHTML(techName)}</strong>
+                            <span style="color: #6b7280; text-transform: uppercase; font-size: 8px;">RESPONSÁVEL TÉCNICO</span>
+                        </div>
                     </div>
                 </div>`;
             }
