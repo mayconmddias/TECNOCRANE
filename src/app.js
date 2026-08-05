@@ -1451,7 +1451,9 @@ window.setFinalizedReportsInMemory = function(newList) {
 
 window.syncFinalizedReports = function() {
     const loaded = getStoredData('crane_reports', []);
-    finalizedReports = loaded;
+    if (loaded && loaded.length > 0) {
+        updateArrayInPlace(finalizedReports, loaded);
+    }
 
     // Auto-corrige reportsSelectedCompany com o valor real vindo do Supabase
     if (finalizedReports.length > 0) {
@@ -1471,9 +1473,6 @@ function renderReportsView() {
     const assTbody = document.getElementById('reports-assets-tbody');
     const repTbody = document.getElementById('reports-tbody');
     if (!comTbody || !assTbody || !repTbody) return;
-
-    // Recarrega relatórios do storage para garantir sincronização pós-login / pós-clear cache
-    finalizedReports = getStoredData('crane_reports', finalizedReports || []);
 
     // Normaliza campo empresa em todos os relatórios lidos do storage
     finalizedReports = finalizedReports.map(r => ({ ...r, empresa: (r.empresa || '').trim() }));
