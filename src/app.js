@@ -2075,8 +2075,7 @@ window.printReportPDF = function(reportId) {
 
         .signature-block {
             text-align: center;
-            border-top: 1px solid #374151;
-            padding-top: 8px;
+            padding-top: 0px;
             font-size: 8.5px;
             text-transform: uppercase;
         }
