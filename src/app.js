@@ -91,19 +91,14 @@ function runMigrationsAndSync() {
     });
     setStoredData('crane_open_orders', openOrders);
 
+    // Migração segura: só preenche campos VAZIOS, nunca sobrescreve valores já gravados
     finalizedReports = finalizedReports.map(report => {
-        const matchingTechnicalAsset = allAssetsList.find(ta => ta.id === report.equipamentoId || ta.id === report.equipamento);
-        if (matchingTechnicalAsset) {
-            return {
-                ...report,
-                empresa: matchingTechnicalAsset.empresa,
-                equipamentoNome: matchingTechnicalAsset.nome,
-                equipamento: matchingTechnicalAsset.nome,
-                tipo: matchingTechnicalAsset.tipo,
-                assetInfo: `${matchingTechnicalAsset.nome} — ${matchingTechnicalAsset.empresa}`
-            };
-        }
-        return report;
+        return {
+            ...report,
+            empresa: (report.empresa || '').trim(),
+            equipamentoId: (report.equipamentoId || report.equipamentoid || '').trim(),
+            equipamentoNome: (report.equipamentoNome || report.equipamentonome || report.equipamento || '').trim(),
+        };
     });
 
 }
@@ -1421,7 +1416,19 @@ window.selectReportsAsset = function(assetId) {
 };
 
 window.syncFinalizedReports = function() {
-    finalizedReports = getStoredData('crane_reports', finalizedReports || []);
+    const loaded = getStoredData('crane_reports', []);
+    finalizedReports = loaded;
+
+    // Auto-corrige reportsSelectedCompany com o valor real vindo do Supabase
+    if (finalizedReports.length > 0) {
+        const selClean = (reportsSelectedCompany || '').trim().toLowerCase();
+        const hasMatch = finalizedReports.some(r => (r.empresa || '').trim().toLowerCase() === selClean);
+        if (!hasMatch) {
+            // Usa a empresa do primeiro relatório carregado como âncora
+            reportsSelectedCompany = (finalizedReports[0].empresa || '').trim();
+            reportsSelectedAssetId = null;
+        }
+    }
     renderReportsView();
 };
 
@@ -1434,15 +1441,32 @@ function renderReportsView() {
     // Recarrega relatórios do storage para garantir sincronização pós-login / pós-clear cache
     finalizedReports = getStoredData('crane_reports', finalizedReports || []);
 
-    // Se a empresa selecionada nos relatórios não for válida na lista atual, reseta
-    const currentList = companies || [];
-    const validCompany = currentList.find(c => {
-        const name = typeof c === 'string' ? c : (c?.name || "");
-        return name.toLowerCase() === reportsSelectedCompany.toLowerCase();
-    });
-    if (!validCompany && currentList.length > 0) {
-        const firstComp = currentList[0];
-        reportsSelectedCompany = typeof firstComp === 'string' ? firstComp : (firstComp?.name || "");
+    // Normaliza campo empresa em todos os relatórios lidos do storage
+    finalizedReports = finalizedReports.map(r => ({ ...r, empresa: (r.empresa || '').trim() }));
+
+    // --- Âncora de empresa: garante que reportsSelectedCompany bata com os dados reais ---
+    const selClean = (reportsSelectedCompany || '').trim().toLowerCase();
+    const hasReportForCompany = finalizedReports.some(r => (r.empresa || '').toLowerCase() === selClean);
+
+    if (!hasReportForCompany && finalizedReports.length > 0) {
+        // Tenta encontrar pela lista de empresas cadastradas primeiro
+        const currentList = companies || [];
+        const validCompany = currentList.find(c => {
+            const name = typeof c === 'string' ? c : (c?.name || '');
+            return name.toLowerCase() === selClean;
+        });
+        if (!validCompany && currentList.length > 0) {
+            const firstComp = currentList[0];
+            reportsSelectedCompany = (typeof firstComp === 'string' ? firstComp : (firstComp?.name || '')).trim();
+        } else if (!validCompany) {
+            // Ancora na empresa do primeiro relatório real — fonte de verdade
+            reportsSelectedCompany = (finalizedReports[0].empresa || '').trim();
+        }
+        reportsSelectedAssetId = null;
+    } else if (!hasReportForCompany && companies.length > 0) {
+        // Sem relatórios mas há empresas — usa a primeira empresa da lista
+        const firstComp = companies[0];
+        reportsSelectedCompany = (typeof firstComp === 'string' ? firstComp : (firstComp?.name || '')).trim();
         reportsSelectedAssetId = null;
     }
 
