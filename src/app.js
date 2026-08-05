@@ -4108,6 +4108,118 @@ window.addAdditionalObservationBlock = function(buttonEl, sectionId) {
     container.appendChild(newBlock);
 };
 
+window.toggleSectionPlusMenu = function(event, sectionId) {
+    if (event) event.stopPropagation();
+    const menu = document.getElementById('section-plus-action-menu');
+    if (!menu) return;
+    
+    if (menu.style.display === 'block' && menu.getAttribute('data-section-id') === sectionId) {
+        menu.style.display = 'none';
+        menu.classList.add('hidden');
+        return;
+    }
+    
+    menu.setAttribute('data-section-id', sectionId);
+    
+    let left = event.clientX - 160;
+    let top = event.clientY + 10;
+    if (top + 120 > window.innerHeight) top = window.innerHeight - 130;
+    if (left < 10) left = 10;
+    
+    menu.style.top = top + 'px';
+    menu.style.left = left + 'px';
+    menu.style.display = 'block';
+    menu.classList.remove('hidden');
+    
+    const closeMenu = (e) => {
+        if (!menu.contains(e.target)) {
+            menu.style.display = 'none';
+            menu.classList.add('hidden');
+            document.removeEventListener('mousedown', closeMenu);
+        }
+    };
+    setTimeout(() => document.addEventListener('mousedown', closeMenu), 50);
+};
+
+window.execSectionPlusAction = function(actionType) {
+    const menu = document.getElementById('section-plus-action-menu');
+    if (!menu) return;
+    const sectionId = menu.getAttribute('data-section-id');
+    menu.style.display = 'none';
+    menu.classList.add('hidden');
+    
+    if (!sectionId) return;
+    
+    if (actionType === 'observacao') {
+        window.addAdditionalObservationBlock(null, sectionId);
+    } else if (actionType === 'checklist') {
+        window.openNewSectionItemModal(sectionId);
+    }
+};
+
+window.openNewSectionItemModal = function(sectionId) {
+    const modal = document.getElementById('new-section-item-modal');
+    if (!modal) return;
+    modal.setAttribute('data-section-id', sectionId);
+    const input = document.getElementById('new-section-item-title-input');
+    if (input) {
+        input.value = '';
+    }
+    modal.classList.remove('hidden');
+    setTimeout(() => input?.focus(), 100);
+};
+
+window.closeNewSectionItemModal = function() {
+    document.getElementById('new-section-item-modal')?.classList.add('hidden');
+};
+
+window.confirmAddSectionChecklistItem = function() {
+    const modal = document.getElementById('new-section-item-modal');
+    if (!modal) return;
+    const sectionId = modal.getAttribute('data-section-id');
+    const input = document.getElementById('new-section-item-title-input');
+    const titleVal = input ? input.value.trim() : '';
+    
+    if (!titleVal) {
+        return window.showAlert('INFORME A DESCRIÇÃO DO ITEM.', 'warning');
+    }
+    
+    const card = document.querySelector(`.checklist-inspectable-group[data-section-id="${sectionId}"]`);
+    if (!card) {
+        return window.showAlert('SEÇÃO NÃO ENCONTRADA.', 'warning');
+    }
+    
+    const container = card.querySelector('.divide-y');
+    if (!container) return;
+    
+    const itemId = `${sectionId}_custom_${Date.now()}`;
+    
+    const itemHtml = `
+    <div class="flex items-center justify-between border-b border-outline-variant/30 py-3 last:border-b-0 checklist-custom-item-row" data-field-id="${itemId}" data-field-type="inspectable">
+        <span class="text-body-md font-bold uppercase text-on-surface">${titleVal.toUpperCase()}</span>
+        <div class="flex items-center gap-stack_lg">
+            <label class="flex items-center gap-stack_sm cursor-pointer group">
+                <input type="radio" name="status-${itemId}" value="OK" class="checklist-status-ok border-outline text-green-600 focus:ring-green-600 bg-surface-container-low transition-all duration-200">
+                <span class="text-label-md uppercase text-on-surface group-hover:text-green-600 transition-all duration-200">OK</span>
+            </label>
+            <label class="flex items-center gap-stack_sm cursor-pointer group">
+                <input type="radio" name="status-${itemId}" value="NOK" class="checklist-status-nok border-outline text-error focus:ring-error bg-surface-container-low transition-all duration-200">
+                <span class="text-label-md uppercase text-on-surface group-hover:text-error transition-all duration-200">NOK</span>
+            </label>
+            <button type="button" onclick="this.closest('.checklist-custom-item-row').remove()" class="text-error hover:bg-error/10 p-1.5 rounded-lg transition-colors ml-2 flex items-center justify-center shrink-0" title="Excluir Item">
+                <span class="material-symbols-outlined text-[18px]">delete</span>
+            </button>
+        </div>
+    </div>`;
+    
+    const temp = document.createElement('div');
+    temp.innerHTML = itemHtml;
+    container.appendChild(temp.firstElementChild);
+    
+    window.closeNewSectionItemModal();
+    window.showAlert('ITEM ADICIONADO AO CHECKLIST.', 'success');
+};
+
 window.openCustomItemModal = function() {
     const modal = document.getElementById('custom-item-modal');
     const titleInput = document.getElementById('custom-item-title');

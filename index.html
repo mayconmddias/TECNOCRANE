@@ -1327,6 +1327,44 @@
         </button>
     </div>
 
+    <!-- Menu de Opções do Ícone "+" das Seções do Checklist -->
+    <div id="section-plus-action-menu" class="fixed z-[1000] hidden bg-surface border border-outline-variant shadow-2xl rounded-xl w-52 py-2">
+        <button onclick="window.execSectionPlusAction('observacao')" class="w-full text-left px-card_padding py-2.5 text-label-md font-bold uppercase hover:bg-surface-container text-on-surface transition-colors flex items-center gap-stack_sm">
+            <span class="material-symbols-outlined text-[20px] text-primary">chat_bubble_outline</span> OBSERVAÇÕES
+        </button>
+        <button onclick="window.execSectionPlusAction('checklist')" class="w-full text-left px-card_padding py-2.5 text-label-md font-bold uppercase hover:bg-surface-container text-on-surface transition-colors flex items-center gap-stack_sm">
+            <span class="material-symbols-outlined text-[20px] text-primary">playlist_add</span> CHECKLIST
+        </button>
+    </div>
+
+    <!-- Modal Adicionar Novo Item ao Checklist da Seção -->
+    <div id="new-section-item-modal" class="fixed inset-0 z-[850] hidden overflow-hidden">
+        <div class="absolute inset-0 bg-black/40" onclick="window.closeNewSectionItemModal()"></div>
+        <div class="flex items-center justify-center min-h-screen p-container_gutter">
+            <div class="relative bg-surface w-full max-w-md shadow-2xl border border-outline-variant rounded-xl overflow-hidden">
+                <div class="p-card_padding border-b border-outline-variant flex justify-between items-center bg-surface-container">
+                    <div>
+                        <h2 class="text-headline-lg font-bold uppercase text-on-surface">NOVO ITEM DE CHECKLIST</h2>
+                        <p class="text-label-md text-on-surface-variant uppercase mt-1">ADICIONAR ITEM À SEÇÃO</p>
+                    </div>
+                    <button onclick="window.closeNewSectionItemModal()" class="text-on-surface-variant hover:text-on-surface transition-colors">
+                        <span class="material-symbols-outlined text-headline-md">close</span>
+                    </button>
+                </div>
+                <div class="p-container_gutter space-y-stack_lg">
+                    <div class="space-y-stack_sm">
+                        <label class="text-label-md text-on-surface-variant uppercase">Descrição do Item</label>
+                        <input type="text" id="new-section-item-title-input" class="w-full bg-surface-container-low border border-outline p-card_padding text-body-lg font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-all rounded-xl" placeholder="EX: ESTADO DAS ROLDANAS DE GUIA">
+                    </div>
+                    <div class="grid grid-cols-2 gap-stack_md pt-stack_sm">
+                        <button onclick="window.closeNewSectionItemModal()" class="p-card_padding border border-outline text-on-surface-variant font-bold uppercase hover:bg-surface-container transition-all rounded-xl">CANCELAR</button>
+                        <button onclick="window.confirmAddSectionChecklistItem()" class="p-card_padding bg-primary text-on-primary font-bold uppercase hover:brightness-110 shadow-lg transition-all rounded-xl">ADICIONAR</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal Editar Dados do Ativo (z-850) -->
     <div id="edit-asset-data-modal" class="fixed inset-0 z-[850] hidden overflow-hidden">
         <div class="absolute inset-0 bg-black/40" onclick="document.getElementById('edit-asset-data-modal').classList.add('hidden')"></div>

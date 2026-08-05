@@ -96,7 +96,7 @@ function renderSectionHeader(node, displayNum) {
     
     const isGroup = node.children && node.children.length > 0 && node.children[0].fieldType === 'inspectable';
     const plusBtn = isGroup 
-        ? `<button type="button" onclick="window.addAdditionalObservationBlock(this, '${node.id}')" class="text-on-surface hover:text-primary transition-colors duration-200 flex items-center justify-center p-1 rounded-full shrink-0" title="Adicionar Observação/Fotos">
+        ? `<button type="button" onclick="window.toggleSectionPlusMenu(event, '${node.id}')" class="text-on-surface hover:text-primary transition-colors duration-200 flex items-center justify-center p-1 rounded-full shrink-0" title="Opções">
             <span class="material-symbols-outlined text-[28px] font-bold">add</span>
            </button>`
         : '';
