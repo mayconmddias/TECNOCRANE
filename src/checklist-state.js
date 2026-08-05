@@ -20,6 +20,7 @@ export function createInspectionDocument(context, existing = null) {
         generalObservation: base.generalObservation || '',
         generalImages: base.generalImages || [],
         customSections: base.customSections || [],
+        customItems: base.customItems || [],
     };
 }
 
@@ -105,6 +106,25 @@ export function collectFormData(rootEl) {
         }
     });
 
+    // 4. Coleta itens personalizados adicionados às seções existentes
+    const customItems = [];
+    rootEl.querySelectorAll('.checklist-custom-item-row').forEach(row => {
+        const fieldId = row.dataset.fieldId;
+        const labelEl = row.querySelector('span');
+        const label = labelEl ? labelEl.innerText.trim() : '';
+        const groupEl = row.closest('.checklist-inspectable-group');
+        const sectionId = groupEl ? groupEl.dataset.sectionId : '';
+
+        if (fieldId && label && sectionId) {
+            customItems.push({
+                id: fieldId,
+                sectionId: sectionId,
+                label: label,
+                fieldType: 'inspectable'
+            });
+        }
+    });
+
     const generalObs = rootEl.querySelector('#checklist-general-observation');
     const generalImages = Array.from(rootEl.querySelectorAll('#checklist-general-images img')).map(img => img.src);
 
@@ -112,12 +132,47 @@ export function collectFormData(rootEl) {
         responses,
         generalObservation: generalObs ? generalObs.value : '',
         generalImages,
+        customItems,
     };
 }
 
 export function applyFormData(rootEl, data) {
     if (!data) return;
     const responses = data.responses || {};
+
+    // Restaurar itens de checklist personalizados adicionados às seções
+    if (data.customItems && Array.isArray(data.customItems)) {
+        data.customItems.forEach(item => {
+            if (!rootEl.querySelector(`[data-field-id="${item.id}"]`)) {
+                const groupEl = rootEl.querySelector(`.checklist-inspectable-group[data-section-id="${item.sectionId}"]`);
+                if (groupEl) {
+                    const container = groupEl.querySelector('.divide-y');
+                    if (container) {
+                        const itemHtml = `
+                        <div class="flex items-center justify-between border-b border-outline-variant/30 py-3 last:border-b-0 checklist-custom-item-row" data-field-id="${item.id}" data-field-type="inspectable">
+                            <span class="text-body-md font-bold uppercase text-on-surface flex-1 mr-4">${item.label.toUpperCase()}</span>
+                            <div class="flex items-center gap-stack_lg">
+                                <button type="button" onclick="this.closest('.checklist-custom-item-row').remove()" class="text-error hover:bg-error/10 p-1.5 rounded-lg transition-colors mr-2 flex items-center justify-center shrink-0" title="Excluir Item">
+                                    <span class="material-symbols-outlined text-[18px]">delete</span>
+                                </button>
+                                <label class="flex items-center gap-stack_sm cursor-pointer group">
+                                    <input type="radio" name="status-${item.id}" value="OK" class="checklist-status-ok border-outline text-green-600 focus:ring-green-600 bg-surface-container-low transition-all duration-200">
+                                    <span class="text-label-md uppercase text-on-surface group-hover:text-green-600 transition-all duration-200">OK</span>
+                                </label>
+                                <label class="flex items-center gap-stack_sm cursor-pointer group">
+                                    <input type="radio" name="status-${item.id}" value="NOK" class="checklist-status-nok border-outline text-error focus:ring-error bg-surface-container-low transition-all duration-200">
+                                    <span class="text-label-md uppercase text-on-surface group-hover:text-error transition-all duration-200">NOK</span>
+                                </label>
+                            </div>
+                        </div>`;
+                        const temp = document.createElement('div');
+                        temp.innerHTML = itemHtml;
+                        container.appendChild(temp.firstElementChild);
+                    }
+                }
+            }
+        });
+    }
 
     Object.entries(responses).forEach(([id, val]) => {
         if (val.status !== undefined) {

@@ -2934,7 +2934,13 @@ function getChecklistPrintHTML(report) {
         let childrenHtml = '';
 
         if (isGroup) {
-            const itemsHtml = node.children.map(child => {
+            let allChildren = [...node.children];
+            if (report && report.customItems && Array.isArray(report.customItems)) {
+                const sectionCustomItems = report.customItems.filter(ci => ci.sectionId === node.id);
+                allChildren = [...allChildren, ...sectionCustomItems];
+            }
+
+            const itemsHtml = allChildren.map(child => {
                 const resp = responses[child.id] || {};
                 const status = resp.status || '-';
                 let statusClass = 'status-na';
@@ -4196,8 +4202,11 @@ window.confirmAddSectionChecklistItem = function() {
     
     const itemHtml = `
     <div class="flex items-center justify-between border-b border-outline-variant/30 py-3 last:border-b-0 checklist-custom-item-row" data-field-id="${itemId}" data-field-type="inspectable">
-        <span class="text-body-md font-bold uppercase text-on-surface">${titleVal.toUpperCase()}</span>
+        <span class="text-body-md font-bold uppercase text-on-surface flex-1 mr-4">${titleVal.toUpperCase()}</span>
         <div class="flex items-center gap-stack_lg">
+            <button type="button" onclick="this.closest('.checklist-custom-item-row').remove()" class="text-error hover:bg-error/10 p-1.5 rounded-lg transition-colors mr-2 flex items-center justify-center shrink-0" title="Excluir Item">
+                <span class="material-symbols-outlined text-[18px]">delete</span>
+            </button>
             <label class="flex items-center gap-stack_sm cursor-pointer group">
                 <input type="radio" name="status-${itemId}" value="OK" class="checklist-status-ok border-outline text-green-600 focus:ring-green-600 bg-surface-container-low transition-all duration-200">
                 <span class="text-label-md uppercase text-on-surface group-hover:text-green-600 transition-all duration-200">OK</span>
@@ -4206,9 +4215,6 @@ window.confirmAddSectionChecklistItem = function() {
                 <input type="radio" name="status-${itemId}" value="NOK" class="checklist-status-nok border-outline text-error focus:ring-error bg-surface-container-low transition-all duration-200">
                 <span class="text-label-md uppercase text-on-surface group-hover:text-error transition-all duration-200">NOK</span>
             </label>
-            <button type="button" onclick="this.closest('.checklist-custom-item-row').remove()" class="text-error hover:bg-error/10 p-1.5 rounded-lg transition-colors ml-2 flex items-center justify-center shrink-0" title="Excluir Item">
-                <span class="material-symbols-outlined text-[18px]">delete</span>
-            </button>
         </div>
     </div>`;
     
