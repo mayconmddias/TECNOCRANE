@@ -1,7 +1,7 @@
 // Crane Pro - Checklist State (serialização e validação)
 
 import { createEmptyResponses, walkChecklistFields, CHECKLIST_SCHEMA } from './checklist-schema.js';
-import { renderObservationBlock } from './checklist-render.js';
+import { renderObservationBlock, renderResponsibleBlock } from './checklist-render.js';
 
 export function createInspectionDocument(context, existing = null) {
     const base = existing || {};
@@ -164,13 +164,17 @@ export function applyFormData(rootEl, data) {
         if (respContainer) {
             respContainer.innerHTML = '';
             data.responsibles.forEach(r => {
-                if (window.renderResponsibleBlock) {
-                    const temp = document.createElement('div');
-                    temp.innerHTML = window.renderResponsibleBlock(r);
-                    const blockEl = temp.firstElementChild;
-                    respContainer.appendChild(blockEl);
-                    if (window.populateUserSelectInBlock) {
-                        window.populateUserSelectInBlock(blockEl);
+                const temp = document.createElement('div');
+                temp.innerHTML = renderResponsibleBlock(r);
+                const blockEl = temp.firstElementChild;
+                respContainer.appendChild(blockEl);
+                if (window.populateUserSelectInBlock) {
+                    window.populateUserSelectInBlock(blockEl);
+                }
+                if (r.name) {
+                    const select = blockEl.querySelector('.checklist-responsible-user-select');
+                    if (select) {
+                        select.value = r.name.toUpperCase();
                     }
                 }
             });

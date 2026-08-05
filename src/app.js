@@ -2437,25 +2437,20 @@ window.printReportPDF = function(reportId) {
             if (report && report.responsibles && Array.isArray(report.responsibles) && report.responsibles.length > 0) {
                 const sigBlocks = report.responsibles.map(r => `
                     <div class="signature-block" style="text-align: center; border-top: 1px solid #374151; padding-top: 8px;">
-                        ${r.signatureImage ? `<div style="height: 45px; margin-bottom: 4px; display: flex; align-items: center; justify-content: center;"><img src="${r.signatureImage}" style="max-height: 45px; max-width: 160px; object-fit: contain;" /></div>` : '<div style="height: 45px;"></div>'}
+                        ${r.signatureImage ? `<div style="height: 50px; margin-bottom: 4px; display: flex; align-items: center; justify-content: center;"><img src="${r.signatureImage}" style="max-height: 50px; max-width: 180px; object-fit: contain;" /></div>` : '<div style="height: 30px;"></div>'}
                         <strong style="display: block; text-transform: uppercase; font-size: 9.5px; color: #111827;">${escapeHTML(r.name || '')}</strong>
                         <span style="color: #6b7280; text-transform: uppercase; font-size: 8px;">${escapeHTML(r.role || 'RESPONSÁVEL TÉCNICO')}</span>
                     </div>
                 `).join('');
                 const cols = Math.min(report.responsibles.length, 3);
-                return `<div id="temp-signatures" class="signature-footer" style="margin-top: 40px; display: grid; grid-template-columns: repeat(${cols}, 1fr); gap: 30px; width: 100%; page-break-inside: avoid;">${sigBlocks}</div>`;
+                return `<div id="temp-signatures" class="signature-footer" style="margin-top: 40px; display: grid; grid-template-columns: repeat(${cols}, 1fr); gap: 40px; width: 100%; page-break-inside: avoid;">${sigBlocks}</div>`;
             } else {
                 const techName = report ? report.tecnico || 'MAYCON DIAS' : 'MAYCON DIAS';
-                const empName = report ? report.empresa || 'CONTRATANTE' : 'CONTRATANTE';
                 return `
-                <div id="temp-signatures" class="signature-footer" style="margin-top: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; width: 100%; page-break-inside: avoid;">
-                    <div class="signature-block" style="text-align: center; border-top: 1px solid #374151; padding-top: 8px;">
+                <div id="temp-signatures" class="signature-footer" style="margin-top: 40px; display: flex; justify-content: center; width: 100%; page-break-inside: avoid;">
+                    <div class="signature-block" style="text-align: center; border-top: 1px solid #374151; padding-top: 8px; min-width: 250px;">
                         <strong style="display: block; text-transform: uppercase; font-size: 9.5px; color: #111827;">${escapeHTML(techName)}</strong>
                         <span style="color: #6b7280; text-transform: uppercase; font-size: 8px;">RESPONSÁVEL TÉCNICO</span>
-                    </div>
-                    <div class="signature-block" style="text-align: center; border-top: 1px solid #374151; padding-top: 8px;">
-                        <strong style="display: block; text-transform: uppercase; font-size: 9.5px; color: #111827;">${escapeHTML(empName)}</strong>
-                        <span style="color: #6b7280; text-transform: uppercase; font-size: 8px;">GESTÃO / SUPERVISÃO</span>
                     </div>
                 </div>`;
             }

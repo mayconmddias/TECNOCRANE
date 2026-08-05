@@ -167,7 +167,9 @@ export async function syncKeyToSupabase(key, data) {
                 responses: o.responses || {},
                 generalObservation: o.generalObservation || '',
                 generalImages: o.generalImages || [],
-                customSections: o.customSections || []
+                customSections: o.customSections || [],
+                customItems: o.customItems || [],
+                responsibles: o.responsibles || []
             }));
             await dbUpsert('open_orders', rows);
         } else if (key === 'crane_reports') {
@@ -185,7 +187,9 @@ export async function syncKeyToSupabase(key, data) {
                 responses: r.responses || {},
                 generalObservation: r.generalObservation || '',
                 generalImages: r.generalImages || [],
-                customSections: r.customSections || []
+                customSections: r.customSections || [],
+                customItems: r.customItems || [],
+                responsibles: r.responsibles || []
             }));
             await dbUpsert('finalized_reports', rows);
         } else if (key === 'crane_internal_company') {
