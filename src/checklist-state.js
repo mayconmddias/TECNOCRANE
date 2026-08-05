@@ -21,6 +21,7 @@ export function createInspectionDocument(context, existing = null) {
         generalImages: base.generalImages || [],
         customSections: base.customSections || [],
         customItems: base.customItems || [],
+        responsibles: base.responsibles || [],
     };
 }
 
@@ -125,6 +126,22 @@ export function collectFormData(rootEl) {
         }
     });
 
+    // 5. Coleta blocos de responsáveis e assinaturas digitais
+    const responsibles = [];
+    rootEl.querySelectorAll('.checklist-responsible-block').forEach(block => {
+        const nameInput = block.querySelector('.checklist-responsible-name');
+        const roleInput = block.querySelector('.checklist-responsible-role');
+        const sigImg = block.querySelector('.checklist-responsible-sig-preview img');
+
+        const name = nameInput ? nameInput.value.trim() : '';
+        const role = roleInput ? roleInput.value.trim() : '';
+        const signatureImage = sigImg ? sigImg.src : '';
+
+        if (name || signatureImage) {
+            responsibles.push({ name, role, signatureImage });
+        }
+    });
+
     const generalObs = rootEl.querySelector('#checklist-general-observation');
     const generalImages = Array.from(rootEl.querySelectorAll('#checklist-general-images img')).map(img => img.src);
 
@@ -133,12 +150,32 @@ export function collectFormData(rootEl) {
         generalObservation: generalObs ? generalObs.value : '',
         generalImages,
         customItems,
+        responsibles,
     };
 }
 
 export function applyFormData(rootEl, data) {
     if (!data) return;
     const responses = data.responses || {};
+
+    // Restaurar blocos de responsáveis e assinaturas digitais
+    if (data.responsibles && Array.isArray(data.responsibles)) {
+        const respContainer = rootEl.querySelector('#checklist-responsibles-container');
+        if (respContainer) {
+            respContainer.innerHTML = '';
+            data.responsibles.forEach(r => {
+                if (window.renderResponsibleBlock) {
+                    const temp = document.createElement('div');
+                    temp.innerHTML = window.renderResponsibleBlock(r);
+                    const blockEl = temp.firstElementChild;
+                    respContainer.appendChild(blockEl);
+                    if (window.populateUserSelectInBlock) {
+                        window.populateUserSelectInBlock(blockEl);
+                    }
+                }
+            });
+        }
+    }
 
     // Restaurar itens de checklist personalizados adicionados às seções
     if (data.customItems && Array.isArray(data.customItems)) {

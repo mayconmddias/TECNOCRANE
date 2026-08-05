@@ -1,7 +1,7 @@
 import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud } from './data.js';
 import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay, hashPassword } from './utils.js';
 import { renderCompanies as renderCompaniesUI, renderAssetsTable } from './ui-render.js';
-import { renderObservationBlock, renderNode } from './checklist-render.js';
+import { renderObservationBlock, renderNode, renderResponsibleBlock } from './checklist-render.js';
 import { mountChecklistForm, getFormRoot, collectFormData } from './checklist-ui.js';
 import { createInspectionDocument, validateBeforeSend, mergeLegacyReport } from './checklist-state.js';
 import { CHECKLIST_SCHEMA } from './checklist-schema.js';
@@ -1463,6 +1463,13 @@ function renderReportsView() {
         });
     }
 
+    // Ordenação numéricamente decrescente pelo ID do relatório (#04, #03, #02, #01)
+    filteredReports.sort((a, b) => {
+        const numA = (String(a.id || '').match(/\d+/) || [0])[0];
+        const numB = (String(b.id || '').match(/\d+/) || [0])[0];
+        return parseInt(numB, 10) - parseInt(numA, 10);
+    });
+
     repTbody.innerHTML = '';
     filteredReports.forEach((report, index) => {
         const tr = document.createElement('tr');
@@ -2426,14 +2433,33 @@ window.printReportPDF = function(reportId) {
         <div id="temp-measurer" style="width: 100%;">
             ${sectionsHTML}
         </div>
-        <div id="temp-signatures" class="signature-footer" style="margin-top: 60px; display: grid; width: 100%;">
-            <div class="signature-block">
-                <span>RESPONSÁVEL</span>
-            </div>
-            <div class="signature-block">
-                <span>RESPONSÁVEL</span>
-            </div>
-        </div>
+        ${(() => {
+            if (report && report.responsibles && Array.isArray(report.responsibles) && report.responsibles.length > 0) {
+                const sigBlocks = report.responsibles.map(r => `
+                    <div class="signature-block" style="text-align: center; border-top: 1px solid #374151; padding-top: 8px;">
+                        ${r.signatureImage ? `<div style="height: 45px; margin-bottom: 4px; display: flex; align-items: center; justify-content: center;"><img src="${r.signatureImage}" style="max-height: 45px; max-width: 160px; object-fit: contain;" /></div>` : '<div style="height: 45px;"></div>'}
+                        <strong style="display: block; text-transform: uppercase; font-size: 9.5px; color: #111827;">${escapeHTML(r.name || '')}</strong>
+                        <span style="color: #6b7280; text-transform: uppercase; font-size: 8px;">${escapeHTML(r.role || 'RESPONSÁVEL TÉCNICO')}</span>
+                    </div>
+                `).join('');
+                const cols = Math.min(report.responsibles.length, 3);
+                return `<div id="temp-signatures" class="signature-footer" style="margin-top: 40px; display: grid; grid-template-columns: repeat(${cols}, 1fr); gap: 30px; width: 100%; page-break-inside: avoid;">${sigBlocks}</div>`;
+            } else {
+                const techName = report ? report.tecnico || 'MAYCON DIAS' : 'MAYCON DIAS';
+                const empName = report ? report.empresa || 'CONTRATANTE' : 'CONTRATANTE';
+                return `
+                <div id="temp-signatures" class="signature-footer" style="margin-top: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; width: 100%; page-break-inside: avoid;">
+                    <div class="signature-block" style="text-align: center; border-top: 1px solid #374151; padding-top: 8px;">
+                        <strong style="display: block; text-transform: uppercase; font-size: 9.5px; color: #111827;">${escapeHTML(techName)}</strong>
+                        <span style="color: #6b7280; text-transform: uppercase; font-size: 8px;">RESPONSÁVEL TÉCNICO</span>
+                    </div>
+                    <div class="signature-block" style="text-align: center; border-top: 1px solid #374151; padding-top: 8px;">
+                        <strong style="display: block; text-transform: uppercase; font-size: 9.5px; color: #111827;">${escapeHTML(empName)}</strong>
+                        <span style="color: #6b7280; text-transform: uppercase; font-size: 8px;">GESTÃO / SUPERVISÃO</span>
+                    </div>
+                </div>`;
+            }
+        })()}
     </div>
 
     <!-- LOCAL ONDE AS PÁGINAS GERADAS SERÃO INSERIDAS -->
@@ -4330,6 +4356,77 @@ window.handleLogoPreview = function(event) {
         if (previewContainer) {
             previewContainer.innerHTML = `<img src="${base64}" class="w-full h-full object-cover" />`;
         }
+    };
+    reader.readAsDataURL(file);
+};
+
+window.renderResponsibleBlock = renderResponsibleBlock;
+
+window.populateUserSelectInBlock = function(blockEl) {
+    const select = blockEl.querySelector('.checklist-responsible-user-select');
+    if (!select) return;
+
+    const users = getStoredData('crane_users', usersList || []);
+    let optionsHtml = `<option value="">-- SELEÇÃO DE USUÁRIO --</option>`;
+    users.forEach(u => {
+        const uName = typeof u === 'string' ? u : (u.nome || u.name || u.email || '');
+        const uRole = (typeof u === 'object' && u.cargo) ? u.cargo : 'RESPONSÁVEL TÉCNICO';
+        if (uName) {
+            optionsHtml += `<option value="${escapeHTML(uName)}" data-role="${escapeHTML(uRole)}">${escapeHTML(uName.toUpperCase())}</option>`;
+        }
+    });
+    select.innerHTML = optionsHtml;
+};
+
+window.addResponsibleBlock = function(data = null) {
+    const container = document.getElementById('checklist-responsibles-container');
+    if (!container) return;
+
+    const temp = document.createElement('div');
+    temp.innerHTML = renderResponsibleBlock(data);
+    const newBlock = temp.firstElementChild;
+    container.appendChild(newBlock);
+
+    window.populateUserSelectInBlock(newBlock);
+
+    if (newBlock) {
+        newBlock.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+};
+
+window.handleResponsibleUserSelect = function(selectEl) {
+    const block = selectEl.closest('.checklist-responsible-block');
+    if (!block) return;
+
+    const nameInput = block.querySelector('.checklist-responsible-name');
+    const roleInput = block.querySelector('.checklist-responsible-role');
+    const selectedOpt = selectEl.options[selectEl.selectedIndex];
+
+    if (selectedOpt && selectedOpt.value) {
+        if (nameInput) nameInput.value = selectedOpt.value.toUpperCase();
+        const role = selectedOpt.getAttribute('data-role') || 'RESPONSÁVEL TÉCNICO';
+        if (roleInput && !roleInput.value.trim()) roleInput.value = role.toUpperCase();
+    }
+};
+
+window.handleSignatureFileSelect = function(event, inputEl) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const block = inputEl.closest('.checklist-responsible-block');
+    if (!block) return;
+
+    const previewContainer = block.querySelector('.checklist-responsible-sig-preview');
+    if (!previewContainer) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const base64 = e.target.result;
+        previewContainer.innerHTML = `
+            <img src="${base64}" class="h-10 max-w-[120px] object-contain border border-outline rounded p-1 bg-white">
+            <button type="button" onclick="this.previousElementSibling.remove(); this.remove();" class="text-error p-1 hover:bg-error/10 rounded" title="Remover Assinatura">
+                <span class="material-symbols-outlined text-[18px]">close</span>
+            </button>`;
     };
     reader.readAsDataURL(file);
 };

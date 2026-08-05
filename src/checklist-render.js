@@ -132,11 +132,11 @@ export function renderObservationBlock(blockData = null, isRemovable = true, isC
                 ${images.map(src => renderImagePreview(src)).join('')}
             </div>
             <div class="flex items-center gap-2 shrink-0">
+                ${deleteBtn}
                 <button type="button" class="checklist-upload-zone flex items-center justify-center p-3 border border-outline bg-surface-container-low text-on-surface-variant hover:text-green-600 hover:border-green-600 transition-all duration-200 cursor-pointer rounded-xl h-[48px] w-[48px]" title="Anexar Fotos">
                     <span class="material-symbols-outlined text-[22px]">add_a_photo</span>
                     <input type="file" accept="image/*" multiple class="hidden checklist-file-input">
                 </button>
-                ${deleteBtn}
             </div>
         </div>
         <div>
@@ -396,15 +396,70 @@ export function renderChecklistForm(doc = null) {
     }
 
     const addCustomBtn = `
-    <div class="flex justify-center pt-stack_sm pb-stack_lg">
+    <div class="flex flex-col sm:flex-row justify-center items-center gap-3 pt-stack_sm pb-stack_md">
         <button type="button" onclick="window.openCustomItemModal()" class="px-container_gutter py-stack_md border border-dashed border-outline-variant text-on-surface hover:text-primary hover:border-primary transition-all duration-200 uppercase font-bold text-label-md flex items-center gap-2 rounded-xl">
             <span class="material-symbols-outlined">add_circle</span>
             Adicionar Novo Item Personalizado
         </button>
+        <button type="button" onclick="window.addResponsibleBlock()" class="px-container_gutter py-stack_md border border-dashed border-outline-variant text-on-surface hover:text-primary hover:border-primary transition-all duration-200 uppercase font-bold text-label-md flex items-center gap-2 rounded-xl">
+            <span class="material-symbols-outlined">person_add</span>
+            Adicionar Responsável
+        </button>
     </div>
+    <div id="checklist-responsibles-container" class="space-y-4 pb-stack_lg"></div>
     `;
 
     return `<div id="checklist-sections-container">${sectionsHtml}</div>` + addCustomBtn;
+}
+
+export function renderResponsibleBlock(data = null) {
+    const name = data ? data.name || '' : '';
+    const role = data ? data.role || 'RESPONSÁVEL TÉCNICO' : 'RESPONSÁVEL TÉCNICO';
+    const sigImage = data ? data.signatureImage || '' : '';
+
+    return `
+    <div class="checklist-responsible-block border border-outline-variant/50 bg-surface-container-low rounded-xl p-4 space-y-3">
+        <div class="flex items-center justify-between gap-4">
+            <span class="text-label-md font-bold uppercase text-on-surface flex items-center gap-2">
+                <span class="material-symbols-outlined text-[20px] text-primary">badge</span>
+                Responsável / Assinatura Digital
+            </span>
+            <button type="button" onclick="this.closest('.checklist-responsible-block').remove()" class="text-error hover:bg-error/10 p-1.5 rounded-lg transition-colors flex items-center justify-center shrink-0" title="Excluir Responsável">
+                <span class="material-symbols-outlined text-[20px]">delete</span>
+            </button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-label-sm font-bold uppercase text-on-surface-variant mb-1">Selecionar Usuário Cadastrado</label>
+                <select class="checklist-responsible-user-select w-full bg-surface border border-outline py-2 px-3 text-body-md uppercase text-on-surface rounded-lg" onchange="window.handleResponsibleUserSelect(this)">
+                    <option value="">-- SELEÇÃO DE USUÁRIO --</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-label-sm font-bold uppercase text-on-surface-variant mb-1">Nome do Responsável</label>
+                <input type="text" class="checklist-responsible-name w-full bg-surface border border-outline py-2 px-3 text-body-md uppercase text-on-surface rounded-lg" placeholder="NOME DO RESPONSÁVEL" value="${name}">
+            </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+            <div>
+                <label class="block text-label-sm font-bold uppercase text-on-surface-variant mb-1">Cargo / Função</label>
+                <input type="text" class="checklist-responsible-role w-full bg-surface border border-outline py-2 px-3 text-body-md uppercase text-on-surface rounded-lg" placeholder="EX: TÉCNICO RESPONSÁVEL" value="${role}">
+            </div>
+            <div>
+                <label class="block text-label-sm font-bold uppercase text-on-surface-variant mb-1">Assinatura Digital (Imagem)</label>
+                <div class="flex items-center gap-3">
+                    <button type="button" class="checklist-sig-upload-zone flex items-center gap-2 px-3 py-2 border border-outline bg-surface text-on-surface-variant hover:text-primary hover:border-primary transition-all duration-200 cursor-pointer rounded-lg text-label-md uppercase font-bold" onclick="this.querySelector('input').click()">
+                        <span class="material-symbols-outlined text-[20px]">draw</span>
+                        <span>Anexar Assinatura</span>
+                        <input type="file" accept="image/*" class="hidden checklist-sig-file-input" onchange="window.handleSignatureFileSelect(event, this)">
+                    </button>
+                    <div class="checklist-responsible-sig-preview flex items-center gap-2">
+                        ${sigImage ? `<img src="${sigImage}" class="h-10 max-w-[120px] object-contain border border-outline rounded p-1 bg-white"><button type="button" onclick="this.previousElementSibling.remove(); this.remove();" class="text-error p-1 hover:bg-error/10 rounded"><span class="material-symbols-outlined text-[18px]">close</span></button>` : ''}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>`;
 }
 
 export function renderImagePreview(src) {
