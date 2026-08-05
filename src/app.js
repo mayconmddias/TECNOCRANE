@@ -1466,11 +1466,12 @@ function renderReportsView() {
     });
 
     if (reportsSelectedAssetId) {
-        const selAssetClean = String(reportsSelectedAssetId).trim().toLowerCase();
+        const cleanId = str => String(str || '').replace(/^#/, '').trim().toLowerCase();
+        const selAssetClean = cleanId(reportsSelectedAssetId);
         filteredReports = filteredReports.filter(r => {
-            const eqId = String(r.equipamentoId || r.equipamentoid || '').trim().toLowerCase();
-            const eqNome = String(r.equipamentoNome || r.equipamentonome || r.equipamento || '').trim().toLowerCase();
-            return eqId === selAssetClean || eqNome === selAssetClean;
+            const eqId = cleanId(r.equipamentoId || r.equipamentoid);
+            const eqNome = cleanId(r.equipamentoNome || r.equipamentonome || r.equipamento);
+            return (eqId && eqId === selAssetClean) || (eqNome && eqNome === selAssetClean) || (eqId && eqId.includes(selAssetClean)) || (eqNome && eqNome.includes(selAssetClean));
         });
     }
 
