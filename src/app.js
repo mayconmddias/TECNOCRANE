@@ -1,4 +1,4 @@
-import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud } from './data.js';
+import { companies, allAssetsList, getStoredData, setStoredData, setStoredDataAsync, normalizeReportObject, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud } from './data.js';
 import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay, hashPassword } from './utils.js';
 import { renderCompanies as renderCompaniesUI, renderAssetsTable } from './ui-render.js';
 import { renderObservationBlock, renderNode, renderResponsibleBlock } from './checklist-render.js';
@@ -903,7 +903,7 @@ window.savePartialInspection = function() {
     renderOpenOrders();
 };
 
-window.generateWorkOrder = function() {
+window.generateWorkOrder = async function() {
     if (isSavingOrSendingChecklist) return;
     const formRoot = getFormRoot() || document.getElementById('checklist-form-root');
     if (!formRoot || !currentChecklistContext) return;
@@ -971,9 +971,9 @@ function generateNextReportId() {
     }
 
     try {
-        setStoredData('crane_reports', tempReports);
+        await setStoredDataAsync('crane_reports', tempReports);
         if (editingOrderId && String(editingOrderId).startsWith('ORD-')) {
-            setStoredData('crane_open_orders', newOpenOrders);
+            await setStoredDataAsync('crane_open_orders', newOpenOrders);
             updateArrayInPlace(openOrders, newOpenOrders);
         }
         updateArrayInPlace(finalizedReports, tempReports);

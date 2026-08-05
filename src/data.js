@@ -98,9 +98,31 @@ export function setStoredData(key, data) {
         console.error(`Erro ao gravar ${key} no IndexedDB:`, err);
     });
 
-    // Sincroniza em segundo plano se o Supabase estiver configurado e não for o carregamento inicial
-    if (isSupabaseConfigured && !isInitialLoad) {
+    // Sincroniza em segundo plano se o Supabase estiver configurado
+    if (isSupabaseConfigured) {
         syncKeyToSupabase(key, data);
+    }
+}
+
+export async function setStoredDataAsync(key, data) {
+    try {
+        localStorage.setItem(key, JSON.stringify(data));
+    } catch (e) {
+        console.warn(`localStorage falhou para ${key} (limite excedido), continuando com IndexedDB:`, e);
+    }
+    
+    try {
+        await setDBValue(key, data);
+    } catch (err) {
+        console.error(`Erro ao gravar ${key} no IndexedDB:`, err);
+    }
+
+    if (isSupabaseConfigured) {
+        try {
+            await syncKeyToSupabase(key, data);
+        } catch (errCloud) {
+            console.error(`Erro ao sincronizar ${key} no Supabase:`, errCloud);
+        }
     }
 }
 
@@ -465,14 +487,29 @@ export async function syncAllFromSupabase() {
         // 6. Finalized Reports
         try {
             let dbFinalizedReports = await dbFetchAll('finalized_reports');
+            const localReports = getStoredData('crane_reports', []).map(normalizeReportObject).filter(Boolean);
+
             if (!dbFinalizedReports || dbFinalizedReports.length === 0) {
                 console.log('SUPABASE: Tabela de relatórios finalizados vazia na nuvem. Sincronizando dados locais...');
-                const localReports = getStoredData('crane_reports', []);
                 if (localReports.length > 0) {
                     await syncKeyToSupabase('crane_reports', localReports);
                     dbFinalizedReports = localReports;
                 }
+            } else {
+                const cloudMapped = dbFinalizedReports.map(normalizeReportObject).filter(Boolean);
+                const cloudIds = new Set(cloudMapped.map(r => r.id));
+                const missingLocal = localReports.filter(lr => lr && lr.id && !cloudIds.has(lr.id));
+                
+                if (missingLocal.length > 0) {
+                    console.log(`SUPABASE: Encontrados ${missingLocal.length} relatórios locais pendentes de envio. Sincronizando...`);
+                    const merged = [...cloudMapped, ...missingLocal];
+                    await syncKeyToSupabase('crane_reports', merged);
+                    dbFinalizedReports = merged;
+                } else {
+                    dbFinalizedReports = cloudMapped;
+                }
             }
+
             if (dbFinalizedReports) {
                 const mappedReports = dbFinalizedReports.map(normalizeReportObject).filter(Boolean);
                 localStorage.setItem('crane_reports', JSON.stringify(mappedReports));
