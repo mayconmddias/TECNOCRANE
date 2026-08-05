@@ -1,5 +1,6 @@
 // Crane Pro - Authentication & Security Module [LOCKED]
-import { usersList, setStoredData } from './data.js';
+import { usersList, setStoredData, loadAllDataFromDB, syncAllFromSupabase } from './data.js';
+import { hashPassword } from './utils.js';
 
 console.log('CRANE PRO: Módulo de Autenticação Carregado.');
 
@@ -88,67 +89,121 @@ window.togglePasswordChange = function(show) {
     if (show) {
         loginState.classList.add('hidden');
         changeState.classList.remove('hidden');
-        changeEmailInput.value = loginEmailInput.value || '';
+        changeEmailInput.value = loginEmailInput ? (loginEmailInput.value || '').trim() : '';
     } else {
         loginState.classList.remove('hidden');
         changeState.classList.add('hidden');
-        document.getElementById('current-password').value = '';
-        document.getElementById('new-password').value = '';
-        document.getElementById('confirm-password').value = '';
+        const curr = document.getElementById('current-password');
+        const nPass = document.getElementById('new-password');
+        const cPass = document.getElementById('confirm-password');
+        if (curr) curr.value = '';
+        if (nPass) nPass.value = '';
+        if (cPass) cPass.value = '';
     }
 };
 
-window.handleSaveNewPassword = function() {
+window.handleSaveNewPassword = async function() {
     const emailInput = document.getElementById('change-email');
     const currentInput = document.getElementById('current-password');
     const newInput = document.getElementById('new-password');
     const confirmInput = document.getElementById('confirm-password');
 
-    const email = emailInput.value.toLowerCase();
-    const current = currentInput.value;
-    const newPass = newInput.value;
-    const confirm = confirmInput.value;
+    const email = emailInput ? emailInput.value.trim().toLowerCase() : '';
+    const current = currentInput ? currentInput.value.trim() : '';
+    const newPass = newInput ? newInput.value.trim() : '';
+    const confirm = confirmInput ? confirmInput.value.trim() : '';
 
     if (!email) return window.showAlert('E-MAIL NÃO IDENTIFICADO.', 'warning');
     if (!current || !newPass || !confirm) return window.showAlert('PREENCHA TODOS OS CAMPOS PARA ALTERAR A SENHA.', 'warning');
     if (newPass !== confirm) return window.showAlert('A NOVA SENHA E A CONFIRMAÇÃO NÃO CONFEREM.', 'warning');
 
-    const userIdx = usersList.findIndex(u => u.email === email);
-    if (userIdx === -1) return window.showAlert('USUÁRIO NÃO ENCONTRADO.', 'warning');
-    if (usersList[userIdx].password !== current) return window.showAlert('SENHA ATUAL INCORRETA.', 'warning');
+    if (!usersList || usersList.length === 0) {
+        await loadAllDataFromDB();
+        await syncAllFromSupabase();
+    }
 
-    usersList[userIdx].password = newPass;
+    const userIdx = usersList.findIndex(u => (u.email || '').trim().toLowerCase() === email);
+    if (userIdx === -1) return window.showAlert('USUÁRIO NÃO ENCONTRADO.', 'warning');
+    
+    const currentHash = await hashPassword(current);
+    const userPassHash = await hashPassword(usersList[userIdx].password);
+
+    if (userPassHash !== currentHash) return window.showAlert('SENHA ATUAL INCORRETA.', 'warning');
+
+    usersList[userIdx].password = await hashPassword(newPass);
     setStoredData('crane_users', usersList);
     
     window.showAlert('SENHA ALTERADA COM SUCESSO!', 'success', () => {
-        currentInput.value = '';
-        newInput.value = '';
-        confirmInput.value = '';
+        if (currentInput) currentInput.value = '';
+        if (newInput) newInput.value = '';
+        if (confirmInput) confirmInput.value = '';
         window.togglePasswordChange(false);
     });
 };
 
-window.handleLogin = function() {
+window.handleLogin = async function() {
     const emailInput = document.getElementById('login-email');
     const passInput = document.getElementById('login-password');
-    const email = emailInput.value.toLowerCase();
-    const pass = passInput.value;
-    const user = usersList.find(u => u.email === email && u.password === pass);
-    if (user) {
+    const email = emailInput ? emailInput.value.trim().toLowerCase() : '';
+    const pass = passInput ? passInput.value.trim() : '';
+
+    if (!email || !pass) return window.showAlert('PREENCHA E-MAIL E SENHA.', 'warning');
+
+    // Se os usuários não estiverem na memória ou no cache, busca imediatamente do banco de dados (Supabase / IndexedDB)
+    if (!usersList || usersList.length === 0) {
+        await loadAllDataFromDB();
+        await syncAllFromSupabase();
+    }
+
+    const passHash = await hashPassword(pass);
+
+    let foundUser = null;
+    for (const u of usersList) {
+        const uEmail = (u.email || '').trim().toLowerCase();
+        if (uEmail === email) {
+            const uHash = await hashPassword(u.password);
+            if (uHash === passHash) {
+                u.password = uHash;
+                foundUser = u;
+                break;
+            }
+        }
+    }
+
+    // Se ainda não encontrou e o Supabase está disponível, tenta sincronizar uma vez mais da nuvem em tempo real
+    if (!foundUser) {
+        await syncAllFromSupabase();
+        for (const u of usersList) {
+            const uEmail = (u.email || '').trim().toLowerCase();
+            if (uEmail === email) {
+                const uHash = await hashPassword(u.password);
+                if (uHash === passHash) {
+                    u.password = uHash;
+                    foundUser = u;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (foundUser) {
+        setStoredData('crane_users', usersList);
         document.getElementById('login-view').classList.add('hidden');
         document.getElementById('main-app').classList.remove('hidden');
         
         // Atualiza perfil na sidebar
         const roleEl = document.getElementById('user-role-display');
         const nameEl = document.getElementById('user-name-display');
-        if (roleEl) roleEl.innerText = user.permission;
-        if (nameEl) nameEl.innerText = user.name;
+        if (roleEl) roleEl.innerText = foundUser.permission || 'TECNICO';
+        if (nameEl) nameEl.innerText = foundUser.name || 'USUÁRIO';
         
         // Dispara renderização inicial do app
         if (typeof window.renderAssets === 'function') {
             window.renderAssets();
         }
-    } else window.showAlert('USUÁRIO OU SENHA INCORRETOS.', 'warning');
+    } else {
+        window.showAlert('USUÁRIO OU SENHA INCORRETOS.', 'warning');
+    }
 };
 
 window.handleLogout = function() {
@@ -160,3 +215,4 @@ window.handleLogout = function() {
     if (emailInput) emailInput.value = '';
     if (passInput) passInput.value = '';
 };
+

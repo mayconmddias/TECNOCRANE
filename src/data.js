@@ -1,6 +1,7 @@
 // Crane Pro - Data Layer
 
 import { isSupabaseConfigured, dbFetchAll, dbUpsert, dbDelete } from './supabase.js';
+import { hashPassword } from './utils.js';
 
 export let isInitialLoad = true;
 
@@ -82,20 +83,13 @@ export function setStoredData(key, data) {
 /**
  * Envia alterações de uma chave local para a tabela correspondente no Supabase
  */
+/**
+ * Envia alterações de uma chave local para a tabela correspondente no Supabase de forma atômica e não-destrutiva
+ */
 export async function syncKeyToSupabase(key, data) {
     if (!isSupabaseConfigured) return;
     try {
         if (key === 'crane_companies') {
-            // Sincronizar exclusões primeiro
-            const dbList = await dbFetchAll('companies');
-            if (dbList) {
-                const newKeys = new Set(data.map(item => item.name));
-                const toDelete = dbList.filter(item => !newKeys.has(item.name));
-                for (const item of toDelete) {
-                    await dbDelete('companies', 'name', item.name);
-                }
-            }
-
             const rows = data.map(c => ({
                 name: c.name,
                 cnpj: c.cnpj || '',
@@ -110,16 +104,6 @@ export async function syncKeyToSupabase(key, data) {
             }));
             await dbUpsert('companies', rows);
         } else if (key === 'crane_all_assets') {
-            // Sincronizar exclusões primeiro
-            const dbList = await dbFetchAll('all_assets');
-            if (dbList) {
-                const newKeys = new Set(data.map(item => item.id));
-                const toDelete = dbList.filter(item => !newKeys.has(item.id));
-                for (const item of toDelete) {
-                    await dbDelete('all_assets', 'id', item.id);
-                }
-            }
-
             const rows = data.map(a => ({
                 id: a.id,
                 empresa: a.empresa || '',
@@ -145,35 +129,15 @@ export async function syncKeyToSupabase(key, data) {
             }));
             await dbUpsert('all_assets', rows);
         } else if (key === 'crane_users') {
-            // Sincronizar exclusões primeiro
-            const dbList = await dbFetchAll('users');
-            if (dbList) {
-                const newKeys = new Set(data.map(item => item.id));
-                const toDelete = dbList.filter(item => !newKeys.has(item.id));
-                for (const item of toDelete) {
-                    await dbDelete('users', 'id', item.id);
-                }
-            }
-
-            const rows = data.map(u => ({
+            const rows = await Promise.all(data.map(async u => ({
                 id: u.id,
                 name: u.name,
                 email: u.email,
-                password: u.password,
+                password: await hashPassword(u.password),
                 permission: u.permission
-            }));
+            })));
             await dbUpsert('users', rows);
         } else if (key === 'crane_events') {
-            // Sincronizar exclusões primeiro
-            const dbList = await dbFetchAll('scheduled_inspections');
-            if (dbList) {
-                const newKeys = new Set(data.map(item => String(item.id)));
-                const toDelete = dbList.filter(item => !newKeys.has(String(item.id)));
-                for (const item of toDelete) {
-                    await dbDelete('scheduled_inspections', 'id', item.id);
-                }
-            }
-
             const rows = data.map(e => ({
                 id: String(e.id),
                 groupId: e.groupId ? String(e.groupId) : null,
@@ -189,16 +153,6 @@ export async function syncKeyToSupabase(key, data) {
             }));
             await dbUpsert('scheduled_inspections', rows);
         } else if (key === 'crane_open_orders') {
-            // Sincronizar exclusões primeiro
-            const dbList = await dbFetchAll('open_orders');
-            if (dbList) {
-                const newKeys = new Set(data.map(item => item.id));
-                const toDelete = dbList.filter(item => !newKeys.has(item.id));
-                for (const item of toDelete) {
-                    await dbDelete('open_orders', 'id', item.id);
-                }
-            }
-
             const rows = data.map(o => ({
                 id: o.id,
                 status: o.status || '',
@@ -217,16 +171,6 @@ export async function syncKeyToSupabase(key, data) {
             }));
             await dbUpsert('open_orders', rows);
         } else if (key === 'crane_reports') {
-            // Sincronizar exclusões primeiro
-            const dbList = await dbFetchAll('finalized_reports');
-            if (dbList) {
-                const newKeys = new Set(data.map(item => item.id));
-                const toDelete = dbList.filter(item => !newKeys.has(item.id));
-                for (const item of toDelete) {
-                    await dbDelete('finalized_reports', 'id', item.id);
-                }
-            }
-
             const rows = data.map(r => ({
                 id: r.id,
                 status: r.status || '',
@@ -246,7 +190,7 @@ export async function syncKeyToSupabase(key, data) {
             await dbUpsert('finalized_reports', rows);
         } else if (key === 'crane_internal_company') {
             const row = {
-                id: 1, // Mantém registro único
+                id: 1,
                 name: data.name || '',
                 cnpj: data.cnpj || '',
                 endereco: data.endereco || '',
@@ -262,6 +206,55 @@ export async function syncKeyToSupabase(key, data) {
     } catch (e) {
         console.error(`Erro ao sincronizar key ${key} no Supabase:`, e);
     }
+}
+
+/**
+ * Funções auxiliares atômicas de exclusão explícita no Supabase
+ */
+export async function deleteCompanyFromCloud(companyName) {
+    if (!isSupabaseConfigured) return;
+    return dbDelete('companies', 'name', companyName);
+}
+
+export async function deleteCompanyAssetsFromCloud(companyName) {
+    if (!isSupabaseConfigured || !companyName) return;
+    try {
+        const target = companyName.trim().toLowerCase();
+        const dbAssets = await dbFetchAll('all_assets');
+        if (dbAssets && dbAssets.length > 0) {
+            const toDelete = dbAssets.filter(a => (a.empresa || '').trim().toLowerCase() === target);
+            for (const asset of toDelete) {
+                await dbDelete('all_assets', 'id', asset.id);
+            }
+        }
+    } catch (e) {
+        console.error(`Erro ao excluir ativos da empresa ${companyName} no Supabase:`, e);
+    }
+}
+
+export async function deleteAssetFromCloud(assetId) {
+    if (!isSupabaseConfigured) return;
+    return dbDelete('all_assets', 'id', assetId);
+}
+
+export async function deleteUserFromCloud(userId) {
+    if (!isSupabaseConfigured) return;
+    return dbDelete('users', 'id', userId);
+}
+
+export async function deleteEventFromCloud(eventId) {
+    if (!isSupabaseConfigured) return;
+    return dbDelete('scheduled_inspections', 'id', String(eventId));
+}
+
+export async function deleteOrderFromCloud(orderId) {
+    if (!isSupabaseConfigured) return;
+    return dbDelete('open_orders', 'id', orderId);
+}
+
+export async function deleteReportFromCloud(reportId) {
+    if (!isSupabaseConfigured) return;
+    return dbDelete('finalized_reports', 'id', reportId);
 }
 
 /**
@@ -288,6 +281,8 @@ export async function syncAllFromSupabase() {
             await setDBValue('crane_companies', companies);
         }
 
+        const validCompanyNames = new Set((companies || []).map(c => (typeof c === 'string' ? c : c.name).toLowerCase()));
+
         // 2. All Assets
         let dbAllAssets = await dbFetchAll('all_assets');
         if (!dbAllAssets || dbAllAssets.length === 0) {
@@ -299,6 +294,19 @@ export async function syncAllFromSupabase() {
             }
         }
         if (dbAllAssets && dbAllAssets.length > 0) {
+            // Filtra e apaga do Supabase ativos órfãos cujas empresas não existem mais
+            const validAssets = [];
+            for (const a of dbAllAssets) {
+                const assetCompany = (a.empresa || '').trim().toLowerCase();
+                if (assetCompany && validCompanyNames.size > 0 && !validCompanyNames.has(assetCompany)) {
+                    console.log(`SUPABASE: Removendo ativo órfão '${a.id}' vinculado à empresa excluída '${a.empresa}'...`);
+                    await dbDelete('all_assets', 'id', a.id);
+                } else {
+                    validAssets.push(a);
+                }
+            }
+            dbAllAssets = validAssets;
+
             allAssetsList = dbAllAssets.map(a => ({
                 id: a.id,
                 empresa: a.empresa || '',
@@ -326,18 +334,17 @@ export async function syncAllFromSupabase() {
             await setDBValue('crane_all_assets', allAssetsList);
         }
 
-        // 3. Users
+        // 3. Users (Sincronização pura do banco de dados na nuvem)
         let dbUsers = await dbFetchAll('users');
-        if (!dbUsers || dbUsers.length === 0) {
-            console.log('SUPABASE: Tabela de usuários vazia na nuvem. Migrando dados locais...');
-            const localUsers = usersList && usersList.length > 0 ? usersList : getStoredData('crane_users', []);
-            if (localUsers.length > 0) {
-                await syncKeyToSupabase('crane_users', localUsers);
-                dbUsers = localUsers;
-            }
-        }
         if (dbUsers && dbUsers.length > 0) {
-            usersList = dbUsers;
+            const mappedUsers = await Promise.all(dbUsers.map(async u => ({
+                id: u.id,
+                name: u.name || '',
+                email: u.email ? u.email.trim().toLowerCase() : '',
+                password: await hashPassword(u.password),
+                permission: u.permission || 'TECNICO'
+            })));
+            updateArrayInPlace(usersList, mappedUsers);
             localStorage.setItem('crane_users', JSON.stringify(usersList));
             await setDBValue('crane_users', usersList);
         }
@@ -381,8 +388,13 @@ export async function syncAllFromSupabase() {
             }
         }
         if (dbOpenOrders) {
-            localStorage.setItem('crane_open_orders', JSON.stringify(dbOpenOrders));
-            await setDBValue('crane_open_orders', dbOpenOrders);
+            const mappedOrders = dbOpenOrders.map(o => ({
+                ...o,
+                equipamentoId: o.equipamentoId || o.equipamentoid || '',
+                equipamentoNome: o.equipamentoNome || o.equipamentonome || o.equipamento || ''
+            }));
+            localStorage.setItem('crane_open_orders', JSON.stringify(mappedOrders));
+            await setDBValue('crane_open_orders', mappedOrders);
         }
 
         // 6. Finalized Reports
@@ -396,8 +408,13 @@ export async function syncAllFromSupabase() {
             }
         }
         if (dbFinalizedReports) {
-            localStorage.setItem('crane_reports', JSON.stringify(dbFinalizedReports));
-            await setDBValue('crane_reports', dbFinalizedReports);
+            const mappedReports = dbFinalizedReports.map(r => ({
+                ...r,
+                equipamentoId: r.equipamentoId || r.equipamentoid || '',
+                equipamentoNome: r.equipamentoNome || r.equipamentonome || r.equipamento || ''
+            }));
+            localStorage.setItem('crane_reports', JSON.stringify(mappedReports));
+            await setDBValue('crane_reports', mappedReports);
         }
 
         // 7. Internal Company
@@ -535,8 +552,8 @@ export async function loadAllDataFromDB() {
         updateArrayInPlace(allAssetsList, mappedAssets);
     }
 
-    const dbUsers = await getDBValue('crane_users', usersList);
-    updateArrayInPlace(usersList, dbUsers);
+    const dbUsers = await getDBValue('crane_users', []);
+    updateArrayInPlace(usersList, dbUsers || []);
 
     // 2. Tenta sincronizar do Supabase em segundo plano (Não-bloqueante)
     if (isSupabaseConfigured) {
@@ -557,11 +574,8 @@ export async function loadAllDataFromDB() {
     }
 }
 
-// Lista de Usuários Global
-export let usersList = getStoredData('crane_users', [
-    { id: 1, name: "MAYCON DIAS", email: "maycon@cranepro.com", password: "123456", permission: "ADMINISTRADOR" },
-    { id: 2, name: "RODRIGO DE FREITAS", email: "rodrigo.freitas@cranepro.com.br", password: "123456", permission: "TECNICO" }
-]);
+// Lista de Usuários Global (Carregada puramente do Banco de Dados / Cache Local)
+export let usersList = getStoredData('crane_users', []);
 
 export function setUsersList(newList) {
     usersList = newList;

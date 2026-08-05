@@ -1,5 +1,5 @@
-import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace } from './data.js';
-import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay } from './utils.js';
+import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud } from './data.js';
+import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay, hashPassword } from './utils.js';
 import { renderCompanies as renderCompaniesUI, renderAssetsTable } from './ui-render.js';
 import { renderObservationBlock, renderNode } from './checklist-render.js';
 import { mountChecklistForm, getFormRoot, collectFormData } from './checklist-ui.js';
@@ -920,10 +920,25 @@ window.generateWorkOrder = function() {
         btn.classList.add('opacity-50', 'pointer-events-none');
     }
 
+function generateNextReportId() {
+    let maxNum = 0;
+    const allReports = getStoredData('crane_reports', finalizedReports || []);
+    (allReports || []).forEach(r => {
+        if (r && r.id) {
+            const match = String(r.id).match(/\d+/);
+            if (match) {
+                const num = parseInt(match[0], 10);
+                if (num > maxNum) maxNum = num;
+            }
+        }
+    });
+    const nextNum = maxNum + 1;
+    return `REL - ${String(nextNum).padStart(2, '0')}`;
+}
+
     const formData = collectFormData(formRoot);
-    const reportId = (editingOrderId && String(editingOrderId).startsWith('REL-'))
-        ? editingOrderId
-        : 'REL-' + Math.floor(1000 + Math.random() * 9000);
+    const isEditingRel = editingOrderId && (String(editingOrderId).startsWith('REL-') || String(editingOrderId).startsWith('REL - '));
+    const reportId = isEditingRel ? editingOrderId : generateNextReportId();
 
     const userName = document.getElementById('user-name-display')?.innerText || "MAYCON DIAS";
     const newReport = createInspectionDocument(currentChecklistContext, {
@@ -947,7 +962,7 @@ window.generateWorkOrder = function() {
         newOpenOrders = newOpenOrders.filter(o => o.id !== editingOrderId);
     }
 
-    if (editingOrderId && String(editingOrderId).startsWith('REL-')) {
+    if (isEditingRel) {
         const idx = tempReports.findIndex(r => r.id === editingOrderId);
         if (idx !== -1) tempReports[idx] = newReport;
         else tempReports.push(newReport);
@@ -1269,10 +1284,14 @@ window.saveUserOrCompany = function() {
     const type = typeSelect ? typeSelect.value : 'USUARIO';
     
     if (type === 'USUARIO') {
-        window.saveUser();
+        window.saveUserFromForm();
     } else {
         window.saveCadastroInterno();
     }
+};
+
+window.saveUser = function() {
+    return window.saveUserFromForm();
 };
 
 window.closeUserModal = function() {
@@ -1288,7 +1307,7 @@ window.closeUserModal = function() {
     }, 200);
 };
 
-window.saveUser = function() {
+window.saveUserFromForm = async function() {
     const idVal = document.getElementById('user-id-input').value;
     const name = document.getElementById('user-name-input').value.trim();
     const cargo = document.getElementById('user-cargo-input').value.trim();
@@ -1296,10 +1315,12 @@ window.saveUser = function() {
     const password = document.getElementById('user-password-input').value.trim();
     const permission = document.getElementById('user-permission-select').value;
     
-    if (!name || !email || !password || !cargo) {
+    if (!name || !email || !password) {
         return window.showAlert('PREENCHA TODOS OS CAMPOS.', 'warning');
     }
     
+    const hashedPassword = await hashPassword(password);
+
     let updatedList = [];
     if (idVal) {
         const userId = parseInt(idVal);
@@ -1310,7 +1331,7 @@ window.saveUser = function() {
                     name: name.toUpperCase(),
                     cargo: cargo.toUpperCase(),
                     email: email.toLowerCase(),
-                    password: password,
+                    password: hashedPassword,
                     permission: permission
                 };
             }
@@ -1323,7 +1344,7 @@ window.saveUser = function() {
             name: name.toUpperCase(),
             cargo: cargo.toUpperCase(),
             email: email.toLowerCase(),
-            password: password,
+            password: hashedPassword,
             permission: permission
         }];
     }
@@ -1353,6 +1374,7 @@ window.deleteUserFromForm = function() {
 function renderOpenOrders() {
     const tbody = document.getElementById('open-orders-tbody');
     if (!tbody) return;
+    openOrders = getStoredData('crane_open_orders', openOrders || []);
     tbody.innerHTML = '';
     openOrders.forEach(order => {
         const parts = (order.assetInfo || '').split('—').map(s => s.trim());
@@ -1395,6 +1417,9 @@ function renderReportsView() {
     const repTbody = document.getElementById('reports-tbody');
     if (!comTbody || !assTbody || !repTbody) return;
 
+    // Recarrega relatórios do storage para garantir sincronização pós-login / pós-clear cache
+    finalizedReports = getStoredData('crane_reports', finalizedReports || []);
+
     // Se a empresa selecionada nos relatórios não for válida na lista atual, reseta
     const currentList = companies || [];
     const validCompany = currentList.find(c => {
@@ -1431,7 +1456,11 @@ function renderReportsView() {
     // 3. Render Card 3 (Reports)
     let filteredReports = finalizedReports.filter(r => r.empresa && reportsSelectedCompany && r.empresa.toLowerCase() === reportsSelectedCompany.toLowerCase());
     if (reportsSelectedAssetId) {
-        filteredReports = filteredReports.filter(r => (r.equipamentoId === reportsSelectedAssetId || r.equipamento === reportsSelectedAssetId));
+        filteredReports = filteredReports.filter(r => {
+            const eqId = r.equipamentoId || r.equipamentoid || '';
+            const eqNome = r.equipamentoNome || r.equipamentonome || r.equipamento || '';
+            return eqId.toLowerCase() === reportsSelectedAssetId.toLowerCase() || eqNome.toLowerCase() === reportsSelectedAssetId.toLowerCase() || r.equipamento === reportsSelectedAssetId;
+        });
     }
 
     repTbody.innerHTML = '';
@@ -1439,7 +1468,16 @@ function renderReportsView() {
         const tr = document.createElement('tr');
         tr.className = "hover:bg-zinc-50 transition-colors group border-b border-outline-variant";
         
-        const repNumber = '#' + String(index + 1).padStart(2, '0');
+        let repNumber = report.id || '';
+        if (repNumber.toUpperCase().startsWith('REL')) {
+            const match = repNumber.match(/\d+/);
+            if (match) {
+                repNumber = '#' + String(match[0]).padStart(2, '0');
+            }
+        } else {
+            repNumber = '#' + String(index + 1).padStart(2, '0');
+        }
+
         const typeLabel = (report.type || 'PREVENTIVA').toUpperCase();
         const techName = formatTechnicianName(report.tecnico || document.getElementById('user-name-display')?.innerText || 'MAYCON DIAS');
 
@@ -1502,10 +1540,7 @@ window.execMenuAction = function(action) {
     document.getElementById('global-action-menu').style.display = 'none';
     if (action === 'edit') editReport(id);
     if (action === 'pdf') {
-        window.showAlert('GERANDO PDF DO RELATÓRIO...', 'success');
-        setTimeout(() => {
-            window.printReportPDF(id);
-        }, 500);
+        window.printReportPDF(id);
     }
     if (action === 'delete') {
         window.reportIdParaExcluir = id;
@@ -1581,11 +1616,24 @@ window.printReportPDF = function(reportId) {
         });
     }
 
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-        return window.showAlert('POR FAVOR, HABILITE OS POP-UPS NO SEU NAVEGADOR PARA GERAR O PDF.', 'warning');
+    let printFrame = document.getElementById('crane-print-iframe');
+    if (printFrame) {
+        printFrame.remove();
     }
+    printFrame = document.createElement('iframe');
+    printFrame.id = 'crane-print-iframe';
+    printFrame.style.position = 'fixed';
+    printFrame.style.left = '-9999px';
+    printFrame.style.top = '-9999px';
+    printFrame.style.width = '1000px';
+    printFrame.style.height = '1000px';
+    printFrame.style.border = '0';
+    printFrame.style.opacity = '0';
+    printFrame.style.pointerEvents = 'none';
+    document.body.appendChild(printFrame);
 
+    const printWindow = printFrame.contentWindow;
+    printWindow.document.open();
     printWindow.document.write(`
 <!DOCTYPE html>
 <html>
@@ -1751,8 +1799,12 @@ window.printReportPDF = function(reportId) {
             margin-top: 12px;
         }
 
+        .print-section {
+            margin-bottom: 16px;
+        }
+
         .main-section {
-            margin-top: 16px;
+            margin-top: 18px;
         }
 
         .print-section-title {
@@ -1760,6 +1812,7 @@ window.printReportPDF = function(reportId) {
             font-weight: 800;
             color: #1f2937;
             text-transform: uppercase;
+            margin-top: 14px;
             margin-bottom: 8px;
             padding-bottom: 4px;
         }
@@ -1847,26 +1900,67 @@ window.printReportPDF = function(reportId) {
             color: #9ca3af !important;
         }
 
-        .print-obs {
-            margin-top: 4px;
-            background: #ffffff;
-            padding: 4px;
+        .print-obs-container {
+            margin-top: 6px;
+            margin-bottom: 14px;
+            page-break-inside: avoid;
+        }
+
+        .print-obs-label {
+            font-weight: 800;
+            color: #111827;
             font-size: 8px;
-            color: #4b5563;
+            margin-bottom: 3px;
+            letter-spacing: 0.3px;
             text-transform: uppercase;
         }
 
+        .print-obs-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0;
+        }
+
+        .print-obs-table td {
+            border: 1px solid #e5e7eb;
+            background: #ffffff;
+            padding: 6px 8px;
+            font-size: 8.5px;
+            font-weight: 600;
+            color: #374151;
+            text-transform: uppercase;
+            white-space: pre-wrap;
+            word-break: break-word;
+            line-height: 1.5;
+        }
+
         .print-images-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 160px);
-            gap: 12px;
-            margin-top: 8px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 6px;
+            margin-bottom: 6px;
             justify-content: center;
+            align-items: center;
+            width: 100%;
+            page-break-inside: avoid;
+        }
+
+        .print-images-grid.grid-cols-3 {
+            max-width: 555px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .print-images-grid.grid-cols-2 {
+            max-width: 460px;
+            margin-left: auto;
+            margin-right: auto;
         }
 
         .print-images-grid img {
-            width: 160px;
-            height: 140px;
+            width: 175px;
+            height: 135px;
             object-fit: cover;
             border: 1px solid #e5e7eb;
             border-radius: 6px;
@@ -2367,33 +2461,39 @@ window.printReportPDF = function(reportId) {
                 // Define a largura de medição para corresponder exatamente à área de impressão (180mm)
                 source.style.width = '180mm';
                 
-                // Função recursiva para achatar qualquer nível de aninhamento de seções
+                // Função recursiva para achatar e desmembrar seções em sub-elementos granulares
                 function flattenSection(sec) {
                     const result = [];
                     const children = Array.from(sec.children);
-                    const contentEl = children.find(c => c.classList && c.classList.contains('print-section-content'));
                     
+                    const titleEl = children.find(c => c.classList && c.classList.contains('print-section-title'));
+                    if (titleEl) {
+                        result.push(titleEl.cloneNode(true));
+                    }
+                    
+                    const contentEl = children.find(c => c.classList && c.classList.contains('print-section-content'));
                     if (!contentEl) {
-                        result.push(sec.cloneNode(true));
+                        children.forEach(c => {
+                            if (!c.classList || !c.classList.contains('print-section-title')) {
+                                result.push(c.cloneNode(true));
+                            }
+                        });
                         return result;
                     }
                     
-                    const nestedSections = Array.from(contentEl.children).filter(
-                        child => child.classList && child.classList.contains('print-section')
-                    );
-                    
-                    if (nestedSections.length > 0) {
-                        const titleEl = children.find(c => c.classList && c.classList.contains('print-section-title'));
-                        if (titleEl) {
-                            result.push(titleEl.cloneNode(true));
-                        }
-                        nestedSections.forEach(nested => {
-                            const nestedResults = flattenSection(nested);
+                    Array.from(contentEl.children).forEach(child => {
+                        if (child.classList && child.classList.contains('print-section')) {
+                            const nestedResults = flattenSection(child);
                             nestedResults.forEach(r => result.push(r));
-                        });
-                    } else {
-                        result.push(sec.cloneNode(true));
-                    }
+                        } else if (child.classList && child.classList.contains('print-group-container')) {
+                            Array.from(child.children).forEach(subChild => {
+                                result.push(subChild.cloneNode(true));
+                            });
+                        } else {
+                            result.push(child.cloneNode(true));
+                        }
+                    });
+                    
                     return result;
                 }
                 
@@ -2433,8 +2533,8 @@ window.printReportPDF = function(reportId) {
                 const headerPx = headerProbe.offsetHeight || 120;
                 document.body.removeChild(headerProbe);
                 
-                // Altura útil de conteúdo = altura total da página - cabeçalho - margem de segurança de 60px
-                const maxPageHeight = totalPagePx - headerPx - 60; 
+                // Altura útil de conteúdo = altura total da página - cabeçalho - margem de segurança de 30px
+                const maxPageHeight = totalPagePx - headerPx - 30; 
                 const sigsHeight = sigs.offsetHeight || 120;
                 
                 const pages = [];
@@ -2448,17 +2548,32 @@ window.printReportPDF = function(reportId) {
                     const marginBottom = parseFloat(style.marginBottom) || 0;
                     const h = sec.offsetHeight + marginTop + marginBottom;
                     
-                    // Prevenção de Orfandade de Títulos H2, H3 e H4
-                    const tagName = sec.tagName.toLowerCase();
-                    const isHeading = tagName === 'h2' || tagName === 'h3' || tagName === 'h4';
+                    // Prevenção de Orfandade Encadeada de Títulos (H2, H3, H4 e print-section-title)
+                    const isHeadingEl = function(el) {
+                        if (!el) return false;
+                        const tag = el.tagName ? el.tagName.toLowerCase() : '';
+                        return tag === 'h2' || tag === 'h3' || tag === 'h4' || (el.classList && el.classList.contains('print-section-title'));
+                    };
+
                     let willNextElementFit = true;
-                    if (isHeading && idx + 1 < sections.length) {
-                        const nextSec = sections[idx + 1];
-                        const nextStyle = window.getComputedStyle(nextSec);
-                        const nextMarginTop = parseFloat(nextStyle.marginTop) || 0;
-                        const nextMarginBottom = parseFloat(nextStyle.marginBottom) || 0;
-                        const nextH = nextSec.offsetHeight + nextMarginTop + nextMarginBottom;
-                        if (currentPageHeight + h + nextH > maxPageHeight) {
+                    if (isHeadingEl(sec)) {
+                        let chainHeight = h;
+                        let k = idx + 1;
+                        while (k < sections.length) {
+                            const candidate = sections[k];
+                            const cStyle = window.getComputedStyle(candidate);
+                            const cMarginTop = parseFloat(cStyle.marginTop) || 0;
+                            const cMarginBottom = parseFloat(cStyle.marginBottom) || 0;
+                            const candidateH = candidate.offsetHeight + cMarginTop + cMarginBottom;
+                            
+                            chainHeight += candidateH;
+                            if (!isHeadingEl(candidate)) {
+                                break;
+                            }
+                            k++;
+                        }
+
+                        if (currentPageHeight + chainHeight > maxPageHeight) {
                             willNextElementFit = false;
                         }
                     }
@@ -2544,6 +2659,7 @@ window.printReportPDF = function(reportId) {
                 document.getElementById('print-content-source').style.display = 'none';
                 
                 setTimeout(() => {
+                    window.focus();
                     window.print();
                 }, 500);
             }
@@ -2563,6 +2679,40 @@ function escapeHTML(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+}
+
+function renderPrintImagesGrid(images) {
+    if (!images || !Array.isArray(images)) return '';
+    const validImgs = images.filter(img => img && String(img).trim() !== "");
+    if (validImgs.length === 0) return '';
+
+    const count = validImgs.length;
+    let gridClass = 'grid-cols-3';
+    if (count === 4) {
+        gridClass = 'grid-cols-2';
+    } else {
+        gridClass = 'grid-cols-3';
+    }
+
+    return `
+    <div class="print-images-grid ${gridClass}">
+        ${validImgs.map(img => `<img src="${img}" alt="Foto da Inspeção">`).join('')}
+    </div>`;
+}
+
+function renderPrintObsBlock(text, title = "OBSERVAÇÕES:") {
+    if (!text || !text.trim()) return '';
+    return `
+    <div class="print-obs-container">
+        <div class="print-obs-label">${title}</div>
+        <table class="print-obs-table">
+            <tbody>
+                <tr>
+                    <td>${escapeHTML(text).trim()}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>`;
 }
 
 function getChecklistPrintHTML(report) {
@@ -2585,18 +2735,9 @@ function getChecklistPrintHTML(report) {
                 statusSymbol = '✖';
             }
 
-            let obsHtml = '';
-            if (observation) {
-                obsHtml = `<div class="print-obs">${escapeHTML(observation)}</div>`;
-            }
+            let obsHtml = renderPrintObsBlock(observation);
 
-            let imgsHtml = '';
-            if (images && images.length > 0) {
-                imgsHtml = `
-                <div class="print-images-grid">
-                    ${images.map(img => `<img src="${img}" alt="Foto da Inspeção">`).join('')}
-                </div>`;
-            }
+            let imgsHtml = renderPrintImagesGrid(images);
 
             return `
             <div class="print-item">
@@ -2611,16 +2752,11 @@ function getChecklistPrintHTML(report) {
 
         if (node.fieldType === 'textarea' || node.fieldType === 'text') {
             const resp = responses[node.id] || {};
-            const val = resp.value || '';
+            const val = (resp.value || '').trim();
             const images = (resp.images || []).filter(img => img && String(img).trim() !== "");
 
-            let imgsHtml = '';
-            if (images && images.length > 0) {
-                imgsHtml = `
-                <div class="print-images-grid">
-                    ${images.map(img => `<img src="${img}" alt="Foto da Inspeção">`).join('')}
-                </div>`;
-            }
+            let imgsHtml = renderPrintImagesGrid(images);
+            let obsHtml = renderPrintObsBlock(val || '(SEM OBSERVAÇÕES)');
 
             return `
             <div class="print-item">
@@ -2628,9 +2764,7 @@ function getChecklistPrintHTML(report) {
                     <span class="print-item-label">${node.label}</span>
                 </div>
                 ${imgsHtml}
-                <div class="print-obs" style="background: #f3f4f6; padding: 6px; font-weight: 600;">
-                    ${escapeHTML(val) || '(SEM OBSERVAÇÕES)'}
-                </div>
+                ${obsHtml}
             </div>`;
         }
 
@@ -2655,21 +2789,9 @@ function getChecklistPrintHTML(report) {
                 cableAllImages = cableAllImages.concat(imgs);
             });
 
-            let cableObsHtml = '';
-            if (obsText) {
-                cableObsHtml = `
-                <div class="print-obs" style="margin-top: 4px; background: #ffffff; border: 1px solid #e5e7eb; padding: 6px; font-weight: 600; color: #4b5563;">
-                    <strong>Observações do Cabo de Aço:</strong> ${escapeHTML(obsText)}
-                </div>`;
-            }
+            let cableObsHtml = renderPrintObsBlock(obsText, "OBSERVAÇÕES DO CABO DE AÇO:");
 
-            let cableImgsHtml = '';
-            if (cableAllImages.length > 0) {
-                cableImgsHtml = `
-                <div class="print-images-grid" style="margin-top: 4px;">
-                    ${cableAllImages.map(img => `<img src="${img}" alt="Foto da Inspeção">`).join('')}
-                </div>`;
-            }
+            let cableImgsHtml = renderPrintImagesGrid(cableAllImages);
 
             // Extrair labels diretamente do schema (node.children)
             const lblArames     = node.children[0].label;
@@ -2777,21 +2899,9 @@ function getChecklistPrintHTML(report) {
                 return `<td style="${tdStyle}">${escapeHTML(val)}</td>`;
             }).join('');
 
-            let hookObsHtml = '';
-            if (obsText) {
-                hookObsHtml = `
-                <div class="print-obs" style="margin-top: 4px;">
-                    ${escapeHTML(obsText)}
-                </div>`;
-            }
+            let hookObsHtml = renderPrintObsBlock(obsText, "OBSERVAÇÕES DO MOITÃO:");
 
-            let hookImgsHtml = '';
-            if (hookAllImages.length > 0) {
-                hookImgsHtml = `
-                <div class="print-images-grid" style="margin-top: 4px;">
-                    ${hookAllImages.map(img => `<img src="${img}" alt="Foto da Inspeção">`).join('')}
-                </div>`;
-            }
+            let hookImgsHtml = renderPrintImagesGrid(hookAllImages);
 
             const hookTableHtml = `
             <div class="print-group-container">
@@ -2803,8 +2913,8 @@ function getChecklistPrintHTML(report) {
                         <tr class="print-group-row">${cellsHtml}</tr>
                     </tbody>
                 </table>
-                ${hookObsHtml}
                 ${hookImgsHtml}
+                ${hookObsHtml}
             </div>`;
 
             const hookHeadingTag = node.level === 1 ? 'h2' : node.level === 2 ? 'h3' : 'h4';
@@ -2851,18 +2961,9 @@ function getChecklistPrintHTML(report) {
             const groupImgs = (groupResp.images || []).filter(img => img && String(img).trim() !== "");
             const additionalObs = groupResp.additionalObservations || [];
 
-            let groupObsHtml = '';
-            if (groupObs) {
-                groupObsHtml = `<div class="print-obs">${escapeHTML(groupObs)}</div>`;
-            }
+            let groupObsHtml = renderPrintObsBlock(groupObs);
 
-            let groupImgsHtml = '';
-            if (groupImgs && groupImgs.length > 0) {
-                groupImgsHtml = `
-                <div class="print-images-grid">
-                    ${groupImgs.map(img => `<img src="${img}" alt="Foto da Inspeção">`).join('')}
-                </div>`;
-            }
+            let groupImgsHtml = renderPrintImagesGrid(groupImgs);
 
             let additionalObsHtml = '';
             if (additionalObs && additionalObs.length > 0) {
@@ -2870,18 +2971,8 @@ function getChecklistPrintHTML(report) {
                     const addObs = addBlock.observation || '';
                     const addImgs = (addBlock.images || []).filter(img => img && String(img).trim() !== "");
 
-                    let addObsText = '';
-                    if (addObs) {
-                        addObsText = `<div class="print-obs">${escapeHTML(addObs)}</div>`;
-                    }
-
-                    let addImgsBlockHtml = '';
-                    if (addImgs && addImgs.length > 0) {
-                        addImgsBlockHtml = `
-                        <div class="print-images-grid">
-                            ${addImgs.map(img => `<img src="${img}" alt="Foto da Inspeção">`).join('')}
-                        </div>`;
-                    }
+                    let addObsText = renderPrintObsBlock(addObs);
+                    let addImgsBlockHtml = renderPrintImagesGrid(addImgs);
 
                     return `${addImgsBlockHtml}${addObsText}`;
                 }).join('');
@@ -2913,6 +3004,15 @@ function getChecklistPrintHTML(report) {
         const headingTag = node.level === 1 ? 'h2' : node.level === 2 ? 'h3' : 'h4';
         const sectionClass = node.level === 1 ? 'print-section main-section' : 'print-section';
 
+        if (node.id === '5.7.1' || node.id === '6.7.1') {
+            return `
+            <div class="print-section">
+                <div class="print-section-content">
+                    ${childrenHtml}
+                </div>
+            </div>`;
+        }
+
         return `
         <div class="${sectionClass}">
             <${headingTag} class="print-section-title">${node.title}</${headingTag}>
@@ -2926,13 +3026,7 @@ function getChecklistPrintHTML(report) {
 
     let customSectionsHTML = '';
     if (report.customSections && report.customSections.length > 0) {
-        customSectionsHTML = `
-        <div class="print-section main-section">
-            <h2 class="print-section-title" style="color: #d97706; border-bottom: 2px solid #f59e0b;">ITENS PERSONALIZADOS ADICIONAIS</h2>
-            <div class="print-section-content">
-                ${report.customSections.map(node => renderPrintNode(node)).join('')}
-            </div>
-        </div>`;
+        customSectionsHTML = report.customSections.map(node => renderPrintNode(node)).join('');
     }
 
     return standardSectionsHTML + customSectionsHTML;
@@ -3068,11 +3162,24 @@ window.exportOperationalDashboardData = function() {
         `<img src="${internalCompany.logo}" style="max-height: 60px; max-width: 200px; object-fit: contain;">` : 
         `<div style="font-size: 22px; font-weight: 900; color: #1e3a8a;">${companyName}</div>`;
 
-    // 3. Abrir janela e escrever HTML
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-        return window.showAlert('POR FAVOR, HABILITE OS POP-UPS NO SEU NAVEGADOR PARA GERAR O PDF.', 'warning');
+    // 3. Criar iframe invisível na própria página para evitar abrir nova aba no navegador
+    let printFrame = document.getElementById('crane-dashboard-print-iframe');
+    if (printFrame) {
+        printFrame.remove();
     }
+    printFrame = document.createElement('iframe');
+    printFrame.id = 'crane-dashboard-print-iframe';
+    printFrame.style.position = 'fixed';
+    printFrame.style.left = '-9999px';
+    printFrame.style.top = '-9999px';
+    printFrame.style.width = '1000px';
+    printFrame.style.height = '1000px';
+    printFrame.style.border = '0';
+    printFrame.style.opacity = '0';
+    printFrame.style.pointerEvents = 'none';
+    document.body.appendChild(printFrame);
+
+    const printWindow = printFrame.contentWindow;
 
     // Gerar linhas da tabela de eventos
     let tableRows = '';
@@ -3258,6 +3365,7 @@ window.exportOperationalDashboardData = function() {
     <script>
         window.onload = function() {
             setTimeout(function() {
+                window.focus();
                 window.print();
             }, 300);
         };
@@ -3532,6 +3640,9 @@ window.deleteAssetFromModal = function() {
     }
     
     window.showAlert(`DESEJA EXCLUIR O ATIVO "${assetId}" E TODOS OS SEUS EVENTOS E HISTÓRICOS?`, 'warning', () => {
+        // Exclui o ativo do banco de dados na nuvem (Supabase)
+        deleteAssetFromCloud(assetId);
+
         // 1. Remove from allAssetsList
         const newAllAssets = allAssetsList.filter(a => a.id !== assetId);
         setAllAssetsList(newAllAssets);
@@ -3706,6 +3817,11 @@ window.saveUnifiedRegistration = function() {
 
         // Sincronizar ordens de serviço em aberto e relatórios finalizados
         if (isEdit && oldId) {
+            if (oldId !== id) {
+                // Se o código do ativo mudou, exclui o ID antigo no Supabase para evitar duplicidade
+                deleteAssetFromCloud(oldId);
+            }
+
             openOrders = openOrders.map(order => {
                 if (order.equipamentoId === oldId || order.equipamento === oldId) {
                     return { ...order, equipamentoId: id, equipamento: id, empresa, tipo };
@@ -3885,7 +4001,10 @@ window.saveCompanyChange = function() {
     setCompanies(newCompanies);
 
     // 2. Propagate name change to other collections if name changed
-    if (oldName.toLowerCase() !== newName.toLowerCase()) {
+    if (oldName && oldName.toLowerCase() !== newName.toLowerCase()) {
+        // Exclui a chave antiga no Supabase para não deixar registros duplicados
+        deleteCompanyFromCloud(oldName);
+
         // Update allAssetsList (Master)
         const newAllAssets = allAssetsList.map(a => {
             if (a.empresa.toLowerCase() === oldName.toLowerCase()) return { ...a, empresa: newName };
@@ -3934,6 +4053,10 @@ window.saveCompanyChange = function() {
 window.deleteCompany = function(empresaNome) {
     const target = empresaNome.trim().toLowerCase();
     
+    // Exclui a empresa e todos os seus ativos do banco de dados na nuvem (Supabase)
+    deleteCompanyFromCloud(empresaNome);
+    deleteCompanyAssetsFromCloud(empresaNome);
+
     // 1. Remove from companies list (objects/strings)
     const newCompanies = (companies || []).filter(c => {
         const name = typeof c === 'string' ? c : (c?.name || "");

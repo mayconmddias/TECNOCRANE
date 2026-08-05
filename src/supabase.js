@@ -60,3 +60,20 @@ export async function dbDelete(tableName, queryField, queryValue) {
         throw e;
     }
 }
+
+/**
+ * Helper genérico para upload de mídia no Supabase Storage
+ */
+export async function uploadMediaFile(bucketName, path, file) {
+    if (!supabase) return null;
+    try {
+        const { data, error } = await supabase.storage.from(bucketName).upload(path, file, { upsert: true });
+        if (error) throw error;
+        const { data: publicUrlData } = supabase.storage.from(bucketName).getPublicUrl(path);
+        return publicUrlData ? publicUrlData.publicUrl : null;
+    } catch (e) {
+        console.warn(`Supabase Storage (${bucketName}):`, e);
+        return null;
+    }
+}
+

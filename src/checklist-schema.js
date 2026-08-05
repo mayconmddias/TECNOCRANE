@@ -92,7 +92,7 @@ function createElevationSection(num, title) {
                 inspectable(`${p}.7.1.mancal`, 'Mancal giratório lubrificação e rotação'),
                 inspectable(`${p}.7.1.trava`, 'Trava de segurança'),
             ], 3),
-            section(`${p}.7.2`, `${p}.7.2 Inspeção Conjunto de ${num === 5 ? '(Moitão)' : 'Moitão'} Elevação ${suffix}${num === 5 ? '' : '.'}`,
+            section(`${p}.7.2`, `INSPEÇÃO CONJUNTO DE (MOITÃO) ELEVAÇÃO ${suffix.toUpperCase()}`,
                 BLOCK_INSPECTION_FIELDS(`${p}.7.2`),
                 3
             )

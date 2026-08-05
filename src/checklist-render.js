@@ -1,6 +1,7 @@
 // Crane Pro - Checklist Render
 
 import { CHECKLIST_SCHEMA } from './checklist-schema.js';
+import { escapeHTML } from './utils.js';
 
 const INPUT_CLASS = 'w-full bg-surface-container-low border border-outline py-2 px-4 text-body-md uppercase text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all duration-200';
 const TEXTAREA_CLASS = `${INPUT_CLASS} min-h-[80px]`;
@@ -12,10 +13,11 @@ const UPLOAD_ZONE = `
     </div>`;
 
 function renderInspectable(field) {
+    const labelEscaped = escapeHTML(field.label);
     return `
     <div class="checklist-field checklist-inspectable border border-outline-variant bg-surface p-card_padding space-y-stack_md transition-all duration-200" data-field-id="${field.id}" data-field-type="inspectable">
         <div class="flex flex-wrap items-center justify-between gap-stack_md">
-            <span class="text-body-lg font-bold uppercase text-on-surface">${field.label}</span>
+            <span class="text-body-lg font-bold uppercase text-on-surface">${labelEscaped}</span>
             <div class="flex items-center gap-stack_lg">
                 <label class="flex items-center gap-stack_sm cursor-pointer group">
                     <input type="radio" name="status-${field.id}" value="OK" class="checklist-status-ok border-outline text-green-600 focus:ring-green-600 bg-surface-container-low transition-all duration-200">
@@ -125,12 +127,11 @@ export function renderObservationBlock(blockData = null, isRemovable = true, isC
     
     return `
     <div class="checklist-obs-block space-y-stack_sm border-t border-outline-variant/30 pt-3 first:border-t-0 first:pt-0">
-        <div class="flex items-start gap-stack_md">
-            <div class="flex-1">
-                <textarea class="w-full bg-surface-container-low border border-outline py-2 px-4 text-body-md uppercase text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all duration-200 min-h-[48px] resize-none overflow-hidden checklist-observation" placeholder="OBSERVAÇÃO" rows="1">${text}</textarea>
+        <div class="flex items-center justify-between gap-stack_md">
+            <div class="image-preview-container flex gap-stack_sm flex-wrap flex-1">
+                ${images.map(src => renderImagePreview(src)).join('')}
             </div>
-            
-            <div class="flex flex-col gap-2 shrink-0">
+            <div class="flex items-center gap-2 shrink-0">
                 <button type="button" class="checklist-upload-zone flex items-center justify-center p-3 border border-outline bg-surface-container-low text-on-surface-variant hover:text-green-600 hover:border-green-600 transition-all duration-200 cursor-pointer rounded-xl h-[48px] w-[48px]" title="Anexar Fotos">
                     <span class="material-symbols-outlined text-[22px]">add_a_photo</span>
                     <input type="file" accept="image/*" multiple class="hidden checklist-file-input">
@@ -138,9 +139,8 @@ export function renderObservationBlock(blockData = null, isRemovable = true, isC
                 ${deleteBtn}
             </div>
         </div>
-        
-        <div class="image-preview-container flex gap-stack_sm flex-wrap mt-stack_sm">
-            ${images.map(src => renderImagePreview(src)).join('')}
+        <div>
+            <textarea class="w-full bg-surface-container-low border border-outline py-2 px-4 text-body-md uppercase text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all duration-200 min-h-[48px] resize-none overflow-hidden checklist-observation" placeholder="OBSERVAÇÃO" rows="1">${text}</textarea>
         </div>
     </div>`;
 }
@@ -291,18 +291,18 @@ function renderHookInspectionTable(node) {
     const obsField = node.children.find(c => c.id === `${prefix}.observacoes`);
     const obsHtml = obsField ? `
         <div class="checklist-field space-y-stack_sm checklist-textarea-photo-block" data-field-id="${obsField.id}" data-field-type="textarea">
-            <div class="flex items-start gap-stack_md">
-                <div class="flex-1">
-                    <textarea class="w-full bg-surface-container-low border border-outline py-2 px-4 text-body-md uppercase text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all duration-200 min-h-[48px] resize-none overflow-hidden checklist-text-value" placeholder="OBSERVAÇÕES" rows="1"></textarea>
-                </div>
-                <div class="flex flex-col gap-2 shrink-0">
+            <div class="flex items-center justify-between gap-stack_md">
+                <div class="image-preview-container flex gap-stack_sm flex-wrap flex-1"></div>
+                <div class="flex items-center gap-2 shrink-0">
                     <button type="button" class="checklist-upload-zone flex items-center justify-center p-3 border border-outline bg-surface-container-low text-on-surface-variant hover:text-green-600 hover:border-green-600 transition-all duration-200 cursor-pointer rounded-xl h-[48px] w-[48px]" title="Anexar Fotos">
                         <span class="material-symbols-outlined text-[22px]">add_a_photo</span>
                         <input type="file" accept="image/*" multiple class="hidden checklist-file-input">
                     </button>
                 </div>
             </div>
-            <div class="image-preview-container flex gap-stack_sm flex-wrap mt-stack_sm"></div>
+            <div>
+                <textarea class="w-full bg-surface-container-low border border-outline py-2 px-4 text-body-md uppercase text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all duration-200 min-h-[48px] resize-none overflow-hidden checklist-text-value" placeholder="OBSERVAÇÕES" rows="1"></textarea>
+            </div>
         </div>` : '';
 
     const headersHtml = fields.map(field =>
@@ -340,6 +340,14 @@ export function renderNode(node, displayNum) {
         const childPadding = node.level === 1 ? '' : 'pl-container_gutter';
         html += `<div class="${childPadding} mt-stack_sm">`;
         html += renderCableInspectionTable(node);
+        html += '</div>';
+        return html;
+    }
+
+    if (node.id === '5.7.1' || node.id === '6.7.1') {
+        const childPadding = node.level === 1 ? '' : 'pl-container_gutter';
+        let html = `<div class="${childPadding} mt-stack_sm">`;
+        html += renderInspectableGroup(node);
         html += '</div>';
         return html;
     }
