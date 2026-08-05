@@ -668,6 +668,11 @@ export async function loadAllDataFromDB() {
     const dbUsers = await getDBValue('crane_users', []);
     updateArrayInPlace(usersList, dbUsers || []);
 
+    const storedReports = (await getDBValue('crane_reports', []) || []).map(normalizeReportObject).filter(Boolean);
+    if (storedReports.length > 0 && typeof window.setFinalizedReportsInMemory === 'function') {
+        window.setFinalizedReportsInMemory(storedReports);
+    }
+
     // 2. Tenta sincronizar do Supabase em segundo plano (Não-bloqueante)
     if (isSupabaseConfigured) {
         syncAllFromSupabase().then(() => {

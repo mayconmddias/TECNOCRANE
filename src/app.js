@@ -1440,6 +1440,15 @@ window.selectReportsAsset = function(assetId) {
     renderReportsView();
 };
 
+window.setFinalizedReportsInMemory = function(newList) {
+    if (newList && Array.isArray(newList) && newList.length > 0) {
+        updateArrayInPlace(finalizedReports, newList);
+        if (currentView === 'reports') {
+            renderReportsView();
+        }
+    }
+};
+
 window.syncFinalizedReports = function() {
     const loaded = getStoredData('crane_reports', []);
     finalizedReports = loaded;
