@@ -987,6 +987,11 @@ function generateNextReportId() {
         return window.showAlert('ERRO AO SALVAR O RELATÓRIO.', 'warning');
     }
 
+    isSavingOrSendingChecklist = false;
+    if (btn) {
+        btn.disabled = false;
+        btn.classList.remove('opacity-50', 'pointer-events-none');
+    }
     window.closeChecklistModal();
     if (newReport && newReport.empresa) {
         reportsSelectedCompany = newReport.empresa;
