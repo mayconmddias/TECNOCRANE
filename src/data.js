@@ -153,44 +153,50 @@ export async function syncKeyToSupabase(key, data) {
             }));
             await dbUpsert('scheduled_inspections', rows);
         } else if (key === 'crane_open_orders') {
-            const rows = data.map(o => ({
-                id: o.id,
-                status: o.status || '',
-                type: o.type || '',
-                empresa: o.empresa || '',
-                equipamentoId: o.equipamentoId || '',
-                equipamentoNome: o.equipamentoNome || '',
-                assetInfo: o.assetInfo || '',
-                date: o.date || '',
-                createdAt: o.createdAt || new Date().toISOString(),
-                updatedAt: o.updatedAt || new Date().toISOString(),
-                responses: o.responses || {},
-                generalObservation: o.generalObservation || '',
-                generalImages: o.generalImages || [],
-                customSections: o.customSections || [],
-                customItems: o.customItems || [],
-                responsibles: o.responsibles || []
-            }));
+            const rows = data.map(o => {
+                const responsesObj = { ...(o.responses || {}) };
+                if (o.customItems && o.customItems.length > 0) responsesObj.__customItems = o.customItems;
+                if (o.responsibles && o.responsibles.length > 0) responsesObj.__responsibles = o.responsibles;
+                return {
+                    id: o.id,
+                    status: o.status || '',
+                    type: o.type || '',
+                    empresa: o.empresa || '',
+                    equipamentoId: o.equipamentoId || '',
+                    equipamentoNome: o.equipamentoNome || '',
+                    assetInfo: o.assetInfo || '',
+                    date: o.date || '',
+                    createdAt: o.createdAt || new Date().toISOString(),
+                    updatedAt: o.updatedAt || new Date().toISOString(),
+                    responses: responsesObj,
+                    generalObservation: o.generalObservation || '',
+                    generalImages: o.generalImages || [],
+                    customSections: o.customSections || []
+                };
+            });
             await dbUpsert('open_orders', rows);
         } else if (key === 'crane_reports') {
-            const rows = data.map(r => ({
-                id: r.id,
-                status: r.status || '',
-                type: r.type || '',
-                empresa: r.empresa || '',
-                equipamentoId: r.equipamentoId || '',
-                equipamentoNome: r.equipamentoNome || '',
-                assetInfo: r.assetInfo || '',
-                date: r.date || '',
-                createdAt: r.createdAt || new Date().toISOString(),
-                updatedAt: r.updatedAt || new Date().toISOString(),
-                responses: r.responses || {},
-                generalObservation: r.generalObservation || '',
-                generalImages: r.generalImages || [],
-                customSections: r.customSections || [],
-                customItems: r.customItems || [],
-                responsibles: r.responsibles || []
-            }));
+            const rows = data.map(r => {
+                const responsesObj = { ...(r.responses || {}) };
+                if (r.customItems && r.customItems.length > 0) responsesObj.__customItems = r.customItems;
+                if (r.responsibles && r.responsibles.length > 0) responsesObj.__responsibles = r.responsibles;
+                return {
+                    id: r.id,
+                    status: r.status || '',
+                    type: r.type || '',
+                    empresa: r.empresa || '',
+                    equipamentoId: r.equipamentoId || '',
+                    equipamentoNome: r.equipamentoNome || '',
+                    assetInfo: r.assetInfo || '',
+                    date: r.date || '',
+                    createdAt: r.createdAt || new Date().toISOString(),
+                    updatedAt: r.updatedAt || new Date().toISOString(),
+                    responses: responsesObj,
+                    generalObservation: r.generalObservation || '',
+                    generalImages: r.generalImages || [],
+                    customSections: r.customSections || []
+                };
+            });
             await dbUpsert('finalized_reports', rows);
         } else if (key === 'crane_internal_company') {
             const row = {
@@ -392,11 +398,16 @@ export async function syncAllFromSupabase() {
             }
         }
         if (dbOpenOrders) {
-            const mappedOrders = dbOpenOrders.map(o => ({
-                ...o,
-                equipamentoId: o.equipamentoId || o.equipamentoid || '',
-                equipamentoNome: o.equipamentoNome || o.equipamentonome || o.equipamento || ''
-            }));
+            const mappedOrders = dbOpenOrders.map(o => {
+                const resp = o.responses || {};
+                return {
+                    ...o,
+                    equipamentoId: o.equipamentoId || o.equipamentoid || '',
+                    equipamentoNome: o.equipamentoNome || o.equipamentonome || o.equipamento || '',
+                    customItems: o.customItems || resp.__customItems || [],
+                    responsibles: o.responsibles || resp.__responsibles || []
+                };
+            });
             localStorage.setItem('crane_open_orders', JSON.stringify(mappedOrders));
             await setDBValue('crane_open_orders', mappedOrders);
         }
@@ -412,11 +423,16 @@ export async function syncAllFromSupabase() {
             }
         }
         if (dbFinalizedReports) {
-            const mappedReports = dbFinalizedReports.map(r => ({
-                ...r,
-                equipamentoId: r.equipamentoId || r.equipamentoid || '',
-                equipamentoNome: r.equipamentoNome || r.equipamentonome || r.equipamento || ''
-            }));
+            const mappedReports = dbFinalizedReports.map(r => {
+                const resp = r.responses || {};
+                return {
+                    ...r,
+                    equipamentoId: r.equipamentoId || r.equipamentoid || '',
+                    equipamentoNome: r.equipamentoNome || r.equipamentonome || r.equipamento || '',
+                    customItems: r.customItems || resp.__customItems || [],
+                    responsibles: r.responsibles || resp.__responsibles || []
+                };
+            });
             localStorage.setItem('crane_reports', JSON.stringify(mappedReports));
             await setDBValue('crane_reports', mappedReports);
         }
