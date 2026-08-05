@@ -402,8 +402,14 @@ export async function syncAllFromSupabase() {
                 const resp = o.responses || {};
                 return {
                     ...o,
+                    empresa: (o.empresa || '').trim(),
                     equipamentoId: o.equipamentoId || o.equipamentoid || '',
                     equipamentoNome: o.equipamentoNome || o.equipamentonome || o.equipamento || '',
+                    createdAt: o.createdAt || o.createdat || new Date().toISOString(),
+                    updatedAt: o.updatedAt || o.updatedat || new Date().toISOString(),
+                    generalObservation: o.generalObservation || o.generalobservation || '',
+                    generalImages: o.generalImages || o.generalimages || [],
+                    customSections: o.customSections || o.customsections || [],
                     customItems: o.customItems || resp.__customItems || [],
                     responsibles: o.responsibles || resp.__responsibles || []
                 };
@@ -427,8 +433,14 @@ export async function syncAllFromSupabase() {
                 const resp = r.responses || {};
                 return {
                     ...r,
+                    empresa: (r.empresa || '').trim(),
                     equipamentoId: r.equipamentoId || r.equipamentoid || '',
                     equipamentoNome: r.equipamentoNome || r.equipamentonome || r.equipamento || '',
+                    createdAt: r.createdAt || r.createdat || new Date().toISOString(),
+                    updatedAt: r.updatedAt || r.updatedat || new Date().toISOString(),
+                    generalObservation: r.generalObservation || r.generalobservation || '',
+                    generalImages: r.generalImages || r.generalimages || [],
+                    customSections: r.customSections || r.customsections || [],
                     customItems: r.customItems || resp.__customItems || [],
                     responsibles: r.responsibles || resp.__responsibles || []
                 };
@@ -454,6 +466,9 @@ export async function syncAllFromSupabase() {
         }
 
         console.log('SUPABASE: Sincronização e migração concluídas com sucesso!');
+        if (typeof window.renderReportsView === 'function') {
+            window.renderReportsView();
+        }
     } catch (e) {
         console.error('SUPABASE: Erro ao sincronizar dados da nuvem:', e);
     }

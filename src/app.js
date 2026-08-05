@@ -1458,12 +1458,19 @@ function renderReportsView() {
     }).join('') || `<tr><td colspan="3" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM ATIVO TÉCNICO ENCONTRADO PARA ESTA EMPRESA</td></tr>`;
 
     // 3. Render Card 3 (Reports)
-    let filteredReports = finalizedReports.filter(r => r.empresa && reportsSelectedCompany && r.empresa.toLowerCase() === reportsSelectedCompany.toLowerCase());
+    const selCompClean = (reportsSelectedCompany || '').trim().toLowerCase();
+    let filteredReports = finalizedReports.filter(r => {
+        if (!r) return false;
+        const empClean = (r.empresa || r.company || '').trim().toLowerCase();
+        return !selCompClean || empClean === selCompClean;
+    });
+
     if (reportsSelectedAssetId) {
+        const selAssetClean = String(reportsSelectedAssetId).trim().toLowerCase();
         filteredReports = filteredReports.filter(r => {
-            const eqId = r.equipamentoId || r.equipamentoid || '';
-            const eqNome = r.equipamentoNome || r.equipamentonome || r.equipamento || '';
-            return eqId.toLowerCase() === reportsSelectedAssetId.toLowerCase() || eqNome.toLowerCase() === reportsSelectedAssetId.toLowerCase() || r.equipamento === reportsSelectedAssetId;
+            const eqId = String(r.equipamentoId || r.equipamentoid || '').trim().toLowerCase();
+            const eqNome = String(r.equipamentoNome || r.equipamentonome || r.equipamento || '').trim().toLowerCase();
+            return eqId === selAssetClean || eqNome === selAssetClean;
         });
     }
 
