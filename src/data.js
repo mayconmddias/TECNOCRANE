@@ -57,6 +57,30 @@ export function setDBValue(key, value) {
     });
 }
 
+export function normalizeReportObject(r) {
+    if (!r) return null;
+    const resp = r.responses || {};
+    return {
+        id: r.id || '',
+        status: r.status || 'FINALIZED',
+        type: r.type || r.tipo || 'PREVENTIVA',
+        empresa: (r.empresa || r.company || '').trim(),
+        equipamentoId: r.equipamentoId || r.equipamentoid || r.equipamento || '',
+        equipamentoNome: r.equipamentoNome || r.equipamentonome || r.equipamento || '',
+        assetInfo: r.assetInfo || r.assetinfo || '',
+        date: r.date || '',
+        tecnico: r.tecnico || r.technician || '',
+        createdAt: r.createdAt || r.createdat || new Date().toISOString(),
+        updatedAt: r.updatedAt || r.updatedat || new Date().toISOString(),
+        responses: resp,
+        generalObservation: r.generalObservation || r.generalobservation || '',
+        generalImages: r.generalImages || r.generalimages || [],
+        customSections: r.customSections || r.customsections || [],
+        customItems: r.customItems || resp.__customItems || [],
+        responsibles: r.responsibles || resp.__responsibles || []
+    };
+}
+
 // Funções de Persistência
 export function getStoredData(key, defaultValue) {
     const data = localStorage.getItem(key);
@@ -450,24 +474,12 @@ export async function syncAllFromSupabase() {
                 }
             }
             if (dbFinalizedReports) {
-                const mappedReports = dbFinalizedReports.map(r => {
-                    const resp = r.responses || {};
-                    return {
-                        ...r,
-                        empresa: (r.empresa || '').trim(),
-                        equipamentoId: r.equipamentoId || r.equipamentoid || '',
-                        equipamentoNome: r.equipamentoNome || r.equipamentonome || r.equipamento || '',
-                        createdAt: r.createdAt || r.createdat || new Date().toISOString(),
-                        updatedAt: r.updatedAt || r.updatedat || new Date().toISOString(),
-                        generalObservation: r.generalObservation || r.generalobservation || '',
-                        generalImages: r.generalImages || r.generalimages || [],
-                        customSections: r.customSections || r.customsections || [],
-                        customItems: r.customItems || resp.__customItems || [],
-                        responsibles: r.responsibles || resp.__responsibles || []
-                    };
-                });
+                const mappedReports = dbFinalizedReports.map(normalizeReportObject).filter(Boolean);
                 localStorage.setItem('crane_reports', JSON.stringify(mappedReports));
                 await setDBValue('crane_reports', mappedReports);
+                if (typeof window.syncFinalizedReports === 'function') {
+                    window.syncFinalizedReports();
+                }
             }
         } catch (errReports) {
             console.error('SUPABASE: Erro ao carregar relatórios finalizados:', errReports);

@@ -1420,6 +1420,11 @@ window.selectReportsAsset = function(assetId) {
     renderReportsView();
 };
 
+window.syncFinalizedReports = function() {
+    finalizedReports = getStoredData('crane_reports', finalizedReports || []);
+    renderReportsView();
+};
+
 function renderReportsView() {
     const comTbody = document.getElementById('reports-companies-tbody');
     const assTbody = document.getElementById('reports-assets-tbody');
@@ -1464,20 +1469,40 @@ function renderReportsView() {
 
     // 3. Render Card 3 (Reports)
     const selCompClean = (reportsSelectedCompany || '').trim().toLowerCase();
-    let filteredReports = finalizedReports.filter(r => {
+    let companyReports = finalizedReports.filter(r => {
         if (!r) return false;
         const empClean = (r.empresa || r.company || '').trim().toLowerCase();
         return !selCompClean || empClean === selCompClean;
     });
 
+    let filteredReports = companyReports;
+
     if (reportsSelectedAssetId) {
         const cleanId = str => String(str || '').replace(/^#/, '').trim().toLowerCase();
         const selAssetClean = cleanId(reportsSelectedAssetId);
-        filteredReports = filteredReports.filter(r => {
+        
+        const targetAsset = allAssetsList.find(a => cleanId(a.id) === selAssetClean);
+        const targetAssetName = targetAsset ? cleanId(targetAsset.nome || targetAsset.tipo) : '';
+        const targetAssetLocal = targetAsset ? cleanId(targetAsset.local) : '';
+
+        const assetFiltered = companyReports.filter(r => {
             const eqId = cleanId(r.equipamentoId || r.equipamentoid);
             const eqNome = cleanId(r.equipamentoNome || r.equipamentonome || r.equipamento);
-            return (eqId && eqId === selAssetClean) || (eqNome && eqNome === selAssetClean) || (eqId && eqId.includes(selAssetClean)) || (eqNome && eqNome.includes(selAssetClean));
+            const info = cleanId(r.assetInfo || r.assetinfo);
+
+            return (
+                (eqId && (eqId === selAssetClean || eqId.includes(selAssetClean))) ||
+                (eqNome && (eqNome === selAssetClean || (targetAssetName && eqNome.includes(targetAssetName)))) ||
+                (info && (info.includes(selAssetClean) || (targetAssetLocal && info.includes(targetAssetLocal))))
+            );
         });
+
+        if (assetFiltered.length > 0) {
+            filteredReports = assetFiltered;
+        } else {
+            console.warn(`Filtro por ativo '${reportsSelectedAssetId}' não encontrou relatórios específicos. Exibindo todos os relatórios da empresa.`);
+            filteredReports = companyReports;
+        }
     }
 
     // Ordenação numéricamente decrescente pelo ID do relatório (#04, #03, #02, #01)
