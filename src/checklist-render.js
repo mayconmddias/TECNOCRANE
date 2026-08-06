@@ -2,6 +2,7 @@
 
 import { CHECKLIST_SCHEMA } from './checklist-schema.js';
 import { escapeHTML } from './utils.js';
+import { usersList } from './data.js';
 
 const INPUT_CLASS = 'w-full bg-surface-container-low border border-outline py-2 px-4 text-body-md uppercase text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all duration-200';
 const TEXTAREA_CLASS = `${INPUT_CLASS} min-h-[80px]`;
@@ -96,15 +97,38 @@ function renderSectionHeader(node, displayNum) {
     
     const isGroup = node.children && node.children.length > 0 && node.children[0].fieldType === 'inspectable';
     const plusBtn = isGroup 
-        ? `<button type="button" onclick="window.addAdditionalObservationBlock(this, '${node.id}')" class="text-on-surface hover:text-primary transition-colors duration-200 flex items-center justify-center p-1 rounded-full shrink-0" title="Adicionar Observação/Fotos">
-            <span class="material-symbols-outlined text-[28px] font-bold">add</span>
-           </button>`
+        ? `<div class="relative shrink-0">
+            <button type="button" onclick="window.toggleSectionMenu(event, '${node.id}')" class="text-on-surface hover:text-primary transition-colors duration-200 flex items-center justify-center p-1 rounded-full shrink-0" title="Opções de Adição">
+                <span class="material-symbols-outlined text-[28px] font-bold">add</span>
+            </button>
+           </div>`
         : '';
     
     return `
     <div class="${padding} pt-stack_lg pb-stack_sm border-b border-outline-variant flex justify-between items-center gap-stack_md">
         <h3 class="${levelClass} uppercase tracking-tight flex-1">${titleHtml}</h3>
         ${plusBtn}
+    </div>`;
+}
+
+export function renderCustomChecklistItemRow(item, sectionId) {
+    const labelEscaped = escapeHTML(item.label);
+    return `
+    <div class="flex items-center justify-between border-b border-outline-variant/30 py-3 last:border-b-0" data-custom-item-id="${item.id}">
+        <span class="text-body-md font-bold uppercase text-on-surface">${labelEscaped}</span>
+        <div class="flex items-center gap-stack_lg">
+            <button type="button" onclick="window.removeCustomChecklistItem('${item.id}', '${sectionId}')" class="text-error hover:opacity-80 p-1 flex items-center justify-center cursor-pointer transition-all shrink-0" title="Excluir Item de Checklist">
+                <span class="material-symbols-outlined text-[22px]">delete</span>
+            </button>
+            <label class="flex items-center gap-stack_sm cursor-pointer group">
+                <input type="radio" name="status-${item.id}" value="OK" class="checklist-status-ok border-outline text-green-600 focus:ring-green-600 bg-surface-container-low transition-all duration-200">
+                <span class="text-label-md uppercase text-on-surface group-hover:text-green-600 transition-all duration-200">OK</span>
+            </label>
+            <label class="flex items-center gap-stack_sm cursor-pointer group">
+                <input type="radio" name="status-${item.id}" value="NOK" class="checklist-status-nok border-outline text-error focus:ring-error bg-surface-container-low transition-all duration-200">
+                <span class="text-label-md uppercase text-on-surface group-hover:text-error transition-all duration-200">NOK</span>
+            </label>
+        </div>
     </div>`;
 }
 
@@ -132,11 +156,11 @@ export function renderObservationBlock(blockData = null, isRemovable = true, isC
                 ${images.map(src => renderImagePreview(src)).join('')}
             </div>
             <div class="flex items-center gap-2 shrink-0">
+                ${deleteBtn}
                 <button type="button" class="checklist-upload-zone flex items-center justify-center p-3 border border-outline bg-surface-container-low text-on-surface-variant hover:text-green-600 hover:border-green-600 transition-all duration-200 cursor-pointer rounded-xl h-[48px] w-[48px]" title="Anexar Fotos">
                     <span class="material-symbols-outlined text-[22px]">add_a_photo</span>
                     <input type="file" accept="image/*" multiple class="hidden checklist-file-input">
                 </button>
-                ${deleteBtn}
             </div>
         </div>
         <div>
@@ -145,10 +169,10 @@ export function renderObservationBlock(blockData = null, isRemovable = true, isC
     </div>`;
 }
 
-function renderInspectableGroup(node) {
+function renderInspectableGroup(node, doc = null) {
     const itemsHtml = node.children.map(child => `
         <div class="flex items-center justify-between border-b border-outline-variant/30 py-3 last:border-b-0">
-            <span class="text-body-md font-bold uppercase text-on-surface">${child.label}</span>
+            <span class="text-body-md font-bold uppercase text-on-surface">${escapeHTML(child.label)}</span>
             <div class="flex items-center gap-stack_lg">
                 <label class="flex items-center gap-stack_sm cursor-pointer group">
                     <input type="radio" name="status-${child.id}" value="OK" class="checklist-status-ok border-outline text-green-600 focus:ring-green-600 bg-surface-container-low transition-all duration-200">
@@ -162,12 +186,19 @@ function renderInspectableGroup(node) {
         </div>
     `).join('');
 
+    const customItemsList = (doc && doc.customItems)
+        ? doc.customItems.filter(ci => ci.sectionId === node.id)
+        : (window.activeCustomItems || []).filter(ci => ci.sectionId === node.id);
+
+    const customItemsHtml = customItemsList.map(ci => renderCustomChecklistItemRow(ci, node.id)).join('');
+
     const isCustom = node.id.startsWith('custom_');
 
     return `
     <div class="checklist-field checklist-inspectable-group border border-outline-variant bg-surface p-card_padding space-y-stack_md transition-all duration-200" data-section-id="${node.id}">
-        <div class="divide-y divide-outline-variant/30">
+        <div class="divide-y divide-outline-variant/30 checklist-items-container">
             ${itemsHtml}
+            ${customItemsHtml}
         </div>
         
         <!-- Contêiner de Blocos de Observação -->
@@ -331,7 +362,7 @@ function renderHookInspectionTable(node) {
     </div>`;
 }
 
-export function renderNode(node, displayNum) {
+export function renderNode(node, displayNum, doc = null) {
     if (node.fieldType === 'inspectable') return renderInspectable(node);
     if (node.fieldType === 'text' || node.fieldType === 'textarea') return renderTextField(node);
 
@@ -347,7 +378,7 @@ export function renderNode(node, displayNum) {
     if (node.id === '5.7.1' || node.id === '6.7.1') {
         const childPadding = node.level === 1 ? '' : 'pl-container_gutter';
         let html = `<div class="${childPadding} mt-stack_sm">`;
-        html += renderInspectableGroup(node);
+        html += renderInspectableGroup(node, doc);
         html += '</div>';
         return html;
     }
@@ -368,13 +399,13 @@ export function renderNode(node, displayNum) {
     if (isGroup) {
         const childPadding = node.level === 1 ? '' : 'pl-container_gutter';
         html += `<div class="${childPadding} mt-stack_sm">`;
-        html += renderInspectableGroup(node);
+        html += renderInspectableGroup(node, doc);
         html += '</div>';
     } else {
         const childPadding = node.level === 1 ? 'space-y-stack_md' : 'space-y-stack_md pl-container_gutter';
         html += `<div class="${childPadding} mt-stack_sm">`;
         node.children.forEach(child => {
-            html += renderNode(child, null);
+            html += renderNode(child, null, doc);
         });
         html += '</div>';
     }
@@ -386,25 +417,69 @@ export function renderNode(node, displayNum) {
     return html;
 }
 
+export function renderResponsibleCard(respId = '', providedUsersList = null, cardIndex = 0) {
+    const listToUse = (providedUsersList && Array.isArray(providedUsersList) && providedUsersList.length > 0) 
+        ? providedUsersList 
+        : ((window.usersList && Array.isArray(window.usersList) && window.usersList.length > 0) ? window.usersList : (usersList || []));
+
+    const optionsHtml = listToUse.map(u => {
+        const idStr = String(u.id);
+        const selected = (respId !== null && respId !== undefined && respId !== '' && String(respId) === idStr) ? 'selected' : '';
+        const nameUpper = (u.name || '').toUpperCase();
+        const cargoUpper = (u.cargo || u.role || 'TÉCNICO').toUpperCase();
+        return `<option value="${idStr}" ${selected}>${nameUpper} - ${cargoUpper}</option>`;
+    }).join('');
+
+    return `
+    <div class="checklist-responsible-card border border-outline-variant bg-surface p-card_padding space-y-stack_sm transition-all duration-200 rounded-2xl mt-4" data-card-index="${cardIndex}">
+        <div class="flex items-center justify-between border-b border-outline-variant/30 pb-3">
+            <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-[#EAB308] text-[24px]">badge</span>
+                <span class="text-body-md font-bold uppercase text-on-surface">RESPONSÁVEL / ASSINATURA DIGITAL</span>
+            </div>
+            <button type="button" onclick="this.closest('.checklist-responsible-card').remove()" class="text-error hover:opacity-80 p-1 flex items-center justify-center cursor-pointer transition-all shrink-0" title="Remover Responsável">
+                <span class="material-symbols-outlined text-[22px]">delete</span>
+            </button>
+        </div>
+        <div class="space-y-stack_sm pt-2">
+            <label class="text-label-md font-bold text-on-surface-variant uppercase text-xs tracking-wider">SELEÇÃO DE USUÁRIO CADASTRADO</label>
+            <select class="w-full bg-surface-container-low border border-outline py-3 px-4 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all rounded-xl cursor-pointer checklist-responsible-select">
+                <option value="">-- SELEÇÃO DE USUÁRIO --</option>
+                ${optionsHtml}
+            </select>
+        </div>
+    </div>`;
+}
+
 export function renderChecklistForm(doc = null) {
-    let sectionsHtml = CHECKLIST_SCHEMA.map(node => renderNode(node, node.id)).join('');
+    let sectionsHtml = CHECKLIST_SCHEMA.map(node => renderNode(node, node.id, doc)).join('');
     
     if (doc && doc.customSections) {
         doc.customSections.forEach(node => {
-            sectionsHtml += renderNode(node, node.id);
+            sectionsHtml += renderNode(node, node.id, doc);
         });
     }
 
-    const addCustomBtn = `
-    <div class="flex justify-center pt-stack_sm pb-stack_lg">
-        <button type="button" onclick="window.openCustomItemModal()" class="px-container_gutter py-stack_md border border-dashed border-outline-variant text-on-surface hover:text-primary hover:border-primary transition-all duration-200 uppercase font-bold text-label-md flex items-center gap-2 rounded-xl">
-            <span class="material-symbols-outlined">add_circle</span>
-            Adicionar Novo Item Personalizado
+    const responsivesList = (doc && doc.responsaveis && Array.isArray(doc.responsaveis)) ? doc.responsaveis : [];
+    const users = (window.usersList && Array.isArray(window.usersList) && window.usersList.length > 0) ? window.usersList : (usersList || []);
+
+    const bottomBtnsAndResponsibles = `
+    <div class="flex flex-wrap justify-center items-center gap-stack_md pt-stack_sm pb-stack_md">
+        <button type="button" onclick="window.openCustomItemModal()" class="px-6 py-3.5 border border-dashed border-outline-variant text-on-surface hover:text-primary hover:border-primary transition-all duration-200 uppercase font-bold text-label-md flex items-center gap-2 rounded-xl bg-surface cursor-pointer">
+            <span class="material-symbols-outlined text-[20px]">add_circle</span>
+            ADICIONAR ITEM
         </button>
+        <button type="button" onclick="window.addResponsibleBlock()" class="px-6 py-3.5 border border-dashed border-outline-variant text-on-surface hover:text-primary hover:border-primary transition-all duration-200 uppercase font-bold text-label-md flex items-center gap-2 rounded-xl bg-surface cursor-pointer">
+            <span class="material-symbols-outlined text-[20px]">person_add</span>
+            ADICIONAR RESPONSÁVEL
+        </button>
+    </div>
+    <div id="checklist-responsibles-container" class="space-y-stack_md pb-stack_lg">
+        ${responsivesList.map((respId, idx) => renderResponsibleCard(respId, users, idx)).join('')}
     </div>
     `;
 
-    return `<div id="checklist-sections-container">${sectionsHtml}</div>` + addCustomBtn;
+    return `<div id="checklist-sections-container">${sectionsHtml}</div>` + bottomBtnsAndResponsibles;
 }
 
 export function renderImagePreview(src) {

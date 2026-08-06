@@ -700,6 +700,34 @@
         </div>
     </div>
 
+    <!-- Modal Novo Item de Checklist para Seção (z-800) -->
+    <div id="section-checklist-item-modal" class="fixed inset-0 z-[800] hidden overflow-hidden">
+        <div class="absolute inset-0 bg-black/40" onclick="window.closeSectionChecklistItemModal()"></div>
+        <div class="flex items-center justify-center min-h-screen p-container_gutter">
+            <div class="relative bg-surface w-full max-w-md shadow-2xl border border-outline-variant rounded-2xl overflow-hidden space-y-0">
+                <div class="p-5 bg-surface-container flex justify-between items-start border-b border-outline-variant/40">
+                    <div>
+                        <h2 class="text-headline-md font-bold uppercase text-on-surface tracking-tight">NOVO ITEM DE CHECKLIST</h2>
+                        <p class="text-label-md font-bold text-on-surface-variant uppercase mt-1">ADICIONAR ITEM À SEÇÃO</p>
+                    </div>
+                    <button type="button" onclick="window.closeSectionChecklistItemModal()" class="text-on-surface-variant hover:text-on-surface transition-colors p-1 rounded-lg">
+                        <span class="material-symbols-outlined text-[22px]">close</span>
+                    </button>
+                </div>
+                <div class="p-6 space-y-4">
+                    <div class="space-y-2">
+                        <label class="text-label-md font-bold text-on-surface-variant uppercase tracking-wider text-xs">DESCRIÇÃO DO ITEM</label>
+                        <input type="text" id="section-checklist-item-title" class="w-full bg-surface-container-low border-2 border-primary/80 focus:border-primary p-3.5 text-body-md font-bold uppercase text-on-surface focus:outline-none rounded-xl transition-all" placeholder="EX: ESTADO DAS ROLDANAS DE GUIA" onkeydown="if(event.key==='Enter') window.saveSectionChecklistItem()">
+                    </div>
+                </div>
+                <div class="p-6 pt-0 flex gap-4">
+                    <button type="button" onclick="window.closeSectionChecklistItemModal()" class="flex-1 border border-outline text-on-surface font-bold py-3.5 uppercase hover:bg-surface-container-low transition-all rounded-xl text-label-md tracking-wider">CANCELAR</button>
+                    <button type="button" onclick="window.saveSectionChecklistItem()" class="flex-1 bg-primary text-on-primary font-bold py-3.5 uppercase hover:brightness-105 shadow-md transition-all rounded-xl text-label-md tracking-wider">ADICIONAR</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal Editar Agendamento (z-800) -->
     <div id="edit-asset-modal" class="fixed inset-0 z-[800] hidden overflow-hidden">
         <div id="edit-asset-overlay" class="absolute inset-0 bg-black/40" onclick="window.closeEditAssetModal()"></div>
@@ -1208,6 +1236,25 @@
                                 <option value="TECNICO">TÉCNICO</option>
                                 <option value="ADMINISTRADOR">ADMINISTRADOR</option>
                             </select>
+                        </div>
+
+                        <div class="space-y-stack_sm">
+                            <label class="text-label-md text-on-surface-variant uppercase">Assinatura Digital</label>
+                            <div class="flex items-center gap-4">
+                                <div id="user-signature-preview-container" class="w-36 h-16 border-2 border-dashed border-outline-variant bg-surface-container-low rounded-xl flex items-center justify-center overflow-hidden shrink-0">
+                                    <span class="text-xs text-on-surface-variant uppercase font-bold text-center px-2">Sem Assinatura</span>
+                                </div>
+                                <div class="flex flex-col gap-2">
+                                    <button type="button" onclick="document.getElementById('user-signature-input').click()" class="px-4 py-2 bg-surface-container-high border border-outline hover:border-primary text-on-surface font-bold text-xs uppercase rounded-xl transition-all cursor-pointer flex items-center gap-2">
+                                        <span class="material-symbols-outlined text-[18px]">draw</span>
+                                        Anexar Assinatura
+                                    </button>
+                                    <button type="button" id="remove-user-signature-btn" onclick="window.removeUserSignature()" class="hidden px-4 py-1.5 bg-error/10 text-error hover:bg-error/20 font-bold text-xs uppercase rounded-xl transition-all cursor-pointer text-center">
+                                        Remover
+                                    </button>
+                                </div>
+                                <input type="file" id="user-signature-input" accept="image/*" class="hidden" onchange="window.handleUserSignatureUpload(event)">
+                            </div>
                         </div>
                     </div>
 

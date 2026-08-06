@@ -1,7 +1,7 @@
 import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud } from './data.js';
 import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay, hashPassword } from './utils.js';
 import { renderCompanies as renderCompaniesUI, renderAssetsTable } from './ui-render.js';
-import { renderObservationBlock, renderNode } from './checklist-render.js';
+import { renderObservationBlock, renderNode, renderCustomChecklistItemRow, renderResponsibleCard } from './checklist-render.js';
 import { mountChecklistForm, getFormRoot, collectFormData } from './checklist-ui.js';
 import { createInspectionDocument, validateBeforeSend, mergeLegacyReport } from './checklist-state.js';
 import { CHECKLIST_SCHEMA } from './checklist-schema.js';
@@ -378,6 +378,8 @@ window.startChecklist = function() {
 };
 
 let activeCustomSections = [];
+let activeCustomItems = [];
+let targetSectionIdForChecklistModal = null;
 let isSavingOrSendingChecklist = false;
 
 function openChecklistForm(context, savedDoc = null) {
@@ -400,6 +402,8 @@ function openChecklistForm(context, savedDoc = null) {
         : createInspectionDocument(context);
 
     activeCustomSections = doc.customSections || [];
+    activeCustomItems = doc.customItems || [];
+    window.activeCustomItems = activeCustomItems;
 
     if (titleEl) titleEl.textContent = doc.type || context.tipo;
     if (infoEl) infoEl.textContent = doc.assetInfo || context.assetInfo;
@@ -422,6 +426,7 @@ function openChecklistForm(context, savedDoc = null) {
         sendBtn.classList.remove('opacity-50', 'pointer-events-none');
     }
 
+    window.usersList = usersList;
     if (formRoot) mountChecklistForm(formRoot, doc);
 
     modal.classList.remove('hidden');
@@ -838,6 +843,8 @@ window.closeChecklistModal = function() {
     editingOrderId = null;
     currentChecklistContext = null;
     activeCustomSections = [];
+    activeCustomItems = [];
+    window.activeCustomItems = [];
     isSavingOrSendingChecklist = false;
     if (formRoot) formRoot.innerHTML = '';
 
@@ -870,6 +877,7 @@ window.savePartialInspection = function() {
             ...existing,
             ...formData,
             customSections: activeCustomSections,
+            customItems: activeCustomItems,
             id: editingOrderId,
         });
         const idx = tempOpenOrders.findIndex(o => o.id === editingOrderId);
@@ -879,6 +887,7 @@ window.savePartialInspection = function() {
         doc = createInspectionDocument(currentChecklistContext, {
             ...formData,
             customSections: activeCustomSections,
+            customItems: activeCustomItems,
             status: 'DRAFT',
             id: newId,
         });
@@ -944,6 +953,7 @@ function generateNextReportId() {
     const newReport = createInspectionDocument(currentChecklistContext, {
         ...formData,
         customSections: activeCustomSections,
+        customItems: activeCustomItems,
         status: 'FINALIZED',
         id: reportId,
         type: currentChecklistContext.tipo,
@@ -1085,6 +1095,11 @@ window.openUserModal = function() {
     
     document.getElementById('btn-user-delete').style.display = 'none'; // Hide delete when creating
     
+    window.currentUserSignatureBase64 = null;
+    const sigPreview = document.getElementById('user-signature-preview-container');
+    if (sigPreview) sigPreview.innerHTML = '<span class="text-xs text-on-surface-variant uppercase font-bold text-center px-2">Sem Assinatura</span>';
+    document.getElementById('remove-user-signature-btn')?.classList.add('hidden');
+
     window.handleUserRegistrationTypeChange();
     
     modal.classList.remove('hidden');
@@ -1118,6 +1133,17 @@ window.openEditUserModal = function(id) {
     
     document.getElementById('btn-user-delete').style.display = 'block'; // Show delete when editing
     
+    window.currentUserSignatureBase64 = user.signature || null;
+    const sigPreview = document.getElementById('user-signature-preview-container');
+    const removeSigBtn = document.getElementById('remove-user-signature-btn');
+    if (user.signature) {
+        if (sigPreview) sigPreview.innerHTML = `<img src="${user.signature}" class="w-full h-full object-contain p-1" />`;
+        removeSigBtn?.classList.remove('hidden');
+    } else {
+        if (sigPreview) sigPreview.innerHTML = '<span class="text-xs text-on-surface-variant uppercase font-bold text-center px-2">Sem Assinatura</span>';
+        removeSigBtn?.classList.add('hidden');
+    }
+
     window.handleUserRegistrationTypeChange();
     
     modal.classList.remove('hidden');
@@ -1332,7 +1358,8 @@ window.saveUserFromForm = async function() {
                     cargo: cargo.toUpperCase(),
                     email: email.toLowerCase(),
                     password: hashedPassword,
-                    permission: permission
+                    permission: permission,
+                    signature: window.currentUserSignatureBase64 !== null ? window.currentUserSignatureBase64 : (u.signature || "")
                 };
             }
             return u;
@@ -1345,7 +1372,8 @@ window.saveUserFromForm = async function() {
             cargo: cargo.toUpperCase(),
             email: email.toLowerCase(),
             password: hashedPassword,
-            permission: permission
+            permission: permission,
+            signature: window.currentUserSignatureBase64 || ""
         }];
     }
     
@@ -1970,9 +1998,10 @@ window.printReportPDF = function(reportId) {
         .signature-footer {
             margin-top: 40px;
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 40px;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 32px 48px;
             page-break-inside: avoid;
+            width: 100%;
         }
 
         .signature-block {
@@ -2426,13 +2455,45 @@ window.printReportPDF = function(reportId) {
         <div id="temp-measurer" style="width: 100%;">
             ${sectionsHTML}
         </div>
-        <div id="temp-signatures" class="signature-footer" style="margin-top: 60px; display: grid; width: 100%;">
-            <div class="signature-block">
-                <span>RESPONSÁVEL</span>
-            </div>
-            <div class="signature-block">
-                <span>RESPONSÁVEL</span>
-            </div>
+        <!-- ASSINATURAS DO RELATÓRIO (NOVO MODELO) -->
+        <div id="temp-signatures" class="signature-footer" style="margin-top: 40px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 32px 48px; width: 100%; box-sizing: border-box;">
+            ${(() => {
+                let selectedResponsaveisList = [];
+                if (report.responsaveis && Array.isArray(report.responsaveis) && report.responsaveis.length > 0) {
+                    selectedResponsaveisList = report.responsaveis.map(id => {
+                        return usersList.find(u => String(u.id) === String(id));
+                    }).filter(Boolean);
+                }
+
+                if (selectedResponsaveisList.length === 0) {
+                    const defaultUser = usersList.find(u => u.name && u.name.toUpperCase() === (report.tecnico || '').toUpperCase()) || {
+                        name: report.tecnico || "MAYCON DIAS",
+                        cargo: "TÉCNICO RESPONSÁVEL",
+                        signature: ""
+                    };
+                    selectedResponsaveisList = [defaultUser];
+                }
+
+                return selectedResponsaveisList.map(u => {
+                    const uName = (u.name || report.tecnico || "RESPONSÁVEL").toUpperCase();
+                    const uCargo = (u.cargo || u.role || "TÉCNICO RESPONSÁVEL").toUpperCase();
+                    const uSig = u.signature || "";
+
+                    const sigImgHtml = uSig
+                        ? `<img src="${uSig}" style="max-height: 48px; max-width: 180px; object-fit: contain; margin-bottom: 4px;" alt="Assinatura Digital">`
+                        : `<div style="height: 48px;"></div>`;
+
+                    return `
+                    <div style="text-align: center; width: 100%; max-width: 320px; margin: 0 auto; page-break-inside: avoid;">
+                        <div style="height: 52px; display: flex; align-items: flex-end; justify-content: center;">
+                            ${sigImgHtml}
+                        </div>
+                        <div style="border-top: 1.5px solid #000000; width: 100%; margin-top: 4px; margin-bottom: 6px;"></div>
+                        <div style="font-size: 11px; font-weight: 700; color: #111827; text-transform: uppercase; line-height: 1.2;">${escapeHTML(uCargo)}</div>
+                        <div style="font-size: 12px; font-weight: 800; color: #000000; text-transform: uppercase; margin-top: 2px; line-height: 1.2;">${escapeHTML(uName)}</div>
+                    </div>`;
+                }).join('');
+            })()}
         </div>
     </div>
 
@@ -2702,9 +2763,10 @@ function renderPrintImagesGrid(images) {
 
 function renderPrintObsBlock(text, title = "OBSERVAÇÕES:") {
     if (!text || !text.trim()) return '';
+    const titleHtml = title ? `<div class="print-obs-label">${title}</div>` : '';
     return `
     <div class="print-obs-container">
-        <div class="print-obs-label">${title}</div>
+        ${titleHtml}
         <table class="print-obs-table">
             <tbody>
                 <tr>
@@ -2756,7 +2818,8 @@ function getChecklistPrintHTML(report) {
             const images = (resp.images || []).filter(img => img && String(img).trim() !== "");
 
             let imgsHtml = renderPrintImagesGrid(images);
-            let obsHtml = renderPrintObsBlock(val || '(SEM OBSERVAÇÕES)');
+            const isObsLabel = node.label && node.label.toUpperCase().includes('OBSERVAÇ');
+            let obsHtml = renderPrintObsBlock(val || '(SEM OBSERVAÇÕES)', isObsLabel ? '' : 'OBSERVAÇÕES:');
 
             return `
             <div class="print-item">
@@ -2934,7 +2997,10 @@ function getChecklistPrintHTML(report) {
         let childrenHtml = '';
 
         if (isGroup) {
-            const itemsHtml = node.children.map(child => {
+            const sectionCustomItems = (report.customItems || []).filter(ci => ci.sectionId === node.id);
+            const allItems = [...node.children, ...sectionCustomItems];
+
+            const itemsHtml = allItems.map(child => {
                 const resp = responses[child.id] || {};
                 const status = resp.status || '-';
                 let statusClass = 'status-na';
@@ -4094,6 +4160,150 @@ window.deleteCompany = function(empresaNome) {
     if (currentView === 'assets') renderAtivosView();
     if (currentView === 'reports') renderReportsView();
     window.showAlert('EMPRESA E ATIVOS EXCLUÍDOS COM SUCESSO.', 'success');
+};
+
+window.toggleSectionMenu = function(event, sectionId) {
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+    }
+    
+    const existingMenu = document.getElementById('section-floating-menu');
+    const isSameSection = existingMenu && existingMenu.dataset.sectionId === sectionId;
+    if (existingMenu) {
+        existingMenu.remove();
+    }
+    if (isSameSection) return;
+
+    const btn = event?.currentTarget || event?.target?.closest('button');
+    const parentContainer = btn?.parentElement || document.body;
+
+    const menu = document.createElement('div');
+    menu.id = 'section-floating-menu';
+    menu.dataset.sectionId = sectionId;
+    menu.className = 'absolute right-0 top-full mt-2 z-[999] bg-surface border border-outline-variant rounded-2xl shadow-xl p-2.5 min-w-[200px] flex flex-col gap-1 text-left animate-fadeIn';
+    menu.innerHTML = `
+        <button type="button" onclick="window.selectSectionMenuOption('obs', '${sectionId}')" class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-surface-container-low text-on-surface font-bold text-xs uppercase transition-all duration-150 cursor-pointer">
+            <span class="material-symbols-outlined text-[#EAB308] text-[22px]">chat_bubble_outline</span>
+            <span>OBSERVAÇÕES</span>
+        </button>
+        <button type="button" onclick="window.selectSectionMenuOption('checklist', '${sectionId}')" class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-surface-container-low text-on-surface font-bold text-xs uppercase transition-all duration-150 cursor-pointer">
+            <span class="material-symbols-outlined text-[#EAB308] text-[22px]">playlist_add</span>
+            <span>CHECKLIST</span>
+        </button>
+    `;
+    
+    parentContainer.appendChild(menu);
+};
+
+window.selectSectionMenuOption = function(option, sectionId) {
+    document.getElementById('section-floating-menu')?.remove();
+    if (option === 'obs') {
+        window.addAdditionalObservationBlock(null, sectionId);
+    } else if (option === 'checklist') {
+        window.openSectionChecklistItemModal(sectionId);
+    }
+};
+
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('#section-floating-menu') && !e.target.closest('button[onclick*="toggleSectionMenu"]')) {
+        document.getElementById('section-floating-menu')?.remove();
+    }
+});
+
+window.openSectionChecklistItemModal = function(sectionId) {
+    targetSectionIdForChecklistModal = sectionId;
+    const modal = document.getElementById('section-checklist-item-modal');
+    const input = document.getElementById('section-checklist-item-title');
+    if (input) input.value = '';
+    modal?.classList.remove('hidden');
+    setTimeout(() => input?.focus(), 50);
+};
+
+window.closeSectionChecklistItemModal = function() {
+    document.getElementById('section-checklist-item-modal')?.classList.add('hidden');
+    targetSectionIdForChecklistModal = null;
+};
+
+window.saveSectionChecklistItem = function() {
+    const titleInput = document.getElementById('section-checklist-item-title');
+    const titleVal = titleInput?.value.trim();
+    if (!titleVal) {
+        return window.showAlert('INFORME A DESCRIÇÃO DO ITEM DE CHECKLIST.', 'warning');
+    }
+    if (!targetSectionIdForChecklistModal) {
+        return window.showAlert('SEÇÃO NÃO IDENTIFICADA.', 'error');
+    }
+
+    const sectionId = targetSectionIdForChecklistModal;
+    const itemId = `custom_item_${sectionId}_${Date.now()}`;
+    const newItem = {
+        id: itemId,
+        label: titleVal,
+        fieldType: 'inspectable',
+        sectionId: sectionId
+    };
+
+    activeCustomItems.push(newItem);
+    window.activeCustomItems = activeCustomItems;
+
+    const card = document.querySelector(`.checklist-inspectable-group[data-section-id="${sectionId}"]`);
+    if (card) {
+        const itemsContainer = card.querySelector('.checklist-items-container') || card.querySelector('.divide-y');
+        if (itemsContainer) {
+            const itemHtml = renderCustomChecklistItemRow(newItem, sectionId);
+            itemsContainer.insertAdjacentHTML('beforeend', itemHtml);
+            const addedRow = itemsContainer.lastElementChild;
+            addedRow?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
+
+    window.closeSectionChecklistItemModal();
+};
+
+window.removeCustomChecklistItem = function(itemId, sectionId) {
+    activeCustomItems = activeCustomItems.filter(ci => ci.id !== itemId);
+    window.activeCustomItems = activeCustomItems;
+    const row = document.querySelector(`[data-custom-item-id="${itemId}"]`);
+    if (row) row.remove();
+};
+
+window.addResponsibleBlock = function(respId = '') {
+    const container = document.getElementById('checklist-responsibles-container');
+    if (!container) return;
+    window.usersList = usersList;
+    const cardIndex = container.children.length;
+    const html = renderResponsibleCard(respId, usersList, cardIndex);
+    container.insertAdjacentHTML('beforeend', html);
+    const added = container.lastElementChild;
+    added?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+};
+
+window.handleUserSignatureUpload = function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const base64 = e.target.result;
+        window.currentUserSignatureBase64 = base64;
+        const sigPreview = document.getElementById('user-signature-preview-container');
+        if (sigPreview) {
+            sigPreview.innerHTML = `<img src="${base64}" class="w-full h-full object-contain p-1" />`;
+        }
+        document.getElementById('remove-user-signature-btn')?.classList.remove('hidden');
+    };
+    reader.readAsDataURL(file);
+};
+
+window.removeUserSignature = function() {
+    window.currentUserSignatureBase64 = "";
+    const sigPreview = document.getElementById('user-signature-preview-container');
+    if (sigPreview) {
+        sigPreview.innerHTML = '<span class="text-xs text-on-surface-variant uppercase font-bold text-center px-2">Sem Assinatura</span>';
+    }
+    document.getElementById('remove-user-signature-btn')?.classList.add('hidden');
+    const fileInput = document.getElementById('user-signature-input');
+    if (fileInput) fileInput.value = '';
 };
 
 window.addAdditionalObservationBlock = function(buttonEl, sectionId) {

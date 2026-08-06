@@ -134,7 +134,9 @@ export async function syncKeyToSupabase(key, data) {
                 name: u.name,
                 email: u.email,
                 password: await hashPassword(u.password),
-                permission: u.permission
+                permission: u.permission,
+                cargo: u.cargo || u.role || '',
+                signature: u.signature || u.assinatura || ''
             })));
             await dbUpsert('users', rows);
         } else if (key === 'crane_events') {
@@ -167,7 +169,9 @@ export async function syncKeyToSupabase(key, data) {
                 responses: o.responses || {},
                 generalObservation: o.generalObservation || '',
                 generalImages: o.generalImages || [],
-                customSections: o.customSections || []
+                customSections: o.customSections || [],
+                customItems: o.customItems || [],
+                responsaveis: o.responsaveis || []
             }));
             await dbUpsert('open_orders', rows);
         } else if (key === 'crane_reports') {
@@ -185,7 +189,9 @@ export async function syncKeyToSupabase(key, data) {
                 responses: r.responses || {},
                 generalObservation: r.generalObservation || '',
                 generalImages: r.generalImages || [],
-                customSections: r.customSections || []
+                customSections: r.customSections || [],
+                customItems: r.customItems || [],
+                responsaveis: r.responsaveis || []
             }));
             await dbUpsert('finalized_reports', rows);
         } else if (key === 'crane_internal_company') {
@@ -342,7 +348,9 @@ export async function syncAllFromSupabase() {
                 name: u.name || '',
                 email: u.email ? u.email.trim().toLowerCase() : '',
                 password: await hashPassword(u.password),
-                permission: u.permission || 'TECNICO'
+                permission: u.permission || 'TECNICO',
+                cargo: u.cargo || u.role || '',
+                signature: u.signature || u.assinatura || ''
             })));
             updateArrayInPlace(usersList, mappedUsers);
             localStorage.setItem('crane_users', JSON.stringify(usersList));

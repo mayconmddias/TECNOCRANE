@@ -20,6 +20,8 @@ export function createInspectionDocument(context, existing = null) {
         generalObservation: base.generalObservation || '',
         generalImages: base.generalImages || [],
         customSections: base.customSections || [],
+        customItems: base.customItems || [],
+        responsaveis: base.responsaveis || [],
     };
 }
 
@@ -108,10 +110,15 @@ export function collectFormData(rootEl) {
     const generalObs = rootEl.querySelector('#checklist-general-observation');
     const generalImages = Array.from(rootEl.querySelectorAll('#checklist-general-images img')).map(img => img.src);
 
+    const responsaveis = Array.from(rootEl.querySelectorAll('.checklist-responsible-select'))
+        .map(sel => sel.value)
+        .filter(val => val && val.trim() !== '');
+
     return {
         responses,
         generalObservation: generalObs ? generalObs.value : '',
         generalImages,
+        responsaveis
     };
 }
 
