@@ -249,7 +249,17 @@ window.switchView = function(view) {
     else if (view === 'calendar') renderCalendar();
     else if (view === 'users') renderUsers();
     else if (view === 'open-orders') renderOpenOrders();
-    else if (view === 'reports') renderReportsView();
+    else if (view === 'reports') {
+        // Se ainda não há relatórios em memória, tenta carregar do localStorage antes de renderizar
+        if (finalizedReports.length === 0) {
+            const cached = getStoredData('crane_reports', []);
+            if (cached.length > 0) {
+                updateArrayInPlace(finalizedReports, cached);
+            }
+        }
+        renderReportsView();
+    }
+
     else if (view === 'assets') renderAtivosView();
 };
 
@@ -3590,8 +3600,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const dbOpenOrders = await getDBValue('crane_open_orders', openOrders);
     updateArrayInPlace(openOrders, dbOpenOrders);
 
-    const dbFinalizedReports = await getDBValue('crane_reports', finalizedReports);
-    updateArrayInPlace(finalizedReports, dbFinalizedReports);
+    const dbFinalizedReports = await getDBValue('crane_reports', null);
+    // Só sobrescreve finalizedReports se o IndexedDB tiver dados
+    // (evita apagar dados que o syncAllFromSupabase já carregou do Supabase)
+    if (dbFinalizedReports && Array.isArray(dbFinalizedReports) && dbFinalizedReports.length > 0) {
+        updateArrayInPlace(finalizedReports, dbFinalizedReports);
+    }
+
 
     // 3. Roda as migrações com os dados atualizados do DB
     runMigrationsAndSync();
