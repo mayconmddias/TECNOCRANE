@@ -597,3 +597,17 @@ export function setUsersList(newList) {
     usersList = newList;
     setStoredData('crane_users', usersList);
 }
+
+export let openOrders = getStoredData('crane_open_orders', []);
+
+export function setOpenOrders(newList) {
+    openOrders = newList;
+    setStoredData('crane_open_orders', openOrders);
+}
+
+export let finalizedReports = getStoredData('crane_reports', []);
+
+export function setFinalizedReports(newList) {
+    finalizedReports = newList;
+    setStoredData('crane_reports', finalizedReports);
+}

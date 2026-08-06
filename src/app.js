@@ -1,4 +1,4 @@
-import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud } from './data.js';
+import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud, openOrders, setOpenOrders, finalizedReports, setFinalizedReports } from './data.js';
 import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay, hashPassword } from './utils.js';
 import { renderCompanies as renderCompaniesUI, renderAssetsTable } from './ui-render.js';
 import { renderObservationBlock, renderNode, renderCustomChecklistItemRow, renderResponsibleCard } from './checklist-render.js';
@@ -15,8 +15,6 @@ const today = new Date();
 today.setHours(0, 0, 0, 0);
 let assets = getStoredData('crane_assets', []);
 let events = [];
-let openOrders = getStoredData('crane_open_orders', []);
-let finalizedReports = getStoredData('crane_reports', []);
 
 function runMigrationsAndSync() {
     // Migração dos ativos no localStorage para corresponder às especificações da nova lista técnica
@@ -75,7 +73,7 @@ function runMigrationsAndSync() {
     setStoredData('crane_events', events);
 
     // Migração das ordens de serviço e relatórios no localStorage para usar os novos tipos
-    openOrders = openOrders.map(order => {
+    updateArrayInPlace(openOrders, openOrders.map(order => {
         const matchingTechnicalAsset = allAssetsList.find(ta => ta.id === order.equipamentoId || ta.id === order.equipamento);
         if (matchingTechnicalAsset) {
             return {
@@ -88,10 +86,10 @@ function runMigrationsAndSync() {
             };
         }
         return order;
-    });
+    }));
     setStoredData('crane_open_orders', openOrders);
 
-    finalizedReports = finalizedReports.map(report => {
+    updateArrayInPlace(finalizedReports, finalizedReports.map(report => {
         const matchingTechnicalAsset = allAssetsList.find(ta => ta.id === report.equipamentoId || ta.id === report.equipamento);
         if (matchingTechnicalAsset) {
             return {
@@ -104,7 +102,7 @@ function runMigrationsAndSync() {
             };
         }
         return report;
-    });
+    }));
 
 }
 
@@ -1288,7 +1286,7 @@ window.saveCadastroInterno = function() {
             setStoredData('crane_events', events);
         }
         if (typeof finalizedReports !== 'undefined') {
-            finalizedReports = finalizedReports.map(r => r.empresa.toLowerCase() === oldName.toLowerCase() ? { ...r, empresa: newCompany.name } : r);
+            updateArrayInPlace(finalizedReports, finalizedReports.map(r => r.empresa.toLowerCase() === oldName.toLowerCase() ? { ...r, empresa: newCompany.name } : r));
             setStoredData('crane_reports', finalizedReports);
         }
     }
@@ -1403,7 +1401,7 @@ window.deleteUserFromForm = function() {
 function renderOpenOrders() {
     const tbody = document.getElementById('open-orders-tbody');
     if (!tbody) return;
-    openOrders = getStoredData('crane_open_orders', openOrders || []);
+    updateArrayInPlace(openOrders, getStoredData('crane_open_orders', openOrders || []));
     tbody.innerHTML = '';
     openOrders.forEach(order => {
         const parts = (order.assetInfo || '').split('—').map(s => s.trim());
@@ -1447,7 +1445,7 @@ function renderReportsView() {
     if (!comTbody || !assTbody || !repTbody) return;
 
     // Recarrega relatórios do storage para garantir sincronização pós-login / pós-clear cache
-    finalizedReports = getStoredData('crane_reports', finalizedReports || []);
+    updateArrayInPlace(finalizedReports, getStoredData('crane_reports', finalizedReports || []));
 
     // Se a empresa selecionada nos relatórios não for válida na lista atual, reseta
     const currentList = companies || [];
@@ -3153,8 +3151,7 @@ function editReport(id) {
 }
 
 window.finalizarExclusaoDefinitiva = function() {
-    finalizedReports = finalizedReports.filter(r => r.id !== window.reportIdParaExcluir);
-    setStoredData('crane_reports', finalizedReports);
+    setFinalizedReports(finalizedReports.filter(r => r.id !== window.reportIdParaExcluir));
     renderReportsView();
     const modal = document.getElementById('modal-confirm-exclusao');
     if (modal) modal.classList.add('hidden');
@@ -3726,12 +3723,10 @@ window.deleteAssetFromModal = function() {
         setStoredData('crane_events', events);
         
         // 4. Remove from openOrders
-        openOrders = openOrders.filter(order => order.equipamentoId !== assetId && order.equipamento !== assetId);
-        setStoredData('crane_open_orders', openOrders);
+        setOpenOrders(openOrders.filter(order => order.equipamentoId !== assetId && order.equipamento !== assetId));
         
         // 5. Remove from finalizedReports
-        finalizedReports = finalizedReports.filter(rep => rep.equipamentoId !== assetId && rep.equipamento !== assetId);
-        setStoredData('crane_reports', finalizedReports);
+        setFinalizedReports(finalizedReports.filter(rep => rep.equipamentoId !== assetId && rep.equipamento !== assetId));
         
         // Close modal and refresh UI
         document.getElementById('modal-unified-registration').classList.add('hidden');
@@ -3892,21 +3887,19 @@ window.saveUnifiedRegistration = function() {
                 deleteAssetFromCloud(oldId);
             }
 
-            openOrders = openOrders.map(order => {
+            setOpenOrders(openOrders.map(order => {
                 if (order.equipamentoId === oldId || order.equipamento === oldId) {
                     return { ...order, equipamentoId: id, equipamento: id, empresa, tipo };
                 }
                 return order;
-            });
-            setStoredData('crane_open_orders', openOrders);
+            }));
             
-            finalizedReports = finalizedReports.map(rep => {
+            setFinalizedReports(finalizedReports.map(rep => {
                 if (rep.equipamentoId === oldId || rep.equipamento === oldId) {
                     return { ...rep, equipamentoId: id, equipamento: id, empresa, tipo };
                 }
                 return rep;
-            });
-            setStoredData('crane_reports', finalizedReports);
+            }));
         }
 
         setStoredData('crane_assets', assets);
@@ -4097,11 +4090,10 @@ window.saveCompanyChange = function() {
         setStoredData('crane_events', events);
 
         // Update finalized reports if they exist
-        finalizedReports = finalizedReports.map(r => {
+        setFinalizedReports(finalizedReports.map(r => {
             if (r.empresa.toLowerCase() === oldName.toLowerCase()) return { ...r, empresa: newName };
             return r;
-        });
-        setStoredData('crane_reports', finalizedReports);
+        }));
 
         if (selectedCompany.toLowerCase() === oldName.toLowerCase()) {
             selectedCompany = newName;
