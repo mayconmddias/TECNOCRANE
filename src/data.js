@@ -57,17 +57,31 @@ export function setDBValue(key, value) {
     });
 }
 
+// Chaves pesadas que contêm fotos/base64 e devem utilizar exclusivamente IndexedDB (evita 5MB limit)
+const HEAVY_KEYS = new Set(['crane_reports', 'crane_open_orders']);
+
 // Funções de Persistência
 export function getStoredData(key, defaultValue) {
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : defaultValue;
+    try {
+        const data = localStorage.getItem(key);
+        return data ? JSON.parse(data) : defaultValue;
+    } catch (e) {
+        return defaultValue;
+    }
 }
 
 export function setStoredData(key, data) {
-    try {
-        localStorage.setItem(key, JSON.stringify(data));
-    } catch (e) {
-        console.warn(`localStorage falhou para ${key} (limite excedido), continuando com IndexedDB:`, e);
+    if (!HEAVY_KEYS.has(key)) {
+        try {
+            localStorage.setItem(key, JSON.stringify(data));
+        } catch (e) {
+            console.warn(`localStorage falhou para ${key} (limite excedido), continuando com IndexedDB:`, e);
+        }
+    } else {
+        // Limpa chave legada no localStorage para liberar memória
+        try {
+            localStorage.removeItem(key);
+        } catch (e) {}
     }
     
     setDBValue(key, data).catch(err => {
@@ -402,8 +416,7 @@ export async function syncAllFromSupabase() {
                 equipamentoNome: o.equipamentoNome || o.equipamentonome || o.equipamento || ''
             }));
             updateArrayInPlace(openOrders, mappedOrders);
-            localStorage.setItem('crane_open_orders', JSON.stringify(mappedOrders));
-            await setDBValue('crane_open_orders', mappedOrders);
+            setStoredData('crane_open_orders', mappedOrders);
         }
 
         // 6. Finalized Reports
@@ -423,8 +436,7 @@ export async function syncAllFromSupabase() {
                 equipamentoNome: r.equipamentoNome || r.equipamentonome || r.equipamento || ''
             }));
             updateArrayInPlace(finalizedReports, mappedReports);
-            localStorage.setItem('crane_reports', JSON.stringify(mappedReports));
-            await setDBValue('crane_reports', mappedReports);
+            setStoredData('crane_reports', mappedReports);
         }
 
         // 7. Internal Company
