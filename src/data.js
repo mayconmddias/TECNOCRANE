@@ -503,6 +503,7 @@ export async function syncAllFromSupabase() {
                     dbFinalizedReports = localReports;
                 }
             } else {
+                // Normaliza UMA VEZ os dados crus vindos do Supabase
                 const cloudMapped = dbFinalizedReports.map(normalizeReportObject).filter(Boolean);
                 const cloudIds = new Set(cloudMapped.map(r => r.id));
                 const missingLocal = localReports.filter(lr => lr && lr.id && !cloudIds.has(lr.id));
@@ -511,20 +512,24 @@ export async function syncAllFromSupabase() {
                     console.log(`SUPABASE: Encontrados ${missingLocal.length} relatórios locais pendentes de envio. Sincronizando...`);
                     const merged = [...cloudMapped, ...missingLocal];
                     await syncKeyToSupabase('crane_reports', merged);
-                    dbFinalizedReports = merged;
+                    dbFinalizedReports = merged; // já normalizado
                 } else {
-                    dbFinalizedReports = cloudMapped;
+                    dbFinalizedReports = cloudMapped; // já normalizado
                 }
             }
 
-            if (dbFinalizedReports) {
-                const mappedReports = dbFinalizedReports.map(normalizeReportObject).filter(Boolean);
+            if (dbFinalizedReports && dbFinalizedReports.length > 0) {
+                // ATENÇÃO: dbFinalizedReports já está normalizado — NÃO aplicar normalizeReportObject novamente
+                const mappedReports = dbFinalizedReports.filter(Boolean);
+                console.log(`SUPABASE: ${mappedReports.length} relatório(s) carregado(s) da nuvem.`);
                 localStorage.setItem('crane_reports', JSON.stringify(mappedReports));
                 await setDBValue('crane_reports', mappedReports);
                 // Atualiza a variável em memória do app.js via bridge function
                 if (typeof window.syncFinalizedReports === 'function') {
                     window.syncFinalizedReports(mappedReports);
                 }
+            } else {
+                console.warn('SUPABASE: Nenhum relatório encontrado na nuvem nem localmente.');
             }
         } catch (errReports) {
             console.error('SUPABASE: Erro ao carregar relatórios finalizados:', errReports);

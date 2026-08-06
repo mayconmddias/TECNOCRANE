@@ -1454,15 +1454,6 @@ window.selectReportsAsset = function(assetId) {
     renderReportsView();
 };
 
-window.setFinalizedReportsInMemory = function(newList) {
-    if (newList && Array.isArray(newList) && newList.length > 0) {
-        updateArrayInPlace(finalizedReports, newList);
-        if (currentView === 'reports') {
-            renderReportsView();
-        }
-    }
-};
-
 window.syncFinalizedReports = function(reports) {
     // Aceita dados passados diretamente (do Supabase/IndexedDB) ou faz fallback para localStorage
     const newReports = Array.isArray(reports) ? reports : getStoredData('crane_reports', []);
@@ -1483,7 +1474,7 @@ window.syncFinalizedReports = function(reports) {
         }
     }
 
-    // Re-renderiza a view de relatórios se o DOM estiver pronto
+    // Re-renderiza a view de relatórios sempre que houver dados (independente da view atual)
     if (typeof renderReportsView === 'function') {
         renderReportsView();
     }
@@ -1491,6 +1482,7 @@ window.syncFinalizedReports = function(reports) {
 
 // Alias de compatibilidade
 window.setFinalizedReportsInMemory = window.syncFinalizedReports;
+
 
 function renderReportsView() {
     const comTbody = document.getElementById('reports-companies-tbody');
