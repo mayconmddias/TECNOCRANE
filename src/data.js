@@ -88,9 +88,11 @@ export function setStoredData(key, data) {
         console.error(`Erro ao gravar ${key} no IndexedDB:`, err);
     });
 
-    // Sincroniza em segundo plano se o Supabase estiver configurado e não for o carregamento inicial
-    if (isSupabaseConfigured && !isInitialLoad) {
-        syncKeyToSupabase(key, data);
+    // Sincroniza em segundo plano se o Supabase estiver configurado
+    if (isSupabaseConfigured) {
+        syncKeyToSupabase(key, data).catch(err => {
+            console.error(`SUPABASE: Erro ao sincronizar ${key}:`, err);
+        });
     }
 }
 
@@ -170,41 +172,27 @@ export async function syncKeyToSupabase(key, data) {
             await dbUpsert('scheduled_inspections', rows);
         } else if (key === 'crane_open_orders') {
             const rows = data.map(o => ({
-                id: o.id,
-                status: o.status || '',
-                type: o.type || '',
+                id: String(o.id),
+                status: o.status || 'EM ABERTO',
+                type: o.type || 'PREVENTIVA',
                 empresa: o.empresa || '',
-                equipamentoId: o.equipamentoId || '',
-                equipamentoNome: o.equipamentoNome || '',
-                assetInfo: o.assetInfo || '',
+                equipamentoId: o.equipamentoId || o.equipamento || '',
+                equipamentoNome: o.equipamentoNome || o.equipamento || '',
+                assetInfo: o.assetInfo || `${o.equipamentoNome || o.equipamento || ''} — ${o.empresa || ''}`,
                 date: o.date || '',
-                createdAt: o.createdAt || new Date().toISOString(),
-                updatedAt: o.updatedAt || new Date().toISOString(),
-                responses: o.responses || {},
-                generalObservation: o.generalObservation || '',
-                generalImages: o.generalImages || [],
-                customSections: o.customSections || [],
-                customItems: o.customItems || [],
                 responsaveis: o.responsaveis || []
             }));
             await dbUpsert('open_orders', rows);
         } else if (key === 'crane_reports') {
             const rows = data.map(r => ({
-                id: r.id,
-                status: r.status || '',
-                type: r.type || '',
+                id: String(r.id),
+                status: r.status || 'FINALIZED',
+                type: r.type || 'PREVENTIVA',
                 empresa: r.empresa || '',
-                equipamentoId: r.equipamentoId || '',
-                equipamentoNome: r.equipamentoNome || '',
-                assetInfo: r.assetInfo || '',
+                equipamentoId: r.equipamentoId || r.equipamento || '',
+                equipamentoNome: r.equipamentoNome || r.equipamento || '',
+                assetInfo: r.assetInfo || `${r.equipamentoNome || r.equipamento || ''} — ${r.empresa || ''}`,
                 date: r.date || '',
-                createdAt: r.createdAt || new Date().toISOString(),
-                updatedAt: r.updatedAt || new Date().toISOString(),
-                responses: r.responses || {},
-                generalObservation: r.generalObservation || '',
-                generalImages: r.generalImages || [],
-                customSections: r.customSections || [],
-                customItems: r.customItems || [],
                 responsaveis: r.responsaveis || []
             }));
             await dbUpsert('finalized_reports', rows);
@@ -401,13 +389,18 @@ export async function syncAllFromSupabase() {
 
         // 5. Open Orders
         let dbOpenOrders = await dbFetchAll('open_orders');
+        const localOpenOrders = await getDBValue('crane_open_orders', []);
+        
         if (!dbOpenOrders || dbOpenOrders.length === 0) {
-            console.log('SUPABASE: Tabela de ordens em aberto vazia na nuvem. Sincronizando dados locais...');
-            const localOpenOrders = getStoredData('crane_open_orders', []);
             if (localOpenOrders.length > 0) {
+                console.log('SUPABASE: Tabela de ordens em aberto vazia na nuvem. Sincronizando dados locais...');
                 await syncKeyToSupabase('crane_open_orders', localOpenOrders);
                 dbOpenOrders = localOpenOrders;
             }
+        } else if (localOpenOrders.length > dbOpenOrders.length) {
+            console.log('SUPABASE: Ordens locais pendentes identificadas. Sincronizando com a nuvem...');
+            await syncKeyToSupabase('crane_open_orders', localOpenOrders);
+            dbOpenOrders = await dbFetchAll('open_orders') || localOpenOrders;
         }
         if (dbOpenOrders) {
             const mappedOrders = dbOpenOrders.map(o => ({
@@ -415,19 +408,33 @@ export async function syncAllFromSupabase() {
                 equipamentoId: o.equipamentoId || o.equipamentoid || '',
                 equipamentoNome: o.equipamentoNome || o.equipamentonome || o.equipamento || ''
             }));
-            updateArrayInPlace(openOrders, mappedOrders);
-            setStoredData('crane_open_orders', mappedOrders);
+            const combinedOrders = mappedOrders.map(o => {
+                const localMatch = localOpenOrders.find(lo => String(lo.id) === String(o.id));
+                return localMatch ? { ...o, ...localMatch } : o;
+            });
+            localOpenOrders.forEach(lo => {
+                if (!combinedOrders.some(co => String(co.id) === String(lo.id))) {
+                    combinedOrders.push(lo);
+                }
+            });
+            updateArrayInPlace(openOrders, combinedOrders);
+            setStoredData('crane_open_orders', combinedOrders);
         }
 
         // 6. Finalized Reports
         let dbFinalizedReports = await dbFetchAll('finalized_reports');
+        const localReports = await getDBValue('crane_reports', []);
+        
         if (!dbFinalizedReports || dbFinalizedReports.length === 0) {
-            console.log('SUPABASE: Tabela de relatórios finalizados vazia na nuvem. Sincronizando dados locais...');
-            const localReports = getStoredData('crane_reports', []);
             if (localReports.length > 0) {
+                console.log('SUPABASE: Tabela de relatórios finalizados vazia na nuvem. Sincronizando dados locais...');
                 await syncKeyToSupabase('crane_reports', localReports);
                 dbFinalizedReports = localReports;
             }
+        } else if (localReports.length > dbFinalizedReports.length) {
+            console.log('SUPABASE: Relatórios locais pendentes identificados. Sincronizando com a nuvem...');
+            await syncKeyToSupabase('crane_reports', localReports);
+            dbFinalizedReports = await dbFetchAll('finalized_reports') || localReports;
         }
         if (dbFinalizedReports) {
             const mappedReports = dbFinalizedReports.map(r => ({
@@ -435,8 +442,17 @@ export async function syncAllFromSupabase() {
                 equipamentoId: r.equipamentoId || r.equipamentoid || '',
                 equipamentoNome: r.equipamentoNome || r.equipamentonome || r.equipamento || ''
             }));
-            updateArrayInPlace(finalizedReports, mappedReports);
-            setStoredData('crane_reports', mappedReports);
+            const combinedReports = mappedReports.map(r => {
+                const localMatch = localReports.find(lr => String(lr.id) === String(r.id));
+                return localMatch ? { ...r, ...localMatch } : r;
+            });
+            localReports.forEach(lr => {
+                if (!combinedReports.some(cr => String(cr.id) === String(lr.id))) {
+                    combinedReports.push(lr);
+                }
+            });
+            updateArrayInPlace(finalizedReports, combinedReports);
+            setStoredData('crane_reports', combinedReports);
         }
 
         // 7. Internal Company
