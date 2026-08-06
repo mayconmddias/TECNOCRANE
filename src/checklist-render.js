@@ -460,7 +460,10 @@ export function renderChecklistForm(doc = null) {
         });
     }
 
-    const responsivesList = (doc && doc.responsaveis && Array.isArray(doc.responsaveis)) ? doc.responsaveis : [];
+    let responsivesList = (doc && doc.responsaveis && Array.isArray(doc.responsaveis)) ? [...doc.responsaveis] : [];
+    while (responsivesList.length < 2) {
+        responsivesList.push('');
+    }
     const users = (window.usersList && Array.isArray(window.usersList) && window.usersList.length > 0) ? window.usersList : (usersList || []);
 
     const bottomBtnsAndResponsibles = `

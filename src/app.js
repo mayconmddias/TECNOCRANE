@@ -3151,6 +3151,9 @@ function editReport(id) {
 }
 
 window.finalizarExclusaoDefinitiva = function() {
+    if (window.reportIdParaExcluir) {
+        deleteReportFromCloud(window.reportIdParaExcluir);
+    }
     setFinalizedReports(finalizedReports.filter(r => r.id !== window.reportIdParaExcluir));
     renderReportsView();
     const modal = document.getElementById('modal-confirm-exclusao');
