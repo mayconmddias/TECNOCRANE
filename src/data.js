@@ -203,7 +203,8 @@ export async function syncKeyToSupabase(key, data) {
             const rows = data.map(o => {
                 const responsesObj = { ...(o.responses || {}) };
                 if (o.customItems && o.customItems.length > 0) responsesObj.__customItems = o.customItems;
-                if (o.responsibles && o.responsibles.length > 0) responsesObj.__responsibles = o.responsibles;
+                // Não embutir responsibles em responses — usar coluna dedicada
+                delete responsesObj.__responsibles;
                 return {
                     id: o.id,
                     status: o.status || '',
@@ -213,12 +214,14 @@ export async function syncKeyToSupabase(key, data) {
                     equipamentoNome: o.equipamentoNome || '',
                     assetInfo: o.assetInfo || '',
                     date: o.date || '',
+                    tecnico: o.tecnico || '',
                     createdAt: o.createdAt || new Date().toISOString(),
                     updatedAt: o.updatedAt || new Date().toISOString(),
                     responses: responsesObj,
                     generalObservation: o.generalObservation || '',
                     generalImages: o.generalImages || [],
-                    customSections: o.customSections || []
+                    customSections: o.customSections || [],
+                    responsibles: o.responsibles || []
                 };
             });
             await dbUpsert('open_orders', rows);
@@ -226,7 +229,8 @@ export async function syncKeyToSupabase(key, data) {
             const rows = data.map(r => {
                 const responsesObj = { ...(r.responses || {}) };
                 if (r.customItems && r.customItems.length > 0) responsesObj.__customItems = r.customItems;
-                if (r.responsibles && r.responsibles.length > 0) responsesObj.__responsibles = r.responsibles;
+                // Não embutir responsibles em responses — usar coluna dedicada
+                delete responsesObj.__responsibles;
                 return {
                     id: r.id,
                     status: r.status || '',
@@ -236,12 +240,14 @@ export async function syncKeyToSupabase(key, data) {
                     equipamentoNome: r.equipamentoNome || '',
                     assetInfo: r.assetInfo || '',
                     date: r.date || '',
+                    tecnico: r.tecnico || '',
                     createdAt: r.createdAt || new Date().toISOString(),
                     updatedAt: r.updatedAt || new Date().toISOString(),
                     responses: responsesObj,
                     generalObservation: r.generalObservation || '',
                     generalImages: r.generalImages || [],
-                    customSections: r.customSections || []
+                    customSections: r.customSections || [],
+                    responsibles: r.responsibles || []
                 };
             });
             await dbUpsert('finalized_reports', rows);
@@ -515,8 +521,9 @@ export async function syncAllFromSupabase() {
                 const mappedReports = dbFinalizedReports.map(normalizeReportObject).filter(Boolean);
                 localStorage.setItem('crane_reports', JSON.stringify(mappedReports));
                 await setDBValue('crane_reports', mappedReports);
+                // Atualiza a variável em memória do app.js via bridge function
                 if (typeof window.syncFinalizedReports === 'function') {
-                    window.syncFinalizedReports();
+                    window.syncFinalizedReports(mappedReports);
                 }
             }
         } catch (errReports) {
@@ -668,9 +675,15 @@ export async function loadAllDataFromDB() {
     const dbUsers = await getDBValue('crane_users', []);
     updateArrayInPlace(usersList, dbUsers || []);
 
+    // Carrega relatórios do IndexedDB e atualiza memória via bridge function
     const storedReports = (await getDBValue('crane_reports', []) || []).map(normalizeReportObject).filter(Boolean);
-    if (storedReports.length > 0 && typeof window.setFinalizedReportsInMemory === 'function') {
-        window.setFinalizedReportsInMemory(storedReports);
+    if (storedReports.length > 0) {
+        if (typeof window.syncFinalizedReports === 'function') {
+            window.syncFinalizedReports(storedReports);
+        } else if (typeof window.setFinalizedReportsInMemory === 'function') {
+            // Compatibilidade com nome antigo
+            window.setFinalizedReportsInMemory(storedReports);
+        }
     }
 
     // 2. Tenta sincronizar do Supabase em segundo plano (Não-bloqueante)

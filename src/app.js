@@ -106,6 +106,20 @@ function runMigrationsAndSync() {
 // Executa as migrações iniciais síncronas usando o cache do localStorage
 runMigrationsAndSync();
 
+// --- BRIDGE FUNCTIONS: Sincronização de dados da camada de dados para memória ---
+// Nota: a definição completa de window.syncFinalizedReports (com renderReportsView)
+// é feita mais abaixo, após renderReportsView ser declarada.
+// Este placeholder garante que chamadas antecipadas do data.js não causem erro.
+window.syncFinalizedReports = function(reports) {
+    const newReports = Array.isArray(reports) ? reports : getStoredData('crane_reports', []);
+    if (Array.isArray(newReports)) {
+        updateArrayInPlace(finalizedReports, newReports);
+    }
+    // renderReportsView será chamada pela versão completa definida abaixo
+};
+window.setFinalizedReportsInMemory = window.syncFinalizedReports;
+
+
 function formatDateFromDate(d) {
     const day = String(d.getDate()).padStart(2, '0');
     const months = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
@@ -1449,24 +1463,34 @@ window.setFinalizedReportsInMemory = function(newList) {
     }
 };
 
-window.syncFinalizedReports = function() {
-    const loaded = getStoredData('crane_reports', []);
-    if (loaded && loaded.length > 0) {
-        updateArrayInPlace(finalizedReports, loaded);
+window.syncFinalizedReports = function(reports) {
+    // Aceita dados passados diretamente (do Supabase/IndexedDB) ou faz fallback para localStorage
+    const newReports = Array.isArray(reports) ? reports : getStoredData('crane_reports', []);
+    
+    if (Array.isArray(newReports)) {
+        updateArrayInPlace(finalizedReports, newReports);
+        console.log(`syncFinalizedReports: ${newReports.length} relatório(s) carregado(s) em memória.`);
     }
 
-    // Auto-corrige reportsSelectedCompany com o valor real vindo do Supabase
+    // Auto-corrige reportsSelectedCompany com o valor real dos dados carregados
     if (finalizedReports.length > 0) {
         const selClean = (reportsSelectedCompany || '').trim().toLowerCase();
         const hasMatch = finalizedReports.some(r => (r.empresa || '').trim().toLowerCase() === selClean);
         if (!hasMatch) {
-            // Usa a empresa do primeiro relatório carregado como âncora
+            // Ancora na empresa do primeiro relatório carregado como fonte de verdade
             reportsSelectedCompany = (finalizedReports[0].empresa || '').trim();
             reportsSelectedAssetId = null;
         }
     }
-    renderReportsView();
+
+    // Re-renderiza a view de relatórios se o DOM estiver pronto
+    if (typeof renderReportsView === 'function') {
+        renderReportsView();
+    }
 };
+
+// Alias de compatibilidade
+window.setFinalizedReportsInMemory = window.syncFinalizedReports;
 
 function renderReportsView() {
     const comTbody = document.getElementById('reports-companies-tbody');
