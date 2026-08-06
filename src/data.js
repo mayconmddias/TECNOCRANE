@@ -401,6 +401,7 @@ export async function syncAllFromSupabase() {
                 equipamentoId: o.equipamentoId || o.equipamentoid || '',
                 equipamentoNome: o.equipamentoNome || o.equipamentonome || o.equipamento || ''
             }));
+            updateArrayInPlace(openOrders, mappedOrders);
             localStorage.setItem('crane_open_orders', JSON.stringify(mappedOrders));
             await setDBValue('crane_open_orders', mappedOrders);
         }
@@ -421,6 +422,7 @@ export async function syncAllFromSupabase() {
                 equipamentoId: r.equipamentoId || r.equipamentoid || '',
                 equipamentoNome: r.equipamentoNome || r.equipamentonome || r.equipamento || ''
             }));
+            updateArrayInPlace(finalizedReports, mappedReports);
             localStorage.setItem('crane_reports', JSON.stringify(mappedReports));
             await setDBValue('crane_reports', mappedReports);
         }
@@ -562,6 +564,12 @@ export async function loadAllDataFromDB() {
 
     const dbUsers = await getDBValue('crane_users', []);
     updateArrayInPlace(usersList, dbUsers || []);
+
+    const dbOpenOrders = await getDBValue('crane_open_orders', []);
+    updateArrayInPlace(openOrders, dbOpenOrders || []);
+
+    const dbFinalizedReports = await getDBValue('crane_reports', []);
+    updateArrayInPlace(finalizedReports, dbFinalizedReports || []);
 
     // 2. Tenta sincronizar do Supabase em segundo plano (Não-bloqueante)
     if (isSupabaseConfigured) {

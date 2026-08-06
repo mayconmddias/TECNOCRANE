@@ -1391,6 +1391,7 @@ window.deleteUserFromForm = function() {
     window.showAlert('DESEJA EXCLUIR ESTE USUÁRIO DEFINITIVAMENTE?', 'warning', () => {
         const updatedList = usersList.filter(u => u.id !== userId);
         setUsersList(updatedList);
+        deleteUserFromCloud(userId);
         window.closeUserModal();
         renderUsers();
         window.showAlert('USUÁRIO EXCLUÍDO COM SUCESSO.', 'success');
@@ -1626,7 +1627,10 @@ window.printReportPDF = function(reportId) {
 
     const headerLogoHtml = (internalCompany && internalCompany.logo)
         ? `<img src="${internalCompany.logo}" style="max-height: 55px; max-width: 180px; object-fit: contain;">`
-        : `<div style="font-weight: 900; font-size: 20px; color: #000000; letter-spacing: -0.5px;">${internalCompanyName}</div>`;
+        : `<div style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: #facc15; border: 2px solid #000000; padding: 4px 10px; font-weight: 900; font-size: 16px; color: #000000; letter-spacing: 0.5px; text-transform: uppercase;">
+             <span class="material-symbols-outlined" style="font-size: 20px; font-weight: bold;">crane</span>
+             <span>${internalCompanyName} ®</span>
+           </div>`;
 
     const sectionsHTML = getChecklistPrintHTML(report);
 
