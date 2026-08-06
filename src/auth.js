@@ -1,5 +1,5 @@
-// Crane Pro - Authentication & Security Module [LOCKED]
 import { usersList, setStoredData, loadAllDataFromDB, syncAllFromSupabase } from './data.js';
+import { isSupabaseConfigured, dbFetchAll } from './supabase.js';
 import { hashPassword } from './utils.js';
 
 console.log('CRANE PRO: Módulo de Autenticação Carregado.');
@@ -147,47 +147,61 @@ window.handleLogin = async function() {
     const email = emailInput ? emailInput.value.trim().toLowerCase() : '';
     const pass = passInput ? passInput.value.trim() : '';
 
-    if (!email || !pass) return window.showAlert('PREENCHA E-MAIL E SENHA.', 'warning');
+    if (!email || !pass) return window.showAlert('E-MAIL OU SENHA INCORRETO.', 'warning');
 
-    // Se os usuários não estiverem na memória ou no cache, busca imediatamente do banco de dados (Supabase / IndexedDB)
-    if (!usersList || usersList.length === 0) {
-        await loadAllDataFromDB();
-        await syncAllFromSupabase();
+    // 1. Busca os dados dos usuários diretamente no Supabase em tempo real (ou do IndexedDB/memória local)
+    let candidateUsers = [];
+    if (isSupabaseConfigured) {
+        try {
+            const dbUsers = await dbFetchAll('users');
+            if (dbUsers && Array.isArray(dbUsers) && dbUsers.length > 0) {
+                candidateUsers = dbUsers;
+            }
+        } catch (e) {
+            console.error('SUPABASE: Erro ao buscar usuários no login:', e);
+        }
+    }
+
+    if (candidateUsers.length === 0) {
+        if (!usersList || usersList.length === 0) {
+            await loadAllDataFromDB();
+        }
+        candidateUsers = usersList || [];
     }
 
     const passHash = await hashPassword(pass);
 
     let foundUser = null;
-    for (const u of usersList) {
+    for (const u of candidateUsers) {
         const uEmail = (u.email || '').trim().toLowerCase();
         if (uEmail === email) {
-            const uHash = await hashPassword(u.password);
-            if (uHash === passHash) {
-                u.password = uHash;
-                foundUser = u;
+            const uPass = u.password || '';
+            const uHash = await hashPassword(uPass);
+            if (uPass === pass || uPass === passHash || uHash === passHash) {
+                foundUser = {
+                    id: u.id,
+                    name: (u.name || '').toUpperCase(),
+                    cargo: (u.cargo || u.role || 'TÉCNICO').toUpperCase(),
+                    email: uEmail,
+                    password: passHash,
+                    permission: u.permission || 'TECNICO',
+                    signature: u.signature || u.assinatura || ''
+                };
                 break;
             }
         }
     }
 
-    // Se ainda não encontrou e o Supabase está disponível, tenta sincronizar uma vez mais da nuvem em tempo real
-    if (!foundUser) {
-        await syncAllFromSupabase();
-        for (const u of usersList) {
-            const uEmail = (u.email || '').trim().toLowerCase();
-            if (uEmail === email) {
-                const uHash = await hashPassword(u.password);
-                if (uHash === passHash) {
-                    u.password = uHash;
-                    foundUser = u;
-                    break;
-                }
-            }
-        }
-    }
-
     if (foundUser) {
+        // Atualiza/Sincroniza o usuário encontrado no array local usersList
+        const idx = usersList.findIndex(u => String(u.id) === String(foundUser.id));
+        if (idx !== -1) {
+            usersList[idx] = foundUser;
+        } else {
+            usersList.push(foundUser);
+        }
         setStoredData('crane_users', usersList);
+
         document.getElementById('login-view').classList.add('hidden');
         document.getElementById('main-app').classList.remove('hidden');
         
@@ -202,7 +216,7 @@ window.handleLogin = async function() {
             window.renderAssets();
         }
     } else {
-        window.showAlert('USUÁRIO OU SENHA INCORRETOS.', 'warning');
+        window.showAlert('E-MAIL OU SENHA INCORRETO.', 'warning');
     }
 };
 
