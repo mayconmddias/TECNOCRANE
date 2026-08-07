@@ -180,7 +180,13 @@ export async function syncKeyToSupabase(key, data) {
                 equipamentoNome: o.equipamentoNome || o.equipamento || '',
                 assetInfo: o.assetInfo || `${o.equipamentoNome || o.equipamento || ''} — ${o.empresa || ''}`,
                 date: o.date || '',
-                responsaveis: o.responsaveis || []
+                responsaveis: o.responsaveis || [],
+                responses: o.responses || {},
+                generalObservation: o.generalObservation || '',
+                generalImages: o.generalImages || [],
+                customSections: o.customSections || [],
+                customItems: o.customItems || [],
+                tecnico: o.tecnico || ''
             }));
             await dbUpsert('open_orders', rows);
         } else if (key === 'crane_reports') {
@@ -193,7 +199,13 @@ export async function syncKeyToSupabase(key, data) {
                 equipamentoNome: r.equipamentoNome || r.equipamento || '',
                 assetInfo: r.assetInfo || `${r.equipamentoNome || r.equipamento || ''} — ${r.empresa || ''}`,
                 date: r.date || '',
-                responsaveis: r.responsaveis || []
+                responsaveis: r.responsaveis || [],
+                responses: r.responses || {},
+                generalObservation: r.generalObservation || '',
+                generalImages: r.generalImages || [],
+                customSections: r.customSections || [],
+                customItems: r.customItems || [],
+                tecnico: r.tecnico || ''
             }));
             await dbUpsert('finalized_reports', rows);
         } else if (key === 'crane_internal_company') {
@@ -406,11 +418,28 @@ export async function syncAllFromSupabase() {
             const mappedOrders = dbOpenOrders.map(o => ({
                 ...o,
                 equipamentoId: o.equipamentoId || o.equipamentoid || '',
-                equipamentoNome: o.equipamentoNome || o.equipamentonome || o.equipamento || ''
+                equipamentoNome: o.equipamentoNome || o.equipamentonome || o.equipamento || '',
+                responses: o.responses || o.responses_data || {},
+                generalObservation: o.generalObservation || o.generalobservation || '',
+                generalImages: o.generalImages || o.generalimages || [],
+                customSections: o.customSections || o.customsections || [],
+                customItems: o.customItems || o.customitems || []
             }));
             const combinedOrders = mappedOrders.map(o => {
                 const localMatch = localOpenOrders.find(lo => String(lo.id) === String(o.id));
-                return localMatch ? { ...o, ...localMatch } : o;
+                if (localMatch) {
+                    const hasLocalResponses = localMatch.responses && Object.keys(localMatch.responses).length > 0;
+                    return {
+                        ...o,
+                        ...localMatch,
+                        responses: hasLocalResponses ? localMatch.responses : (o.responses || {}),
+                        generalObservation: localMatch.generalObservation || o.generalObservation || '',
+                        generalImages: (localMatch.generalImages && localMatch.generalImages.length > 0) ? localMatch.generalImages : (o.generalImages || []),
+                        customSections: (localMatch.customSections && localMatch.customSections.length > 0) ? localMatch.customSections : (o.customSections || []),
+                        customItems: (localMatch.customItems && localMatch.customItems.length > 0) ? localMatch.customItems : (o.customItems || [])
+                    };
+                }
+                return o;
             });
             localOpenOrders.forEach(lo => {
                 if (!combinedOrders.some(co => String(co.id) === String(lo.id))) {
@@ -440,11 +469,28 @@ export async function syncAllFromSupabase() {
             const mappedReports = dbFinalizedReports.map(r => ({
                 ...r,
                 equipamentoId: r.equipamentoId || r.equipamentoid || '',
-                equipamentoNome: r.equipamentoNome || r.equipamentonome || r.equipamento || ''
+                equipamentoNome: r.equipamentoNome || r.equipamentonome || r.equipamento || '',
+                responses: r.responses || r.responses_data || {},
+                generalObservation: r.generalObservation || r.generalobservation || '',
+                generalImages: r.generalImages || r.generalimages || [],
+                customSections: r.customSections || r.customsections || [],
+                customItems: r.customItems || r.customitems || []
             }));
             const combinedReports = mappedReports.map(r => {
                 const localMatch = localReports.find(lr => String(lr.id) === String(r.id));
-                return localMatch ? { ...r, ...localMatch } : r;
+                if (localMatch) {
+                    const hasLocalResponses = localMatch.responses && Object.keys(localMatch.responses).length > 0;
+                    return {
+                        ...r,
+                        ...localMatch,
+                        responses: hasLocalResponses ? localMatch.responses : (r.responses || {}),
+                        generalObservation: localMatch.generalObservation || r.generalObservation || '',
+                        generalImages: (localMatch.generalImages && localMatch.generalImages.length > 0) ? localMatch.generalImages : (r.generalImages || []),
+                        customSections: (localMatch.customSections && localMatch.customSections.length > 0) ? localMatch.customSections : (r.customSections || []),
+                        customItems: (localMatch.customItems && localMatch.customItems.length > 0) ? localMatch.customItems : (r.customItems || [])
+                    };
+                }
+                return r;
             });
             localReports.forEach(lr => {
                 if (!combinedReports.some(cr => String(cr.id) === String(lr.id))) {

@@ -287,13 +287,13 @@ export function countInspectableFields() {
 }
 
 export function mergeLegacyReport(report) {
-    if (report.responses) return report;
+    if (report && report.responses && Object.keys(report.responses).length > 0) return report;
     const doc = createInspectionDocument({
-        tipo: report.type,
-        empresa: report.empresa,
-        equipamentoId: report.equipamento,
-        equipamentoNome: report.equipamento,
-        assetInfo: report.assetInfo,
-    }, { ...report, responses: createEmptyResponses() });
+        tipo: report.type || 'PREVENTIVA',
+        empresa: report.empresa || '',
+        equipamentoId: report.equipamentoId || report.equipamento || '',
+        equipamentoNome: report.equipamentoNome || report.equipamento || '',
+        assetInfo: report.assetInfo || '',
+    }, { ...report, responses: (report && report.responses) ? report.responses : createEmptyResponses() });
     return doc;
 }
