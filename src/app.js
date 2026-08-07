@@ -49,27 +49,39 @@ function runMigrationsAndSync() {
     }
     setStoredData('crane_assets', assets);
 
-    // Sempre regenera events a partir dos assets para garantir consistência
-    events = assets.map(a => {
-        try {
-            const dateObj = parseAssetDate(a.data);
-            if (isNaN(dateObj.getTime())) throw new Error('Invalid date');
-            const companyColor = getCompanyColor(a.empresa || "N/A");
+    // Atualiza eventos garantindo que tipo e local sejam enriquecidos a partir do cadastro tecnico allAssetsList
+    if (events && events.length > 0) {
+        events = events.map(e => {
+            const ta = allAssetsList.find(a => a.id === e.equipamento || a.id === e.id);
             return {
-                id: a.id,
-                empresa: a.empresa,
-                tipo: a.tipo || "N/A",
-                local: a.local || "SETOR OPERACIONAL",
-                equipamento: a.id,
-                date: dateObj.toISOString().split('T')[0],
-                color: a.status === 'NAO_REALIZADO' ? 'border-red-500 bg-red-50' : companyColor.color,
-                textColor: a.status === 'NAO_REALIZADO' ? 'text-red-700' : companyColor.textColor,
-                status: a.status || 'PENDENTE'
+                ...e,
+                tipo: (e.tipo && e.tipo !== 'N/A') ? e.tipo : (ta ? (ta.tipo || ta.nome || 'N/A') : 'N/A'),
+                local: (e.local && e.local !== 'SETOR OPERACIONAL') ? e.local : (ta ? (ta.local || 'SETOR OPERACIONAL') : 'SETOR OPERACIONAL')
             };
-        } catch (e) {
-            return null;
-        }
-    }).filter(e => e !== null);
+        });
+    } else {
+        // Se events estiver vazio, gera a partir de assets
+        events = assets.map(a => {
+            try {
+                const dateObj = parseAssetDate(a.data);
+                if (isNaN(dateObj.getTime())) throw new Error('Invalid date');
+                const companyColor = getCompanyColor(a.empresa || "N/A");
+                return {
+                    id: a.id,
+                    empresa: a.empresa,
+                    tipo: a.tipo || "N/A",
+                    local: a.local || "SETOR OPERACIONAL",
+                    equipamento: a.id,
+                    date: dateObj.toISOString().split('T')[0],
+                    color: a.status === 'NAO_REALIZADO' ? 'border-red-500 bg-red-50' : companyColor.color,
+                    textColor: a.status === 'NAO_REALIZADO' ? 'text-red-700' : companyColor.textColor,
+                    status: a.status || 'PENDENTE'
+                };
+            } catch (e) {
+                return null;
+            }
+        }).filter(e => e !== null);
+    }
     setStoredData('crane_events', events);
 
     // Migração das ordens de serviço e relatórios no localStorage para usar os novos tipos
@@ -488,6 +500,10 @@ window.saveProgEvent = function() {
     const groupId = Date.now();
     const companyColor = getCompanyColor(empresa);
 
+    const matchingAsset = allAssetsList.find(a => a.id === equipamento);
+    const assetTipo = matchingAsset ? (matchingAsset.tipo || matchingAsset.nome || 'N/A') : 'N/A';
+    const assetLocal = matchingAsset ? (matchingAsset.local || 'SETOR OPERACIONAL') : 'SETOR OPERACIONAL';
+
     let startDate = new Date(date + 'T12:00:00');
     for (let i = 0; i < recorrencia; i++) {
         const currentEventDate = new Date(startDate);
@@ -500,7 +516,10 @@ window.saveProgEvent = function() {
         const eventData = {
             id: eventId,
             groupId: recorrencia > 1 ? groupId : null,
-            empresa, equipamento, date: dateStr,
+            empresa, equipamento,
+            tipo: assetTipo,
+            local: assetLocal,
+            date: dateStr,
             color: companyColor.color, textColor: companyColor.textColor, status: 'PENDENTE'
         };
 

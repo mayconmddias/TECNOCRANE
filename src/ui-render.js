@@ -1,5 +1,5 @@
-// Crane Pro - UI Rendering Module
 import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay } from './utils.js';
+import { allAssetsList } from './data.js';
 
 export function renderCompanies(containerId, companies, selectedCompany, onSelect) {
     const tbody = document.getElementById(containerId);
@@ -99,11 +99,19 @@ export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedC
         const dayNames = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO'];
         const dayOfWeek = dayNames[eventDate.getDay()];
 
+        const matchingAsset = (allAssetsList || []).find(a => a.id === event.equipamento || a.id === event.id);
+        const displayTipo = (event.tipo && event.tipo !== 'N/A')
+            ? event.tipo
+            : (matchingAsset ? (matchingAsset.tipo || matchingAsset.nome || 'N/A') : 'N/A');
+        const displayLocal = (event.local && event.local !== 'SETOR OPERACIONAL')
+            ? event.local
+            : (matchingAsset ? (matchingAsset.local || 'SETOR OPERACIONAL') : 'SETOR OPERACIONAL');
+
         tr.innerHTML = `
             <td class="py-stack_sm px-card_padding text-body-md uppercase text-on-surface col-empresa">${event.empresa}</td>
             <td class="py-stack_sm px-card_padding font-bold text-body-md uppercase transition-all duration-200 col-equipamento text-on-surface">${event.equipamento}</td>
-            <td class="py-stack_sm px-card_padding text-body-md uppercase text-on-surface-variant col-tipo">${event.tipo || 'N/A'}</td>
-            <td class="py-stack_sm px-card_padding text-body-md uppercase text-on-surface-variant col-local">${event.local || 'SETOR OPERACIONAL'}</td>
+            <td class="py-stack_sm px-card_padding text-body-md uppercase text-on-surface-variant col-tipo">${displayTipo}</td>
+            <td class="py-stack_sm px-card_padding text-body-md uppercase text-on-surface-variant col-local">${displayLocal}</td>
             <td class="py-stack_sm px-card_padding text-body-md font-bold ${dateColor} col-data">
                 ${displayDate}
                 ${event.status === 'NAO_REALIZADO' ? '<br><span class="text-label-md text-error uppercase">NÃO REALIZADO</span>' : ''}
