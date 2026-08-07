@@ -4371,7 +4371,6 @@ window.removeUserSignature = function() {
     const fileInput = document.getElementById('user-signature-input');
     if (fileInput) fileInput.value = '';
 };
-
 window.addAdditionalObservationBlock = function(buttonEl, sectionId) {
     const card = document.querySelector(`.checklist-inspectable-group[data-section-id="${sectionId}"]`);
     if (!card) return;
