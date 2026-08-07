@@ -494,9 +494,8 @@ window.saveProgEvent = function() {
         currentEventDate.setMonth(startDate.getMonth() + i);
         const dateStr = currentEventDate.toISOString().split('T')[0];
         
-        // Se for o primeiro evento (ou sem recorrência), o ID é exatamente o ID do ativo.
-        // Se for recorrência futura, adiciona a data para manter a chave primária única no Supabase.
-        const eventId = i === 0 ? equipamento : `${equipamento}-${dateStr}`;
+        // Garante ID único baseado no equipamento e na data da programação para evitar que novos agendamentos sobrescrevam anteriores
+        const eventId = `${equipamento}-${dateStr}`;
 
         const eventData = {
             id: eventId,
@@ -702,10 +701,13 @@ window.confirmDeleteModal = function() {
     modal.classList.remove('hidden');
 };
 
-window.deleteSingleEvent = function() {
+window.deleteSingleEvent = async function() {
     const id = window.currentEditingEventId;
     events = events.filter(e => e.id != id);
     setStoredData('crane_events', events);
+    if (id) {
+        await deleteEventFromCloud(id);
+    }
     
     document.getElementById('modal-delete-prog').classList.add('hidden');
     window.closeEditAssetModal();
@@ -714,12 +716,20 @@ window.deleteSingleEvent = function() {
     window.showAlert('PROGRAMAÇÃO EXCLUÍDA COM SUCESSO.', 'success');
 };
 
-window.deleteRecurringEvents = function() {
+window.deleteRecurringEvents = async function() {
     const id = window.currentEditingEventId;
     const event = events.find(e => e.id == id);
     if (event && event.groupId) {
+        const eventsToDelete = events.filter(e => e.groupId === event.groupId);
         events = events.filter(e => e.groupId !== event.groupId);
         setStoredData('crane_events', events);
+        for (const ev of eventsToDelete) {
+            await deleteEventFromCloud(ev.id);
+        }
+    } else if (id) {
+        events = events.filter(e => e.id != id);
+        setStoredData('crane_events', events);
+        await deleteEventFromCloud(id);
     }
     
     document.getElementById('modal-delete-prog').classList.add('hidden');
@@ -3722,8 +3732,10 @@ window.deleteAssetFromModal = function() {
         setStoredData('crane_assets', assets);
         
         // 3. Remove from events (calendar events)
+        const eventsToDelete = events.filter(ev => ev.id === assetId || ev.equipamento === assetId);
         events = events.filter(ev => ev.id !== assetId && ev.equipamento !== assetId);
         setStoredData('crane_events', events);
+        eventsToDelete.forEach(ev => deleteEventFromCloud(ev.id));
         
         // 4. Remove from openOrders
         setOpenOrders(openOrders.filter(order => order.equipamentoId !== assetId && order.equipamento !== assetId));
