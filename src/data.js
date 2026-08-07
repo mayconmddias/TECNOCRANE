@@ -381,20 +381,48 @@ export async function syncAllFromSupabase() {
                 dbEvents = localEvents;
             }
         }
-        if (dbEvents) {
-            const mappedEvents = dbEvents.map(e => ({
-                id: isNaN(e.id) ? e.id : Number(e.id),
-                groupId: e.groupId ? (isNaN(e.groupId) ? e.groupId : Number(e.groupId)) : null,
-                empresa: e.empresa || '',
-                equipamento: e.equipamento || '',
-                date: e.date || '',
-                status: e.status || 'PENDENTE',
-                justificativa: e.justificativa || '',
-                color: e.color || '',
-                textColor: e.textColor || '',
-                tipo: e.tipo || '',
-                local: e.local || ''
-            }));
+        if (dbEvents && dbEvents.length > 0) {
+            const mappedEvents = [];
+            for (const e of dbEvents) {
+                let eventId = String(e.id);
+                const equip = String(e.equipamento || '');
+                const eventDate = e.date || '';
+                
+                // Se o ID for igual ao ID do equipamento (legado sem data), migra para equipamento-data
+                if (equip && eventDate && (eventId === equip || !eventId.includes('-20'))) {
+                    const newId = `${equip}-${eventDate}`;
+                    console.log(`SUPABASE: Migrando agendamento legado '${eventId}' para '${newId}'...`);
+                    await dbDelete('scheduled_inspections', 'id', eventId);
+                    eventId = newId;
+                    await dbUpsert('scheduled_inspections', [{
+                        id: newId,
+                        groupId: e.groupId ? String(e.groupId) : null,
+                        empresa: e.empresa || '',
+                        equipamento: equip,
+                        date: eventDate,
+                        status: e.status || 'PENDENTE',
+                        justificativa: e.justificativa || '',
+                        color: e.color || '',
+                        textColor: e.textColor || '',
+                        tipo: e.tipo || '',
+                        local: e.local || ''
+                    }]);
+                }
+
+                mappedEvents.push({
+                    id: eventId,
+                    groupId: e.groupId ? (isNaN(e.groupId) ? e.groupId : Number(e.groupId)) : null,
+                    empresa: e.empresa || '',
+                    equipamento: equip,
+                    date: eventDate,
+                    status: e.status || 'PENDENTE',
+                    justificativa: e.justificativa || '',
+                    color: e.color || '',
+                    textColor: e.textColor || '',
+                    tipo: e.tipo || '',
+                    local: e.local || ''
+                });
+            }
             localStorage.setItem('crane_events', JSON.stringify(mappedEvents));
             await setDBValue('crane_events', mappedEvents);
         }

@@ -66,13 +66,14 @@ function runMigrationsAndSync() {
                 const dateObj = parseAssetDate(a.data);
                 if (isNaN(dateObj.getTime())) throw new Error('Invalid date');
                 const companyColor = getCompanyColor(a.empresa || "N/A");
+                const isoDate = dateObj.toISOString().split('T')[0];
                 return {
-                    id: a.id,
+                    id: `${a.id}-${isoDate}`,
                     empresa: a.empresa,
                     tipo: a.tipo || "N/A",
                     local: a.local || "SETOR OPERACIONAL",
                     equipamento: a.id,
-                    date: dateObj.toISOString().split('T')[0],
+                    date: isoDate,
                     color: a.status === 'NAO_REALIZADO' ? 'border-red-500 bg-red-50' : companyColor.color,
                     textColor: a.status === 'NAO_REALIZADO' ? 'text-red-700' : companyColor.textColor,
                     status: a.status || 'PENDENTE'
@@ -176,7 +177,7 @@ function saveAssets() {
             const isoDate = dateObj.toISOString().split('T')[0];
             const companyColor = getCompanyColor(a.empresa || "N/A");
             return {
-                id: a.id,
+                id: `${a.id}-${isoDate}`,
                 empresa: a.empresa,
                 tipo: a.tipo || "N/A",
                 local: a.local || "SETOR OPERACIONAL",
@@ -673,19 +674,24 @@ window.updateEventFromIndustrial = function() {
     const dateInput = document.getElementById('edit-asset-date').value;
     const status = document.getElementById('edit-asset-status').value;
     const justificativa = document.getElementById('edit-asset-justificativa').value;
-    const id = window.currentEditingEventId;
-
     let eventIdx = events.findIndex(e => e.id == id);
+    const targetEquip = (eventIdx !== -1 ? events[eventIdx].equipamento : null) || assets.find(a => a.id == id)?.id || id;
     const empresa = events[eventIdx]?.empresa || assets.find(a => a.id == id)?.empresa || "N/A";
     const tipo = events[eventIdx]?.tipo || assets.find(a => a.id == id)?.tipo || assets.find(a => a.id == id)?.nome || "N/A";
     const companyColor = getCompanyColor(empresa);
+    const finalId = (String(id) === String(targetEquip)) ? `${targetEquip}-${dateInput}` : id;
+    
+    if (String(id) !== String(finalId)) {
+        deleteEventFromCloud(id).catch(e => console.error("Erro ao deletar evento antigo:", e));
+    }
+
     const eventData = {
-        id: id,
+        id: finalId,
         date: dateInput,
         status: status,
         justificativa: justificativa,
         empresa: empresa,
-        equipamento: id,
+        equipamento: targetEquip,
         tipo: tipo,
         color: status === 'NAO_REALIZADO' ? 'border-red-500 bg-red-50' : companyColor.color,
         textColor: status === 'NAO_REALIZADO' ? 'text-red-700' : companyColor.textColor
