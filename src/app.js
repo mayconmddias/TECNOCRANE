@@ -976,8 +976,8 @@ window.generateWorkOrder = function() {
 
 function generateNextReportId() {
     let maxNum = 0;
-    const allReports = getStoredData('crane_reports', finalizedReports || []);
-    (allReports || []).forEach(r => {
+    const allReports = finalizedReports || [];
+    allReports.forEach(r => {
         if (r && r.id) {
             const match = String(r.id).match(/\d+/);
             if (match) {
@@ -1448,7 +1448,6 @@ window.deleteUserFromForm = function() {
 function renderOpenOrders() {
     const tbody = document.getElementById('open-orders-tbody');
     if (!tbody) return;
-    updateArrayInPlace(openOrders, getStoredData('crane_open_orders', openOrders || []));
     tbody.innerHTML = '';
     openOrders.forEach(order => {
         const parts = (order.assetInfo || '').split('—').map(s => s.trim());
@@ -1490,9 +1489,6 @@ function renderReportsView() {
     const assTbody = document.getElementById('reports-assets-tbody');
     const repTbody = document.getElementById('reports-tbody');
     if (!comTbody || !assTbody || !repTbody) return;
-
-    // Recarrega relatórios do storage para garantir sincronização pós-login / pós-clear cache
-    updateArrayInPlace(finalizedReports, getStoredData('crane_reports', finalizedReports || []));
 
     // Se a empresa selecionada nos relatórios não for válida na lista atual, reseta
     const currentList = companies || [];

@@ -401,20 +401,8 @@ export async function syncAllFromSupabase() {
 
         // 5. Open Orders
         let dbOpenOrders = await dbFetchAll('open_orders');
-        const localOpenOrders = await getDBValue('crane_open_orders', []);
-        
-        if (!dbOpenOrders || dbOpenOrders.length === 0) {
-            if (localOpenOrders.length > 0) {
-                console.log('SUPABASE: Tabela de ordens em aberto vazia na nuvem. Sincronizando dados locais...');
-                await syncKeyToSupabase('crane_open_orders', localOpenOrders);
-                dbOpenOrders = localOpenOrders;
-            }
-        } else if (localOpenOrders.length > dbOpenOrders.length) {
-            console.log('SUPABASE: Ordens locais pendentes identificadas. Sincronizando com a nuvem...');
-            await syncKeyToSupabase('crane_open_orders', localOpenOrders);
-            dbOpenOrders = await dbFetchAll('open_orders') || localOpenOrders;
-        }
-        if (dbOpenOrders) {
+        if (Array.isArray(dbOpenOrders)) {
+            const localOpenOrders = await getDBValue('crane_open_orders', []);
             const parseIfNeeded = (val) => {
                 if (!val) return null;
                 if (typeof val === 'string') {
@@ -458,31 +446,15 @@ export async function syncAllFromSupabase() {
                     responses: cloudResp
                 };
             });
-            localOpenOrders.forEach(lo => {
-                if (!combinedOrders.some(co => String(co.id) === String(lo.id))) {
-                    combinedOrders.push(lo);
-                }
-            });
             updateArrayInPlace(openOrders, combinedOrders);
-            setStoredData('crane_open_orders', combinedOrders);
+            await setDBValue('crane_open_orders', combinedOrders);
+            try { localStorage.removeItem('crane_open_orders'); } catch (e) {}
         }
 
         // 6. Finalized Reports
         let dbFinalizedReports = await dbFetchAll('finalized_reports');
-        const localReports = await getDBValue('crane_reports', []);
-        
-        if (!dbFinalizedReports || dbFinalizedReports.length === 0) {
-            if (localReports.length > 0) {
-                console.log('SUPABASE: Tabela de relatórios finalizados vazia na nuvem. Sincronizando dados locais...');
-                await syncKeyToSupabase('crane_reports', localReports);
-                dbFinalizedReports = localReports;
-            }
-        } else if (localReports.length > dbFinalizedReports.length) {
-            console.log('SUPABASE: Relatórios locais pendentes identificados. Sincronizando com a nuvem...');
-            await syncKeyToSupabase('crane_reports', localReports);
-            dbFinalizedReports = await dbFetchAll('finalized_reports') || localReports;
-        }
-        if (dbFinalizedReports) {
+        if (Array.isArray(dbFinalizedReports)) {
+            const localReports = await getDBValue('crane_reports', []);
             const parseIfNeeded = (val) => {
                 if (!val) return null;
                 if (typeof val === 'string') {
@@ -526,13 +498,9 @@ export async function syncAllFromSupabase() {
                     responses: cloudResp
                 };
             });
-            localReports.forEach(lr => {
-                if (!combinedReports.some(cr => String(cr.id) === String(lr.id))) {
-                    combinedReports.push(lr);
-                }
-            });
             updateArrayInPlace(finalizedReports, combinedReports);
-            setStoredData('crane_reports', combinedReports);
+            await setDBValue('crane_reports', combinedReports);
+            try { localStorage.removeItem('crane_reports'); } catch (e) {}
         }
 
         // 7. Internal Company
