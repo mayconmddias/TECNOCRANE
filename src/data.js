@@ -180,12 +180,12 @@ export async function syncKeyToSupabase(key, data) {
                 equipamentoNome: o.equipamentoNome || o.equipamento || '',
                 assetInfo: o.assetInfo || `${o.equipamentoNome || o.equipamento || ''} — ${o.empresa || ''}`,
                 date: o.date || '',
-                responsaveis: JSON.stringify(o.responsaveis || []),
-                responses: JSON.stringify(o.responses || {}),
+                responsaveis: o.responsaveis || [],
+                responses: o.responses || {},
                 generalObservation: o.generalObservation || '',
-                generalImages: JSON.stringify((o.generalImages || []).filter(img => !String(img).startsWith('data:'))),
-                customSections: JSON.stringify(o.customSections || []),
-                customItems: JSON.stringify(o.customItems || []),
+                generalImages: (o.generalImages || []).filter(img => !String(img).startsWith('data:')),
+                customSections: o.customSections || [],
+                customItems: o.customItems || [],
                 tecnico: o.tecnico || ''
             }));
             await dbUpsert('open_orders', rows);
@@ -199,12 +199,12 @@ export async function syncKeyToSupabase(key, data) {
                 equipamentoNome: r.equipamentoNome || r.equipamento || '',
                 assetInfo: r.assetInfo || `${r.equipamentoNome || r.equipamento || ''} — ${r.empresa || ''}`,
                 date: r.date || '',
-                responsaveis: JSON.stringify(r.responsaveis || []),
-                responses: JSON.stringify(r.responses || {}),
+                responsaveis: r.responsaveis || [],
+                responses: r.responses || {},
                 generalObservation: r.generalObservation || '',
-                generalImages: JSON.stringify((r.generalImages || []).filter(img => !String(img).startsWith('data:'))),
-                customSections: JSON.stringify(r.customSections || []),
-                customItems: JSON.stringify(r.customItems || []),
+                generalImages: (r.generalImages || []).filter(img => !String(img).startsWith('data:')),
+                customSections: r.customSections || [],
+                customItems: r.customItems || [],
                 tecnico: r.tecnico || ''
             }));
             await dbUpsert('finalized_reports', rows);
