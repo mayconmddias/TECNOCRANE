@@ -415,31 +415,48 @@ export async function syncAllFromSupabase() {
             dbOpenOrders = await dbFetchAll('open_orders') || localOpenOrders;
         }
         if (dbOpenOrders) {
+            const parseIfNeeded = (val) => {
+                if (!val) return null;
+                if (typeof val === 'string') {
+                    try { return JSON.parse(val); } catch (e) { return null; }
+                }
+                return val;
+            };
+            const hasValidKeys = (obj) => obj && typeof obj === 'object' && Object.keys(obj).length > 0;
+
             const mappedOrders = dbOpenOrders.map(o => ({
                 ...o,
                 equipamentoId: o.equipamentoId || o.equipamentoid || '',
                 equipamentoNome: o.equipamentoNome || o.equipamentonome || o.equipamento || '',
-                responses: o.responses || o.responses_data || {},
+                responses: parseIfNeeded(o.responses) || parseIfNeeded(o.responses_data) || {},
                 generalObservation: o.generalObservation || o.generalobservation || '',
-                generalImages: o.generalImages || o.generalimages || [],
-                customSections: o.customSections || o.customsections || [],
-                customItems: o.customItems || o.customitems || []
+                generalImages: parseIfNeeded(o.generalImages) || parseIfNeeded(o.generalimages) || [],
+                customSections: parseIfNeeded(o.customSections) || parseIfNeeded(o.customsections) || [],
+                customItems: parseIfNeeded(o.customItems) || parseIfNeeded(o.customitems) || []
             }));
             const combinedOrders = mappedOrders.map(o => {
                 const localMatch = localOpenOrders.find(lo => String(lo.id) === String(o.id));
+                const cloudResp = parseIfNeeded(o.responses) || {};
                 if (localMatch) {
-                    const hasLocalResponses = localMatch.responses && Object.keys(localMatch.responses).length > 0;
+                    const localResp = parseIfNeeded(localMatch.responses) || {};
+                    const mergedResp = hasValidKeys(localResp) 
+                        ? { ...cloudResp, ...localResp } 
+                        : (hasValidKeys(cloudResp) ? cloudResp : {});
                     return {
                         ...o,
                         ...localMatch,
-                        responses: hasLocalResponses ? localMatch.responses : (o.responses || {}),
+                        responses: mergedResp,
                         generalObservation: localMatch.generalObservation || o.generalObservation || '',
                         generalImages: (localMatch.generalImages && localMatch.generalImages.length > 0) ? localMatch.generalImages : (o.generalImages || []),
                         customSections: (localMatch.customSections && localMatch.customSections.length > 0) ? localMatch.customSections : (o.customSections || []),
-                        customItems: (localMatch.customItems && localMatch.customItems.length > 0) ? localMatch.customItems : (o.customItems || [])
+                        customItems: (localMatch.customItems && localMatch.customItems.length > 0) ? localMatch.customItems : (o.customItems || []),
+                        tecnico: localMatch.tecnico || o.tecnico || ''
                     };
                 }
-                return o;
+                return {
+                    ...o,
+                    responses: cloudResp
+                };
             });
             localOpenOrders.forEach(lo => {
                 if (!combinedOrders.some(co => String(co.id) === String(lo.id))) {
@@ -466,31 +483,48 @@ export async function syncAllFromSupabase() {
             dbFinalizedReports = await dbFetchAll('finalized_reports') || localReports;
         }
         if (dbFinalizedReports) {
+            const parseIfNeeded = (val) => {
+                if (!val) return null;
+                if (typeof val === 'string') {
+                    try { return JSON.parse(val); } catch (e) { return null; }
+                }
+                return val;
+            };
+            const hasValidKeys = (obj) => obj && typeof obj === 'object' && Object.keys(obj).length > 0;
+
             const mappedReports = dbFinalizedReports.map(r => ({
                 ...r,
                 equipamentoId: r.equipamentoId || r.equipamentoid || '',
                 equipamentoNome: r.equipamentoNome || r.equipamentonome || r.equipamento || '',
-                responses: r.responses || r.responses_data || {},
+                responses: parseIfNeeded(r.responses) || parseIfNeeded(r.responses_data) || {},
                 generalObservation: r.generalObservation || r.generalobservation || '',
-                generalImages: r.generalImages || r.generalimages || [],
-                customSections: r.customSections || r.customsections || [],
-                customItems: r.customItems || r.customitems || []
+                generalImages: parseIfNeeded(r.generalImages) || parseIfNeeded(r.generalimages) || [],
+                customSections: parseIfNeeded(r.customSections) || parseIfNeeded(r.customsections) || [],
+                customItems: parseIfNeeded(r.customItems) || parseIfNeeded(r.customitems) || []
             }));
             const combinedReports = mappedReports.map(r => {
                 const localMatch = localReports.find(lr => String(lr.id) === String(r.id));
+                const cloudResp = parseIfNeeded(r.responses) || {};
                 if (localMatch) {
-                    const hasLocalResponses = localMatch.responses && Object.keys(localMatch.responses).length > 0;
+                    const localResp = parseIfNeeded(localMatch.responses) || {};
+                    const mergedResp = hasValidKeys(localResp) 
+                        ? { ...cloudResp, ...localResp } 
+                        : (hasValidKeys(cloudResp) ? cloudResp : {});
                     return {
                         ...r,
                         ...localMatch,
-                        responses: hasLocalResponses ? localMatch.responses : (r.responses || {}),
+                        responses: mergedResp,
                         generalObservation: localMatch.generalObservation || r.generalObservation || '',
                         generalImages: (localMatch.generalImages && localMatch.generalImages.length > 0) ? localMatch.generalImages : (r.generalImages || []),
                         customSections: (localMatch.customSections && localMatch.customSections.length > 0) ? localMatch.customSections : (r.customSections || []),
-                        customItems: (localMatch.customItems && localMatch.customItems.length > 0) ? localMatch.customItems : (r.customItems || [])
+                        customItems: (localMatch.customItems && localMatch.customItems.length > 0) ? localMatch.customItems : (r.customItems || []),
+                        tecnico: localMatch.tecnico || r.tecnico || ''
                     };
                 }
-                return r;
+                return {
+                    ...r,
+                    responses: cloudResp
+                };
             });
             localReports.forEach(lr => {
                 if (!combinedReports.some(cr => String(cr.id) === String(lr.id))) {

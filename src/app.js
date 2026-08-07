@@ -825,7 +825,7 @@ window.changeMonth = function(delta) {
 
 // --- CHECKLIST / INSPECTION ---
 
-window.openChecklistModal = function(id = null) {
+window.openChecklistModal = async function(id = null) {
     if (!id) {
         openChecklistForm(currentChecklistContext || {
             tipo: 'PREVENTIVA',
@@ -837,8 +837,17 @@ window.openChecklistModal = function(id = null) {
         return;
     }
 
-    const order = openOrders.find(o => o.id === id);
+    let order = openOrders.find(o => o.id === id);
     if (order) {
+        if (!order.responses || Object.keys(order.responses || {}).length === 0) {
+            const localOrders = await getDBValue('crane_open_orders', []);
+            const foundLocal = localOrders.find(o => String(o.id) === String(id));
+            if (foundLocal && foundLocal.responses && Object.keys(foundLocal.responses).length > 0) {
+                order = { ...order, ...foundLocal };
+                const idx = openOrders.findIndex(o => String(o.id) === String(id));
+                if (idx !== -1) openOrders[idx] = order;
+            }
+        }
         openChecklistForm({
             tipo: order.type,
             empresa: order.empresa,
@@ -849,8 +858,17 @@ window.openChecklistModal = function(id = null) {
         return;
     }
 
-    const report = finalizedReports.find(r => r.id === id);
+    let report = finalizedReports.find(r => r.id === id);
     if (report) {
+        if (!report.responses || Object.keys(report.responses || {}).length === 0) {
+            const localReports = await getDBValue('crane_reports', []);
+            const foundLocal = localReports.find(r => String(r.id) === String(id));
+            if (foundLocal && foundLocal.responses && Object.keys(foundLocal.responses).length > 0) {
+                report = { ...report, ...foundLocal };
+                const idx = finalizedReports.findIndex(r => String(r.id) === String(id));
+                if (idx !== -1) finalizedReports[idx] = report;
+            }
+        }
         openChecklistForm({
             tipo: report.type,
             empresa: report.empresa,
@@ -1591,12 +1609,12 @@ window.toggleActionMenu = function(event, id) {
     setTimeout(() => document.addEventListener('mousedown', closeMenu), 50);
 };
 
-window.execMenuAction = function(action) {
+window.execMenuAction = async function(action) {
     const id = document.getElementById('global-action-menu').getAttribute('data-current-id');
     document.getElementById('global-action-menu').style.display = 'none';
-    if (action === 'edit') editReport(id);
+    if (action === 'edit') await editReport(id);
     if (action === 'pdf') {
-        window.printReportPDF(id);
+        await window.printReportPDF(id);
     }
     if (action === 'delete') {
         window.reportIdParaExcluir = id;
@@ -1604,8 +1622,17 @@ window.execMenuAction = function(action) {
     }
 };
 
-window.printReportPDF = function(reportId) {
-    const report = finalizedReports.find(r => r.id === reportId);
+window.printReportPDF = async function(reportId) {
+    let report = finalizedReports.find(r => r.id === reportId);
+    if (!report || !report.responses || Object.keys(report.responses || {}).length === 0) {
+        const localReports = await getDBValue('crane_reports', []);
+        const foundLocal = localReports.find(r => String(r.id) === String(reportId));
+        if (foundLocal && foundLocal.responses && Object.keys(foundLocal.responses).length > 0) {
+            report = { ...report, ...foundLocal };
+            const idx = finalizedReports.findIndex(r => String(r.id) === String(reportId));
+            if (idx !== -1) finalizedReports[idx] = report;
+        }
+    }
     if (!report) return window.showAlert('RELATÓRIO NÃO ENCONTRADO.', 'error');
 
     let company = companies.find(c => c.name.toLowerCase() === report.empresa.toLowerCase());
@@ -3166,8 +3193,17 @@ window.execAssetAction = function(action) {
 
 
 
-function editReport(id) {
-    const report = finalizedReports.find(r => r.id === id);
+async function editReport(id) {
+    let report = finalizedReports.find(r => r.id === id);
+    if (!report || !report.responses || Object.keys(report.responses || {}).length === 0) {
+        const localReports = await getDBValue('crane_reports', []);
+        const foundLocal = localReports.find(r => String(r.id) === String(id));
+        if (foundLocal && foundLocal.responses && Object.keys(foundLocal.responses).length > 0) {
+            report = { ...report, ...foundLocal };
+            const idx = finalizedReports.findIndex(r => String(r.id) === String(id));
+            if (idx !== -1) finalizedReports[idx] = report;
+        }
+    }
     if (report) {
         openChecklistForm({
             tipo: report.type,
