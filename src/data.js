@@ -641,6 +641,9 @@ export async function initializeIndexedDB() {
                 try {
                     const parsed = JSON.parse(localVal);
                     await setDBValue(key, parsed);
+                    if (HEAVY_KEYS.has(key)) {
+                        localStorage.removeItem(key);
+                    }
                     console.log(`Migrado com sucesso para IndexedDB: ${key}`);
                 } catch (e) {
                     console.error(`Erro ao migrar ${key}:`, e);
