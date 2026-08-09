@@ -1,6 +1,6 @@
 // Crane Pro - Data Layer
 
-import { isSupabaseConfigured, dbFetchAll, dbUpsert, dbDelete } from './supabase.js';
+import { isSupabaseConfigured, dbFetchAll, dbUpsert, dbDelete, uploadBase64ToStorage } from './supabase.js';
 import { hashPassword } from './utils.js';
 
 export let isInitialLoad = true;
@@ -100,23 +100,91 @@ export function setStoredData(key, data) {
  * Envia alterações de uma chave local para a tabela correspondente no Supabase
  */
 /**
+ * Auxiliar para upload e substituição de imagens base64 em relatórios / ordens
+ */
+async function processReportImages(reportObj) {
+    if (!reportObj || typeof reportObj !== 'object') return reportObj;
+    const reportId = String(reportObj.id || 'gen_' + Date.now());
+    const folderPath = `reports/${reportId}`;
+
+    if (Array.isArray(reportObj.generalImages) && reportObj.generalImages.length > 0) {
+        reportObj.generalImages = await Promise.all(
+            reportObj.generalImages.map(async (img, idx) => {
+                if (typeof img === 'string' && img.startsWith('data:')) {
+                    const fileName = `general_${idx}_${Date.now()}`;
+                    return await uploadBase64ToStorage('crane-app-media', folderPath, img, fileName);
+                }
+                return img;
+            })
+        );
+    }
+
+    if (reportObj.responses && typeof reportObj.responses === 'object') {
+        const responses = reportObj.responses;
+        for (const itemId of Object.keys(responses)) {
+            const resp = responses[itemId];
+            if (!resp || typeof resp !== 'object') continue;
+
+            if (Array.isArray(resp.images) && resp.images.length > 0) {
+                resp.images = await Promise.all(
+                    resp.images.map(async (img, idx) => {
+                        if (typeof img === 'string' && img.startsWith('data:')) {
+                            const fileName = `item_${itemId}_${idx}_${Date.now()}`;
+                            return await uploadBase64ToStorage('crane-app-media', folderPath, img, fileName);
+                        }
+                        return img;
+                    })
+                );
+            }
+
+            if (Array.isArray(resp.additionalObservations) && resp.additionalObservations.length > 0) {
+                for (let obsIdx = 0; obsIdx < resp.additionalObservations.length; obsIdx++) {
+                    const addObs = resp.additionalObservations[obsIdx];
+                    if (addObs && Array.isArray(addObs.images) && addObs.images.length > 0) {
+                        addObs.images = await Promise.all(
+                            addObs.images.map(async (img, idx) => {
+                                if (typeof img === 'string' && img.startsWith('data:')) {
+                                    const fileName = `addobs_${itemId}_${obsIdx}_${idx}_${Date.now()}`;
+                                    return await uploadBase64ToStorage('crane-app-media', folderPath, img, fileName);
+                                }
+                                return img;
+                            })
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    return reportObj;
+}
+
+/**
  * Envia alterações de uma chave local para a tabela correspondente no Supabase de forma atômica e não-destrutiva
  */
 export async function syncKeyToSupabase(key, data) {
     if (!isSupabaseConfigured) return;
     try {
         if (key === 'crane_companies') {
-            const rows = data.map(c => ({
-                name: c.name,
-                cnpj: c.cnpj || '',
-                endereco: c.endereco || '',
-                numero: c.numero || '',
-                bairro: c.bairro || '',
-                cep: c.cep || '',
-                referencia: c.referencia || '',
-                cidade: c.cidade || '',
-                estado: c.estado || '',
-                logo: c.logo || ''
+            const rows = await Promise.all(data.map(async c => {
+                let logoUrl = c.logo || '';
+                if (typeof logoUrl === 'string' && logoUrl.startsWith('data:')) {
+                    const compId = c.id || (c.cnpj ? String(c.cnpj).replace(/\W+/g, '') : String(c.name).replace(/\W+/g, '_'));
+                    logoUrl = await uploadBase64ToStorage('crane-app-media', 'companies', logoUrl, `logo_${compId}`);
+                    c.logo = logoUrl;
+                }
+                return {
+                    name: c.name,
+                    cnpj: c.cnpj || '',
+                    endereco: c.endereco || '',
+                    numero: c.numero || '',
+                    bairro: c.bairro || '',
+                    cep: c.cep || '',
+                    referencia: c.referencia || '',
+                    cidade: c.cidade || '',
+                    estado: c.estado || '',
+                    logo: logoUrl
+                };
             }));
             await dbUpsert('companies', rows);
         } else if (key === 'crane_all_assets') {
@@ -145,15 +213,23 @@ export async function syncKeyToSupabase(key, data) {
             }));
             await dbUpsert('all_assets', rows);
         } else if (key === 'crane_users') {
-            const rows = await Promise.all(data.map(async u => ({
-                id: u.id,
-                name: u.name,
-                email: u.email,
-                password: await hashPassword(u.password),
-                permission: u.permission,
-                cargo: u.cargo || u.role || '',
-                signature: u.signature || u.assinatura || ''
-            })));
+            const rows = await Promise.all(data.map(async u => {
+                let sigUrl = u.signature || u.assinatura || '';
+                if (typeof sigUrl === 'string' && sigUrl.startsWith('data:')) {
+                    const userId = u.id || (u.email ? String(u.email).replace(/\W+/g, '_') : String(u.name).replace(/\W+/g, '_'));
+                    sigUrl = await uploadBase64ToStorage('crane-app-media', 'signatures', sigUrl, `signature_${userId}`);
+                    u.signature = sigUrl;
+                }
+                return {
+                    id: u.id,
+                    name: u.name,
+                    email: u.email,
+                    password: await hashPassword(u.password),
+                    permission: u.permission,
+                    cargo: u.cargo || u.role || '',
+                    signature: sigUrl
+                };
+            }));
             await dbUpsert('users', rows);
         } else if (key === 'crane_events') {
             const rows = data.map(e => ({
@@ -171,7 +247,8 @@ export async function syncKeyToSupabase(key, data) {
             }));
             await dbUpsert('scheduled_inspections', rows);
         } else if (key === 'crane_open_orders') {
-            const rows = data.map(o => ({
+            const processedData = await Promise.all(data.map(o => processReportImages(o)));
+            const rows = processedData.map(o => ({
                 id: String(o.id),
                 status: o.status || 'EM ABERTO',
                 type: o.type || 'PREVENTIVA',
@@ -183,14 +260,15 @@ export async function syncKeyToSupabase(key, data) {
                 responsaveis: o.responsaveis || [],
                 responses: o.responses || {},
                 generalObservation: o.generalObservation || '',
-                generalImages: (o.generalImages || []).filter(img => !String(img).startsWith('data:')),
+                generalImages: o.generalImages || [],
                 customSections: o.customSections || [],
                 customItems: o.customItems || [],
                 tecnico: o.tecnico || ''
             }));
             await dbUpsert('open_orders', rows);
         } else if (key === 'crane_reports') {
-            const rows = data.map(r => ({
+            const processedData = await Promise.all(data.map(r => processReportImages(r)));
+            const rows = processedData.map(r => ({
                 id: String(r.id),
                 status: r.status || 'FINALIZED',
                 type: r.type || 'PREVENTIVA',
@@ -202,13 +280,18 @@ export async function syncKeyToSupabase(key, data) {
                 responsaveis: r.responsaveis || [],
                 responses: r.responses || {},
                 generalObservation: r.generalObservation || '',
-                generalImages: (r.generalImages || []).filter(img => !String(img).startsWith('data:')),
+                generalImages: r.generalImages || [],
                 customSections: r.customSections || [],
                 customItems: r.customItems || [],
                 tecnico: r.tecnico || ''
             }));
             await dbUpsert('finalized_reports', rows);
         } else if (key === 'crane_internal_company') {
+            let logoUrl = data.logo || '';
+            if (typeof logoUrl === 'string' && logoUrl.startsWith('data:')) {
+                logoUrl = await uploadBase64ToStorage('crane-app-media', 'companies', logoUrl, 'internal_logo');
+                data.logo = logoUrl;
+            }
             const row = {
                 id: 1,
                 name: data.name || '',
@@ -219,7 +302,7 @@ export async function syncKeyToSupabase(key, data) {
                 cep: data.cep || '',
                 cidade: data.cidade || '',
                 estado: data.estado || '',
-                logo: data.logo || ''
+                logo: logoUrl
             };
             await dbUpsert('internal_company', [row]);
         }
@@ -718,3 +801,53 @@ export function setFinalizedReports(newList) {
     finalizedReports = newList;
     setStoredData('crane_reports', finalizedReports);
 }
+
+/**
+ * Varre todos os dados locais e faz o upload retroativo de todas as fotos/base64 para o Supabase Storage.
+ */
+export async function migrateAllMediaToSupabase() {
+    if (!isSupabaseConfigured) {
+        console.warn('Supabase não configurado. Não é possível migrar mídias.');
+        return false;
+    }
+    console.log('SUPABASE STORAGE: Iniciando migração de mídias para a nuvem...');
+    try {
+        const companies = getStoredData('crane_companies', []);
+        if (companies && companies.length > 0) {
+            await syncKeyToSupabase('crane_companies', companies);
+        }
+
+        const internalComp = getStoredData('crane_internal_company', null);
+        if (internalComp) {
+            await syncKeyToSupabase('crane_internal_company', internalComp);
+        }
+
+        const users = getStoredData('crane_users', []);
+        if (users && users.length > 0) {
+            await syncKeyToSupabase('crane_users', users);
+        }
+
+        const openOrdersData = await getDBValue('crane_open_orders', []);
+        if (openOrdersData && openOrdersData.length > 0) {
+            await syncKeyToSupabase('crane_open_orders', openOrdersData);
+            await setDBValue('crane_open_orders', openOrdersData);
+        }
+
+        const finalizedReportsData = await getDBValue('crane_reports', []);
+        if (finalizedReportsData && finalizedReportsData.length > 0) {
+            await syncKeyToSupabase('crane_reports', finalizedReportsData);
+            await setDBValue('crane_reports', finalizedReportsData);
+        }
+
+        console.log('SUPABASE STORAGE: Migração de mídias concluída com sucesso!');
+        return true;
+    } catch (e) {
+        console.error('SUPABASE STORAGE: Erro durante a migração de mídias:', e);
+        return false;
+    }
+}
+
+if (typeof window !== 'undefined') {
+    window.migrateAllMediaToSupabase = migrateAllMediaToSupabase;
+}
+

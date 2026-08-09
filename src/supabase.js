@@ -77,3 +77,55 @@ export async function uploadMediaFile(bucketName, path, file) {
     }
 }
 
+/**
+ * Converte base64 para Blob e faz upload no Supabase Storage se for base64.
+ * Se já for uma URL (http/https), apenas retorna a própria URL.
+ */
+export async function uploadBase64ToStorage(bucketName, folderPath, base64Data, fileName) {
+    if (!supabase || !base64Data) return base64Data;
+    if (typeof base64Data !== 'string') return base64Data;
+    
+    if (base64Data.startsWith('http://') || base64Data.startsWith('https://')) {
+        return base64Data;
+    }
+    
+    if (!base64Data.startsWith('data:')) {
+        return base64Data;
+    }
+
+    try {
+        const parts = base64Data.split(';base64,');
+        if (parts.length < 2) return base64Data;
+        const mimeType = parts[0].replace('data:', '') || 'image/jpeg';
+        const raw = atob(parts[1]);
+        const uInt8Array = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; ++i) {
+            uInt8Array[i] = raw.charCodeAt(i);
+        }
+        const blob = new Blob([uInt8Array], { type: mimeType });
+
+        const extMatch = mimeType.match(/\/([a-zA-Z0-9]+)$/);
+        const ext = extMatch ? extMatch[1] : 'jpg';
+        const fullFileName = fileName.endsWith(`.${ext}`) ? fileName : `${fileName}.${ext}`;
+        const cleanFolder = folderPath.replace(/^\/+|\/+$/g, '');
+        const path = `${cleanFolder}/${fullFileName}`;
+
+        const { data, error } = await supabase.storage.from(bucketName).upload(path, blob, {
+            upsert: true,
+            contentType: mimeType
+        });
+
+        if (error) {
+            console.warn(`Supabase Storage upload falhou em ${bucketName}/${path}:`, error);
+            return base64Data;
+        }
+
+        const { data: publicUrlData } = supabase.storage.from(bucketName).getPublicUrl(path);
+        return publicUrlData && publicUrlData.publicUrl ? publicUrlData.publicUrl : base64Data;
+    } catch (e) {
+        console.warn(`Erro no uploadBase64ToStorage para ${bucketName}:`, e);
+        return base64Data;
+    }
+}
+
+
