@@ -564,8 +564,9 @@ export async function syncAllFromSupabase() {
                     local: e.local || ''
                 });
             }
-            localStorage.setItem('crane_events', JSON.stringify(mappedEvents));
-            await setDBValue('crane_events', mappedEvents);
+            updateArrayInPlace(eventsList, mappedEvents);
+            localStorage.setItem('crane_events', JSON.stringify(eventsList));
+            await setDBValue('crane_events', eventsList);
         }
 
         // 5. Open Orders
@@ -827,6 +828,9 @@ export async function loadAllDataFromDB() {
     const dbUsers = await getDBValue('crane_users', []);
     updateArrayInPlace(usersList, dbUsers || []);
 
+    const dbEvents = await getDBValue('crane_events', []);
+    updateArrayInPlace(eventsList, dbEvents || []);
+
     const dbOpenOrders = await getDBValue('crane_open_orders', []);
     updateArrayInPlace(openOrders, dbOpenOrders || []);
 
@@ -853,6 +857,13 @@ export async function loadAllDataFromDB() {
 }
 
 // Lista de Usuários Global (Carregada puramente do Banco de Dados / Cache Local)
+export let eventsList = getStoredData('crane_events', []);
+
+export function setEventsList(newList) {
+    eventsList = newList;
+    setStoredData('crane_events', eventsList);
+}
+
 export let usersList = getStoredData('crane_users', []);
 
 export function setUsersList(newList) {
