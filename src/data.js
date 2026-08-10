@@ -1,6 +1,6 @@
 // Crane Pro - Data Layer
 
-import { isSupabaseConfigured, dbFetchAll, dbUpsert, dbDelete, uploadBase64ToStorage } from './supabase.js';
+import { isSupabaseConfigured, dbFetchAll, dbUpsert, dbDelete, uploadBase64ToStorage, getTenantCode } from './supabase.js';
 import { hashPassword } from './utils.js';
 
 export let isInitialLoad = true;
@@ -30,13 +30,22 @@ function getDB() {
 }
 
 export function getDBValue(key, defaultValue) {
+    const tenantKey = getTenantKey(key);
     return getDB().then(db => {
         return new Promise((resolve) => {
             const transaction = db.transaction(STORE_NAME, 'readonly');
             const store = transaction.objectStore(STORE_NAME);
-            const request = store.get(key);
+            const request = store.get(tenantKey);
             request.onsuccess = () => {
-                resolve(request.result !== undefined ? request.result : defaultValue);
+                if (request.result !== undefined) {
+                    resolve(request.result);
+                } else {
+                    const reqFallback = store.get(key);
+                    reqFallback.onsuccess = () => {
+                        resolve(reqFallback.result !== undefined ? reqFallback.result : defaultValue);
+                    };
+                    reqFallback.onerror = () => resolve(defaultValue);
+                }
             };
             request.onerror = () => {
                 resolve(defaultValue);
@@ -60,10 +69,20 @@ export function setDBValue(key, value) {
 // Chaves pesadas que contêm fotos/base64 e devem utilizar exclusivamente IndexedDB (evita 5MB limit)
 const HEAVY_KEYS = new Set(['crane_reports', 'crane_open_orders']);
 
+export function getTenantKey(key) {
+    const code = getTenantCode() || '001';
+    if (key.startsWith(`crane_${code}_`)) return key;
+    if (key.startsWith('crane_')) {
+        return key.replace('crane_', `crane_${code}_`);
+    }
+    return `${code}_${key}`;
+}
+
 // Funções de Persistência
 export function getStoredData(key, defaultValue) {
     try {
-        const data = localStorage.getItem(key);
+        const tenantKey = getTenantKey(key);
+        const data = localStorage.getItem(tenantKey) || localStorage.getItem(key);
         return data ? JSON.parse(data) : defaultValue;
     } catch (e) {
         return defaultValue;
@@ -71,21 +90,23 @@ export function getStoredData(key, defaultValue) {
 }
 
 export function setStoredData(key, data) {
-    if (!HEAVY_KEYS.has(key)) {
+    const tenantKey = getTenantKey(key);
+    if (!HEAVY_KEYS.has(key) && !HEAVY_KEYS.has(tenantKey)) {
         try {
-            localStorage.setItem(key, JSON.stringify(data));
+            localStorage.setItem(tenantKey, JSON.stringify(data));
         } catch (e) {
-            console.warn(`localStorage falhou para ${key} (limite excedido), continuando com IndexedDB:`, e);
+            console.warn(`localStorage falhou para ${tenantKey} (limite excedido), continuando com IndexedDB:`, e);
         }
     } else {
         // Limpa chave legada no localStorage para liberar memória
         try {
+            localStorage.removeItem(tenantKey);
             localStorage.removeItem(key);
         } catch (e) {}
     }
     
-    setDBValue(key, data).catch(err => {
-        console.error(`Erro ao gravar ${key} no IndexedDB:`, err);
+    setDBValue(tenantKey, data).catch(err => {
+        console.error(`Erro ao gravar ${tenantKey} no IndexedDB:`, err);
     });
 
     // Sincroniza em segundo plano se o Supabase estiver configurado
@@ -227,7 +248,8 @@ export async function syncKeyToSupabase(key, data) {
                     password: await hashPassword(u.password),
                     permission: u.permission,
                     cargo: u.cargo || u.role || '',
-                    signature: sigUrl
+                    signature: sigUrl,
+                    tenant_code: u.tenant_code || getTenantCode() || '001'
                 };
             }));
             await dbUpsert('users', rows);
@@ -302,7 +324,8 @@ export async function syncKeyToSupabase(key, data) {
                 cep: data.cep || '',
                 cidade: data.cidade || '',
                 estado: data.estado || '',
-                logo: logoUrl
+                logo: logoUrl,
+                tenant_code: data.tenant_code || getTenantCode() || '001'
             };
             await dbUpsert('internal_company', [row]);
         }
@@ -317,6 +340,48 @@ export async function syncKeyToSupabase(key, data) {
 export async function deleteCompanyFromCloud(companyName) {
     if (!isSupabaseConfigured) return;
     return dbDelete('companies', 'name', companyName);
+}
+
+export async function deleteCompanyAllDataFromCloud(companyName) {
+    if (!isSupabaseConfigured || !companyName) return;
+    try {
+        const target = companyName.trim().toLowerCase();
+
+        // 1. Delete company entry
+        await deleteCompanyFromCloud(companyName);
+
+        // 2. Delete all assets for company
+        await deleteCompanyAssetsFromCloud(companyName);
+
+        // 3. Delete all scheduled_inspections for company
+        const dbEvents = await dbFetchAll('scheduled_inspections');
+        if (dbEvents && dbEvents.length > 0) {
+            const eventsToDelete = dbEvents.filter(e => (e.empresa || '').trim().toLowerCase() === target);
+            for (const ev of eventsToDelete) {
+                await deleteEventFromCloud(ev.id);
+            }
+        }
+
+        // 4. Delete all open_orders for company
+        const dbOrders = await dbFetchAll('open_orders');
+        if (dbOrders && dbOrders.length > 0) {
+            const ordersToDelete = dbOrders.filter(o => (o.empresa || '').trim().toLowerCase() === target);
+            for (const ord of ordersToDelete) {
+                await deleteOrderFromCloud(ord.id);
+            }
+        }
+
+        // 5. Delete all finalized_reports for company
+        const dbReports = await dbFetchAll('finalized_reports');
+        if (dbReports && dbReports.length > 0) {
+            const reportsToDelete = dbReports.filter(r => (r.empresa || '').trim().toLowerCase() === target);
+            for (const rep of reportsToDelete) {
+                await deleteReportFromCloud(rep.id);
+            }
+        }
+    } catch (e) {
+        console.error(`Erro ao excluir todos os dados da empresa ${companyName} no Supabase:`, e);
+    }
 }
 
 export async function deleteCompanyAssetsFromCloud(companyName) {
@@ -437,6 +502,8 @@ export async function syncAllFromSupabase() {
             await setDBValue('crane_all_assets', allAssetsList);
         }
 
+        const validAssetIds = new Set((allAssetsList || []).map(a => String(a.id).trim().toLowerCase()));
+
         // 3. Users (Sincronização pura do banco de dados na nuvem)
         let dbUsers = await dbFetchAll('users');
         if (dbUsers && dbUsers.length > 0) {
@@ -467,6 +534,13 @@ export async function syncAllFromSupabase() {
         if (dbEvents && dbEvents.length > 0) {
             const mappedEvents = [];
             for (const e of dbEvents) {
+                const eventCompany = (e.empresa || '').trim().toLowerCase();
+                if (eventCompany && validCompanyNames.size > 0 && !validCompanyNames.has(eventCompany)) {
+                    console.log(`SUPABASE: Removendo agendamento órfão '${e.id}' vinculado à empresa excluída '${e.empresa}'...`);
+                    await dbDelete('scheduled_inspections', 'id', String(e.id));
+                    continue;
+                }
+
                 let eventId = String(e.id);
                 const equip = String(e.equipamento || '');
                 const eventDate = e.date || '';
@@ -513,6 +587,20 @@ export async function syncAllFromSupabase() {
         // 5. Open Orders
         let dbOpenOrders = await dbFetchAll('open_orders');
         if (Array.isArray(dbOpenOrders)) {
+            const validOrders = [];
+            for (const o of dbOpenOrders) {
+                const orderCompany = (o.empresa || '').trim().toLowerCase();
+                const orderAssetId = String(o.equipamentoId || o.equipamentoid || o.equipamento || '').trim().toLowerCase();
+                if ((orderCompany && validCompanyNames.size > 0 && !validCompanyNames.has(orderCompany)) ||
+                    (orderAssetId && validAssetIds.size > 0 && !validAssetIds.has(orderAssetId))) {
+                    console.log(`SUPABASE: Removendo ordem em aberto órfã '${o.id}' vinculada a empresa/ativo excluído...`);
+                    await dbDelete('open_orders', 'id', String(o.id));
+                } else {
+                    validOrders.push(o);
+                }
+            }
+            dbOpenOrders = validOrders;
+
             const localOpenOrders = await getDBValue('crane_open_orders', []);
             const parseIfNeeded = (val) => {
                 if (!val) return null;
@@ -565,6 +653,20 @@ export async function syncAllFromSupabase() {
         // 6. Finalized Reports
         let dbFinalizedReports = await dbFetchAll('finalized_reports');
         if (Array.isArray(dbFinalizedReports)) {
+            const validReports = [];
+            for (const r of dbFinalizedReports) {
+                const reportCompany = (r.empresa || '').trim().toLowerCase();
+                const reportAssetId = String(r.equipamentoId || r.equipamentoid || r.equipamento || '').trim().toLowerCase();
+                if ((reportCompany && validCompanyNames.size > 0 && !validCompanyNames.has(reportCompany)) ||
+                    (reportAssetId && validAssetIds.size > 0 && !validAssetIds.has(reportAssetId))) {
+                    console.log(`SUPABASE: Removendo relatório órfão '${r.id}' vinculado a empresa/ativo excluído...`);
+                    await dbDelete('finalized_reports', 'id', String(r.id));
+                } else {
+                    validReports.push(r);
+                }
+            }
+            dbFinalizedReports = validReports;
+
             const localReports = await getDBValue('crane_reports', []);
             const parseIfNeeded = (val) => {
                 if (!val) return null;

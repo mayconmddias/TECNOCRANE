@@ -1,6 +1,7 @@
 import { usersList, setStoredData, loadAllDataFromDB, syncAllFromSupabase } from './data.js';
 import { isSupabaseConfigured, dbFetchAll } from './supabase.js';
 import { hashPassword } from './utils.js';
+import { setCurrentUser, releaseAllLocks } from './locks.js';
 
 console.log('CRANE PRO: Módulo de Autenticação Carregado.');
 
@@ -185,7 +186,8 @@ window.handleLogin = async function() {
                     email: uEmail,
                     password: passHash,
                     permission: u.permission || 'TECNICO',
-                    signature: u.signature || u.assinatura || ''
+                    signature: u.signature || u.assinatura || '',
+                    tenant_code: u.tenant_code || '001'
                 };
                 break;
             }
@@ -193,6 +195,9 @@ window.handleLogin = async function() {
     }
 
     if (foundUser) {
+        // Registra o usuário logado no sistema de travas
+        setCurrentUser(foundUser);
+
         // Atualiza/Sincroniza o usuário encontrado no array local usersList
         const idx = usersList.findIndex(u => String(u.id) === String(foundUser.id));
         if (idx !== -1) {
@@ -221,6 +226,8 @@ window.handleLogin = async function() {
 };
 
 window.handleLogout = function() {
+    releaseAllLocks();
+    setCurrentUser(null);
     document.getElementById('main-app').classList.add('hidden');
     document.getElementById('login-view').classList.remove('hidden');
     // Limpa campos por segurança

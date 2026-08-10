@@ -1,9 +1,11 @@
-import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud, openOrders, setOpenOrders, finalizedReports, setFinalizedReports } from './data.js';
+import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteCompanyAllDataFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud, openOrders, setOpenOrders, finalizedReports, setFinalizedReports } from './data.js';
 import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay, hashPassword } from './utils.js';
 import { renderCompanies as renderCompaniesUI, renderAssetsTable } from './ui-render.js';
 import { renderObservationBlock, renderNode, renderCustomChecklistItemRow, renderResponsibleCard } from './checklist-render.js';
 import { mountChecklistForm, getFormRoot, collectFormData } from './checklist-ui.js';
 import { createInspectionDocument, validateBeforeSend, mergeLegacyReport } from './checklist-state.js';
+import { acquireLock, releaseLock } from './locks.js';
+import { getTenantCode } from './supabase.js';
 import { CHECKLIST_SCHEMA } from './checklist-schema.js';
 
 console.log('CRANE PRO: Iniciando carregamento do módulo app.js...');
@@ -392,10 +394,25 @@ let activeCustomSections = [];
 let activeCustomItems = [];
 let targetSectionIdForChecklistModal = null;
 let isSavingOrSendingChecklist = false;
+let currentChecklistLockKey = null;
 
-function openChecklistForm(context, savedDoc = null) {
+async function openChecklistForm(context, savedDoc = null) {
     currentChecklistContext = context;
     editingOrderId = savedDoc?.id || null;
+
+    const docId = savedDoc?.id || context?.id;
+    if (docId) {
+        const lockKey = String(docId).startsWith('ORD-') ? `order:${docId}` : `report:${docId}`;
+        const lockRes = await acquireLock(lockKey);
+        if (!lockRes.success) {
+            window.showAlert(`🔒 REGISTRO EM MODO EDIÇÃO POR "${lockRes.lockedBy.toUpperCase()}". AGUARDE A CONCLUSÃO.`, 'warning');
+            return;
+        }
+        if (currentChecklistLockKey && currentChecklistLockKey !== lockKey) {
+            releaseLock(currentChecklistLockKey);
+        }
+        currentChecklistLockKey = lockKey;
+    }
 
     // Resetar o estado de controle de cliques múltiplos
     isSavingOrSendingChecklist = false;
@@ -537,7 +554,9 @@ window.saveProgEvent = function() {
     renderAssets();
 };
 
-window.openEditModal = function(eventOrId, id) {
+let currentEventLockKey = null;
+
+window.openEditModal = async function(eventOrId, id) {
     const eventId = (typeof eventOrId === 'object' && eventOrId !== null) ? id : eventOrId;
     if (typeof eventOrId === 'object' && eventOrId !== null && eventOrId.stopPropagation) eventOrId.stopPropagation();
 
@@ -560,6 +579,17 @@ window.openEditModal = function(eventOrId, id) {
     }
 
     if (!event) return;
+
+    const lockKey = `event:${event.id}`;
+    const lockRes = await acquireLock(lockKey);
+    if (!lockRes.success) {
+        window.showAlert(`🔒 REGISTRO EM MODO EDIÇÃO POR "${lockRes.lockedBy.toUpperCase()}". AGUARDE A CONCLUSÃO.`, 'warning');
+        return;
+    }
+    if (currentEventLockKey && currentEventLockKey !== lockKey) {
+        releaseLock(currentEventLockKey);
+    }
+    currentEventLockKey = lockKey;
 
     const els = {
         id: document.getElementById('edit-asset-id'),
@@ -594,6 +624,10 @@ window.openEditModal = function(eventOrId, id) {
 };
 
 window.closeEditAssetModal = function() {
+    if (currentEventLockKey) {
+        releaseLock(currentEventLockKey);
+        currentEventLockKey = null;
+    }
     const modal = document.getElementById('edit-asset-modal');
     const panel = document.getElementById('edit-asset-panel');
     panel.classList.add('opacity-0', 'scale-95');
@@ -886,6 +920,10 @@ window.openChecklistModal = async function(id = null) {
 };
 
 window.closeChecklistModal = function() {
+    if (currentChecklistLockKey) {
+        releaseLock(currentChecklistLockKey);
+        currentChecklistLockKey = null;
+    }
     const modal = document.getElementById('checklist-modal');
     const panel = document.getElementById('checklist-panel');
     const overlay = document.getElementById('checklist-overlay');
@@ -1021,6 +1059,7 @@ function generateNextReportId() {
 
     if (editingOrderId && String(editingOrderId).startsWith('ORD-')) {
         newOpenOrders = newOpenOrders.filter(o => o.id !== editingOrderId);
+        deleteOrderFromCloud(editingOrderId).catch(err => console.error("Erro ao deletar ordem concluída do Supabase:", err));
     }
 
     if (isEditingRel) {
@@ -1160,9 +1199,22 @@ window.openUserModal = function() {
     }, 10);
 };
 
-window.openEditUserModal = function(id) {
+let currentUserLockKey = null;
+
+window.openEditUserModal = async function(id) {
     const user = usersList.find(u => u.id === id);
     if (!user) return;
+
+    const lockKey = `user:${id}`;
+    const lockRes = await acquireLock(lockKey);
+    if (!lockRes.success) {
+        window.showAlert(`🔒 REGISTRO EM MODO EDIÇÃO POR "${lockRes.lockedBy.toUpperCase()}". AGUARDE A CONCLUSÃO.`, 'warning');
+        return;
+    }
+    if (currentUserLockKey && currentUserLockKey !== lockKey) {
+        releaseLock(currentUserLockKey);
+    }
+    currentUserLockKey = lockKey;
     
     const modal = document.getElementById('user-modal');
     const panel = modal.querySelector('.relative');
@@ -1310,7 +1362,8 @@ window.saveCadastroInterno = function() {
         cep,
         cidade: cidade.toUpperCase(),
         estado: estado.toUpperCase(),
-        logo
+        logo,
+        tenant_code: getTenantCode() || '001'
     };
 
     // Salva a empresa interna no localStorage/IndexedDB
@@ -1372,6 +1425,10 @@ window.saveUser = function() {
 };
 
 window.closeUserModal = function() {
+    if (currentUserLockKey) {
+        releaseLock(currentUserLockKey);
+        currentUserLockKey = null;
+    }
     const modal = document.getElementById('user-modal');
     if (!modal) return;
     const panel = modal.querySelector('.relative');
@@ -1410,7 +1467,8 @@ window.saveUserFromForm = async function() {
                     email: email.toLowerCase(),
                     password: hashedPassword,
                     permission: permission,
-                    signature: window.currentUserSignatureBase64 !== null ? window.currentUserSignatureBase64 : (u.signature || "")
+                    signature: window.currentUserSignatureBase64 !== null ? window.currentUserSignatureBase64 : (u.signature || ""),
+                    tenant_code: u.tenant_code || getTenantCode() || '001'
                 };
             }
             return u;
@@ -1424,7 +1482,8 @@ window.saveUserFromForm = async function() {
             email: email.toLowerCase(),
             password: hashedPassword,
             permission: permission,
-            signature: window.currentUserSignatureBase64 || ""
+            signature: window.currentUserSignatureBase64 || "",
+            tenant_code: getTenantCode() || '001'
         }];
     }
     
@@ -3744,7 +3803,7 @@ window.handleRegistrationTypeChange = function(keepFields = false) {
         } else {
             btnCancel.textContent = 'CANCELAR';
             btnCancel.className = 'p-card_padding border border-outline text-on-surface-variant font-bold uppercase hover:bg-surface-container transition-all rounded-xl cursor-pointer text-center';
-            btnCancel.onclick = () => document.getElementById('modal-unified-registration').classList.add('hidden');
+            btnCancel.onclick = () => window.closeUnifiedRegistrationModal();
         }
     }
 
@@ -3795,13 +3854,17 @@ window.deleteAssetFromModal = function() {
         eventsToDelete.forEach(ev => deleteEventFromCloud(ev.id));
         
         // 4. Remove from openOrders
+        const ordersToDelete = openOrders.filter(order => order.equipamentoId === assetId || order.equipamento === assetId);
         setOpenOrders(openOrders.filter(order => order.equipamentoId !== assetId && order.equipamento !== assetId));
+        ordersToDelete.forEach(ord => deleteOrderFromCloud(ord.id));
         
         // 5. Remove from finalizedReports
+        const reportsToDelete = finalizedReports.filter(rep => rep.equipamentoId === assetId || rep.equipamento === assetId);
         setFinalizedReports(finalizedReports.filter(rep => rep.equipamentoId !== assetId && rep.equipamento !== assetId));
+        reportsToDelete.forEach(rep => deleteReportFromCloud(rep.id));
         
         // Close modal and refresh UI
-        document.getElementById('modal-unified-registration').classList.add('hidden');
+        window.closeUnifiedRegistrationModal();
         renderCompanies();
         renderAssets();
         if (currentView === 'assets') renderAtivosView();
@@ -3980,13 +4043,34 @@ window.saveUnifiedRegistration = function() {
         window.showAlert(isEdit ? 'ATIVO ATUALIZADO COM SUCESSO!' : 'NOVO ATIVO CADASTRADO COM SUCESSO!', 'success');
     }
 
-    document.getElementById('modal-unified-registration').classList.add('hidden');
+    window.closeUnifiedRegistrationModal();
     renderCompanies();
     renderAssets();
     if (currentView === 'assets') renderAtivosView();
 };
 
-window.openEditCompanyModal = function(companyName) {
+window.closeUnifiedRegistrationModal = function() {
+    if (currentAssetLockKey) {
+        releaseLock(currentAssetLockKey);
+        currentAssetLockKey = null;
+    }
+    document.getElementById('modal-unified-registration')?.classList.add('hidden');
+};
+
+let currentCompanyLockKey = null;
+
+window.openEditCompanyModal = async function(companyName) {
+    const lockKey = `company:${companyName}`;
+    const lockRes = await acquireLock(lockKey);
+    if (!lockRes.success) {
+        window.showAlert(`🔒 REGISTRO EM MODO EDIÇÃO POR "${lockRes.lockedBy.toUpperCase()}". AGUARDE A CONCLUSÃO.`, 'warning');
+        return;
+    }
+    if (currentCompanyLockKey && currentCompanyLockKey !== lockKey) {
+        releaseLock(currentCompanyLockKey);
+    }
+    currentCompanyLockKey = lockKey;
+
     const modal = document.getElementById('modal-edit-company');
     const panel = modal.querySelector('.relative');
     const deleteBtn = document.getElementById('btn-delete-company-sidebar');
@@ -4022,7 +4106,7 @@ window.openEditCompanyModal = function(companyName) {
     deleteBtn.onclick = () => {
         window.showAlert(`DESEJA EXCLUIR A EMPRESA "${companyName.toUpperCase()}" E TODOS OS SEUS ATIVOS?`, 'warning', () => {
             window.deleteCompany(companyName);
-            modal.classList.add('hidden');
+            window.closeEditCompanyModal();
         });
     };
 
@@ -4033,7 +4117,20 @@ window.openEditCompanyModal = function(companyName) {
     }, 10);
 };
 
-window.openEditAssetModal = function(assetId, companyName) {
+let currentAssetLockKey = null;
+
+window.openEditAssetModal = async function(assetId, companyName) {
+    const lockKey = `asset:${assetId}`;
+    const lockRes = await acquireLock(lockKey);
+    if (!lockRes.success) {
+        window.showAlert(`🔒 REGISTRO EM MODO EDIÇÃO POR "${lockRes.lockedBy.toUpperCase()}". AGUARDE A CONCLUSÃO.`, 'warning');
+        return;
+    }
+    if (currentAssetLockKey && currentAssetLockKey !== lockKey) {
+        releaseLock(currentAssetLockKey);
+    }
+    currentAssetLockKey = lockKey;
+
     const modal = document.getElementById('modal-unified-registration');
     const panel = modal.querySelector('.relative');
     const typeSelect = document.getElementById('reg-type-select');
@@ -4175,7 +4272,7 @@ window.saveCompanyChange = function() {
         }
     }
 
-    document.getElementById('modal-edit-company').classList.add('hidden');
+    window.closeEditCompanyModal();
     renderCompanies();
     renderAssets();
     window.renderCalendar();
@@ -4184,12 +4281,19 @@ window.saveCompanyChange = function() {
     window.showAlert('DADOS DA EMPRESA ATUALIZADOS EM TODO O SISTEMA.', 'success');
 };
 
+window.closeEditCompanyModal = function() {
+    if (currentCompanyLockKey) {
+        releaseLock(currentCompanyLockKey);
+        currentCompanyLockKey = null;
+    }
+    document.getElementById('modal-edit-company')?.classList.add('hidden');
+};
+
 window.deleteCompany = function(empresaNome) {
     const target = empresaNome.trim().toLowerCase();
     
-    // Exclui a empresa e todos os seus ativos do banco de dados na nuvem (Supabase)
-    deleteCompanyFromCloud(empresaNome);
-    deleteCompanyAssetsFromCloud(empresaNome);
+    // Exclui a empresa e todos os seus dados derivados do banco de dados na nuvem (Supabase)
+    deleteCompanyAllDataFromCloud(empresaNome);
 
     // 1. Remove from companies list (objects/strings)
     const newCompanies = (companies || []).filter(c => {
@@ -4209,6 +4313,10 @@ window.deleteCompany = function(empresaNome) {
     // 4. Remove all events for this company
     events = events.filter(e => e.empresa.toLowerCase() !== target);
     setStoredData('crane_events', events);
+
+    // 5. Remove open orders and finalized reports for this company
+    setOpenOrders(openOrders.filter(o => (o.empresa || '').trim().toLowerCase() !== target));
+    setFinalizedReports(finalizedReports.filter(r => (r.empresa || '').trim().toLowerCase() !== target));
 
     if (selectedCompany.toLowerCase() === target) {
         const firstComp = newCompanies[0];
