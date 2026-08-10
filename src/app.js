@@ -255,7 +255,40 @@ window.switchView = function(view) {
     else if (view === 'open-orders') renderOpenOrders();
     else if (view === 'reports') renderReportsView();
     else if (view === 'assets') renderAtivosView();
+
+    // Sincroniza dados com o Supabase em segundo plano ao alternar de menu
+    if (isSupabaseConfigured) {
+        syncAllFromSupabase().then(async () => {
+            const dbAssets = await getDBValue('crane_assets', assets);
+            updateArrayInPlace(assets, dbAssets);
+
+            const dbEvents = await getDBValue('crane_events', events);
+            updateArrayInPlace(events, dbEvents);
+
+            const dbOpenOrders = await getDBValue('crane_open_orders', openOrders);
+            updateArrayInPlace(openOrders, dbOpenOrders);
+
+            const dbFinalizedReports = await getDBValue('crane_reports', finalizedReports);
+            updateArrayInPlace(finalizedReports, dbFinalizedReports);
+
+            if (currentView === 'dashboard') renderAssets();
+            else if (currentView === 'calendar') window.renderCalendar();
+            else if (currentView === 'users') renderUsers();
+            else if (currentView === 'open-orders') renderOpenOrders();
+            else if (currentView === 'reports') renderReportsView();
+            else if (currentView === 'assets') renderAtivosView();
+        }).catch(err => console.warn('Erro ao resincronizar ao alternar de menu:', err));
+    }
 };
+
+// Resincroniza a tela automaticamente toda vez que o usuário voltar para esta aba do navegador
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && isSupabaseConfigured) {
+        if (typeof window.reloadAppDataAndUI === 'function') {
+            window.reloadAppDataAndUI().catch(err => console.warn('Erro ao atualizar tela no foco da aba:', err));
+        }
+    }
+});
 
 window.toggleSidebar = function() {
     const sidebar = document.getElementById('sidebar');
