@@ -450,6 +450,10 @@ export async function syncAllFromSupabase() {
         }
 
         const validCompanyNames = new Set((companies || []).map(c => (typeof c === 'string' ? c : c.name).toLowerCase()));
+        const internalComp = getStoredData('crane_internal_company', null);
+        if (internalComp && internalComp.name) {
+            validCompanyNames.add(String(internalComp.name).trim().toLowerCase());
+        }
 
         // 2. All Assets
         let dbAllAssets = await dbFetchAll('all_assets');
@@ -462,19 +466,6 @@ export async function syncAllFromSupabase() {
             }
         }
         if (dbAllAssets && dbAllAssets.length > 0) {
-            // Filtra e apaga do Supabase ativos órfãos cujas empresas não existem mais
-            const validAssets = [];
-            for (const a of dbAllAssets) {
-                const assetCompany = (a.empresa || '').trim().toLowerCase();
-                if (assetCompany && validCompanyNames.size > 0 && !validCompanyNames.has(assetCompany)) {
-                    console.log(`SUPABASE: Removendo ativo órfão '${a.id}' vinculado à empresa excluída '${a.empresa}'...`);
-                    await dbDelete('all_assets', 'id', a.id);
-                } else {
-                    validAssets.push(a);
-                }
-            }
-            dbAllAssets = validAssets;
-
             allAssetsList = dbAllAssets.map(a => ({
                 id: a.id,
                 empresa: a.empresa || '',
@@ -534,13 +525,6 @@ export async function syncAllFromSupabase() {
         if (dbEvents && dbEvents.length > 0) {
             const mappedEvents = [];
             for (const e of dbEvents) {
-                const eventCompany = (e.empresa || '').trim().toLowerCase();
-                if (eventCompany && validCompanyNames.size > 0 && !validCompanyNames.has(eventCompany)) {
-                    console.log(`SUPABASE: Removendo agendamento órfão '${e.id}' vinculado à empresa excluída '${e.empresa}'...`);
-                    await dbDelete('scheduled_inspections', 'id', String(e.id));
-                    continue;
-                }
-
                 let eventId = String(e.id);
                 const equip = String(e.equipamento || '');
                 const eventDate = e.date || '';
@@ -587,20 +571,6 @@ export async function syncAllFromSupabase() {
         // 5. Open Orders
         let dbOpenOrders = await dbFetchAll('open_orders');
         if (Array.isArray(dbOpenOrders)) {
-            const validOrders = [];
-            for (const o of dbOpenOrders) {
-                const orderCompany = (o.empresa || '').trim().toLowerCase();
-                const orderAssetId = String(o.equipamentoId || o.equipamentoid || o.equipamento || '').trim().toLowerCase();
-                if ((orderCompany && validCompanyNames.size > 0 && !validCompanyNames.has(orderCompany)) ||
-                    (orderAssetId && validAssetIds.size > 0 && !validAssetIds.has(orderAssetId))) {
-                    console.log(`SUPABASE: Removendo ordem em aberto órfã '${o.id}' vinculada a empresa/ativo excluído...`);
-                    await dbDelete('open_orders', 'id', String(o.id));
-                } else {
-                    validOrders.push(o);
-                }
-            }
-            dbOpenOrders = validOrders;
-
             const localOpenOrders = await getDBValue('crane_open_orders', []);
             const parseIfNeeded = (val) => {
                 if (!val) return null;
