@@ -1,11 +1,11 @@
-import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteCompanyAllDataFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud, openOrders, setOpenOrders, finalizedReports, setFinalizedReports } from './data.js';
+import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteCompanyAllDataFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud, openOrders, setOpenOrders, finalizedReports, setFinalizedReports, syncAllFromSupabase } from './data.js';
 import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay, hashPassword } from './utils.js';
 import { renderCompanies as renderCompaniesUI, renderAssetsTable } from './ui-render.js';
 import { renderObservationBlock, renderNode, renderCustomChecklistItemRow, renderResponsibleCard } from './checklist-render.js';
 import { mountChecklistForm, getFormRoot, collectFormData } from './checklist-ui.js';
 import { createInspectionDocument, validateBeforeSend, mergeLegacyReport } from './checklist-state.js';
 import { acquireLock, releaseLock } from './locks.js';
-import { getTenantCode } from './supabase.js';
+import { getTenantCode, isSupabaseConfigured } from './supabase.js';
 import { CHECKLIST_SCHEMA } from './checklist-schema.js';
 
 console.log('CRANE PRO: Iniciando carregamento do módulo app.js...');
@@ -3604,6 +3604,33 @@ function maskCEP(value) {
     }
     return masked;
 }
+
+window.reloadAppDataAndUI = async function() {
+    if (isSupabaseConfigured) {
+        await syncAllFromSupabase();
+    }
+    await loadAllDataFromDB();
+
+    const dbAssets = await getDBValue('crane_assets', assets);
+    updateArrayInPlace(assets, dbAssets);
+
+    const dbEvents = await getDBValue('crane_events', events);
+    updateArrayInPlace(events, dbEvents);
+
+    const dbOpenOrders = await getDBValue('crane_open_orders', openOrders);
+    updateArrayInPlace(openOrders, dbOpenOrders);
+
+    const dbFinalizedReports = await getDBValue('crane_reports', finalizedReports);
+    updateArrayInPlace(finalizedReports, dbFinalizedReports);
+
+    runMigrationsAndSync();
+
+    if (typeof renderCompanies === 'function') renderCompanies();
+    if (typeof renderAssets === 'function') renderAssets();
+    if (typeof window.renderCalendar === 'function') window.renderCalendar();
+    if (typeof renderAtivosView === 'function') renderAtivosView();
+    if (typeof renderReportsView === 'function') renderReportsView();
+};
 
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Carrega todos os dados do IndexedDB para as variáveis globais

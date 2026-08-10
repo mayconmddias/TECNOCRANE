@@ -216,8 +216,10 @@ window.handleLogin = async function() {
         if (roleEl) roleEl.innerText = foundUser.permission || 'TECNICO';
         if (nameEl) nameEl.innerText = foundUser.name || 'USUÁRIO';
         
-        // Dispara renderização inicial do app
-        if (typeof window.renderAssets === 'function') {
+        // Dispara sincronização e renderização completa dos dados atualizados da nuvem
+        if (typeof window.reloadAppDataAndUI === 'function') {
+            await window.reloadAppDataAndUI();
+        } else if (typeof window.renderAssets === 'function') {
             window.renderAssets();
         }
     } else {
