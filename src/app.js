@@ -53,7 +53,7 @@ function runMigrationsAndSync() {
 
     // Atualiza eventos garantindo que tipo e local sejam enriquecidos a partir do cadastro tecnico allAssetsList
     if (events && events.length > 0) {
-        events = events.map(e => {
+        const enrichedEvents = events.map(e => {
             const ta = allAssetsList.find(a => a.id === e.equipamento || a.id === e.id);
             return {
                 ...e,
@@ -61,31 +61,9 @@ function runMigrationsAndSync() {
                 local: (e.local && e.local !== 'SETOR OPERACIONAL') ? e.local : (ta ? (ta.local || 'SETOR OPERACIONAL') : 'SETOR OPERACIONAL')
             };
         });
-    } else {
-        // Se events estiver vazio, gera a partir de assets
-        events = assets.map(a => {
-            try {
-                const dateObj = parseAssetDate(a.data);
-                if (isNaN(dateObj.getTime())) throw new Error('Invalid date');
-                const companyColor = getCompanyColor(a.empresa || "N/A");
-                const isoDate = dateObj.toISOString().split('T')[0];
-                return {
-                    id: `${a.id}-${isoDate}`,
-                    empresa: a.empresa,
-                    tipo: a.tipo || "N/A",
-                    local: a.local || "SETOR OPERACIONAL",
-                    equipamento: a.id,
-                    date: isoDate,
-                    color: a.status === 'NAO_REALIZADO' ? 'border-red-500 bg-red-50' : companyColor.color,
-                    textColor: a.status === 'NAO_REALIZADO' ? 'text-red-700' : companyColor.textColor,
-                    status: a.status || 'PENDENTE'
-                };
-            } catch (e) {
-                return null;
-            }
-        }).filter(e => e !== null);
+        updateArrayInPlace(events, enrichedEvents);
+        setStoredData('crane_events', events);
     }
-    setStoredData('crane_events', events);
 
     // Migração das ordens de serviço e relatórios no localStorage para usar os novos tipos
     updateArrayInPlace(openOrders, openOrders.map(order => {
@@ -173,28 +151,6 @@ function formatDate(days) {
 
 function saveAssets() {
     setStoredData('crane_assets', assets);
-    events = assets.map(a => {
-        try {
-            const dateObj = parseAssetDate(a.data);
-            const isoDate = dateObj.toISOString().split('T')[0];
-            const companyColor = getCompanyColor(a.empresa || "N/A");
-            return {
-                id: `${a.id}-${isoDate}`,
-                empresa: a.empresa,
-                tipo: a.tipo || "N/A",
-                local: a.local || "SETOR OPERACIONAL",
-                equipamento: a.id,
-                date: isoDate,
-                color: a.status === 'NAO_REALIZADO' ? 'border-red-500 bg-red-50' : companyColor.color,
-                textColor: a.status === 'NAO_REALIZADO' ? 'text-red-700' : companyColor.textColor,
-                status: a.status || 'PENDENTE'
-            };
-        } catch (e) {
-            console.error('Erro ao processar data do ativo:', a.id, a.data);
-            return null;
-        }
-    }).filter(e => e !== null);
-    setStoredData('crane_events', events);
 }
 
 // --- UI RENDERERS ---
@@ -3649,6 +3605,7 @@ window.reloadAppDataAndUI = async function() {
 
     const dbEvents = await getDBValue('crane_events', events);
     updateArrayInPlace(events, dbEvents);
+    updateArrayInPlace(events, eventsList);
 
     const dbOpenOrders = await getDBValue('crane_open_orders', openOrders);
     updateArrayInPlace(openOrders, dbOpenOrders);
@@ -3675,6 +3632,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const dbEvents = await getDBValue('crane_events', events);
     updateArrayInPlace(events, dbEvents);
+    updateArrayInPlace(events, eventsList);
 
     const dbOpenOrders = await getDBValue('crane_open_orders', openOrders);
     updateArrayInPlace(openOrders, dbOpenOrders);
@@ -3684,11 +3642,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 3. Roda as migrações com os dados atualizados do DB
     runMigrationsAndSync();
-
-    // Garante que os eventos existam antes de renderizar
-    if (events.length === 0 && assets.length > 0) {
-        saveAssets();
-    }
     
     renderCompanies();
     renderAssets();
