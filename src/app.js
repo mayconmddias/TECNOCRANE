@@ -7,6 +7,9 @@ import { createInspectionDocument, validateBeforeSend, mergeLegacyReport } from 
 import { acquireLock, releaseLock } from './locks.js';
 import { getTenantCode, isSupabaseConfigured } from './supabase.js';
 import { CHECKLIST_SCHEMA } from './checklist-schema.js';
+import { showPrintLoadingOverlay, hidePrintLoadingOverlay, collectAllReportImageUrls, preloadImageUrls } from './modules/reports/reports-pdf.js';
+
+window.hidePrintLoadingOverlay = hidePrintLoadingOverlay;
 
 console.log('CRANE PRO: Iniciando carregamento do módulo app.js...');
 
@@ -1673,6 +1676,9 @@ window.execMenuAction = async function(action) {
 };
 
 window.printReportPDF = async function(reportId) {
+    showPrintLoadingOverlay();
+    const safetyTimeout = setTimeout(() => hidePrintLoadingOverlay(), 15000);
+
     let report = finalizedReports.find(r => String(r.id) === String(reportId));
     if (!report || !report.responses || Object.keys(report.responses || {}).length === 0) {
         const localReports = await getDBValue('crane_reports', []);
@@ -1683,7 +1689,11 @@ window.printReportPDF = async function(reportId) {
             if (idx !== -1) finalizedReports[idx] = report;
         }
     }
-    if (!report) return window.showAlert('RELATÓRIO NÃO ENCONTRADO.', 'error');
+    if (!report) {
+        hidePrintLoadingOverlay();
+        clearTimeout(safetyTimeout);
+        return window.showAlert('RELATÓRIO NÃO ENCONTRADO.', 'error');
+    }
 
     let company = companies.find(c => c.name.toLowerCase() === report.empresa.toLowerCase());
     if (!company) {
@@ -1707,6 +1717,14 @@ window.printReportPDF = async function(reportId) {
         try {
             internalCompany = JSON.parse(internalCompanyRaw);
         } catch (e) {}
+    }
+
+    // Pré-carregamento determinístico de todas as mídias salvas no Supabase Storage / Blob / Local
+    try {
+        const mediaUrls = collectAllReportImageUrls(report, company, internalCompany, usersList);
+        await preloadImageUrls(mediaUrls);
+    } catch (e) {
+        console.warn("Aviso no pré-carregamento determinístico de mídias:", e);
     }
 
     const reportTypeUpper = (report.type || 'PREVENTIVA').toUpperCase();
@@ -2827,10 +2845,39 @@ window.printReportPDF = async function(reportId) {
                 // Oculta a fonte original
                 document.getElementById('print-content-source').style.display = 'none';
                 
-                setTimeout(() => {
-                    window.focus();
-                    window.print();
-                }, 500);
+                const finishAndPrint = async () => {
+                    const images = Array.from(document.querySelectorAll('img'));
+                    if (images.length > 0) {
+                        await Promise.allSettled(images.map(img => {
+                            return new Promise(resolve => {
+                                if (img.complete && img.naturalHeight !== 0) {
+                                    if ('decode' in img) {
+                                        img.decode().then(resolve).catch(resolve);
+                                    } else {
+                                        resolve();
+                                    }
+                                } else {
+                                    img.onload = () => {
+                                        if ('decode' in img) {
+                                            img.decode().then(resolve).catch(resolve);
+                                        } else {
+                                            resolve();
+                                        }
+                                    };
+                                    img.onerror = resolve;
+                                }
+                            });
+                        }));
+                    }
+                    if (window.parent && typeof window.parent.hidePrintLoadingOverlay === 'function') {
+                        window.parent.hidePrintLoadingOverlay();
+                    }
+                    setTimeout(() => {
+                        window.focus();
+                        window.print();
+                    }, 150);
+                };
+                finishAndPrint();
             }
         };
     </script>
