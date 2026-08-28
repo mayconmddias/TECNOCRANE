@@ -1,15 +1,23 @@
-import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteCompanyAllDataFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud, openOrders, setOpenOrders, finalizedReports, setFinalizedReports, syncAllFromSupabase, eventsList } from './data.js';
-import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay, hashPassword } from './utils.js';
+import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteCompanyAllDataFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud, openOrders, setOpenOrders, finalizedReports, setFinalizedReports, syncAllFromSupabase, syncKeyToSupabase, eventsList } from './data.js';
+import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay, hashPassword, formatShortName } from './utils.js';
 import { renderCompanies as renderCompaniesUI, renderAssetsTable } from './ui-render.js';
 import { renderObservationBlock, renderNode, renderCustomChecklistItemRow, renderResponsibleCard } from './checklist-render.js';
 import { mountChecklistForm, getFormRoot, collectFormData } from './checklist-ui.js';
 import { createInspectionDocument, validateBeforeSend, mergeLegacyReport } from './checklist-state.js';
-import { acquireLock, releaseLock } from './locks.js';
+import { acquireLock, releaseLock, getCurrentUser, setCurrentUser } from './locks.js';
 import { getTenantCode, isSupabaseConfigured } from './supabase.js';
 import { CHECKLIST_SCHEMA } from './checklist-schema.js';
-import { showPrintLoadingOverlay, hidePrintLoadingOverlay, collectAllReportImageUrls, preloadImageUrls } from './modules/reports/reports-pdf.js';
+import { showPrintLoadingOverlay, hidePrintLoadingOverlay, collectAllReportImageUrls, preloadImageUrls, printReportPDF, getChecklistPrintHTML } from './modules/reports/reports-pdf.js';
+import { filterReports, formatReportNumber, normalizeComp as normCompReports, normalizeAssetId as normAssetReports } from './modules/reports/reports-service.js';
+import { renderTemplatesView, populateAssetTemplateDropdown, openCorretivaItemsPicker } from './modules/templates/templates-ui.js';
+import { getTemplates, getTemplateById, convertTemplateToChecklistSchema, loadTemplates, getAssetTemplates, getAssetTemplateById, loadAssetTemplates } from './modules/templates/templates-module.js';
+import { reserveNextAssetId, prepareAssetPayload, parseAssetSequenceNumber } from './modules/assets/assets-service.js';
+import { generateNextOrderId, saveDraftOrder, deleteDraftOrder, saveFastLocalDraft, getFastLocalDraft, clearFastLocalDraft } from './modules/orders/orders-service.js';
 
 window.hidePrintLoadingOverlay = hidePrintLoadingOverlay;
+window.getChecklistPrintHTML = getChecklistPrintHTML;
+window.allAssetsList = allAssetsList;
+window.companies = companies;
 
 console.log('CRANE PRO: Iniciando carregamento do módulo app.js...');
 
@@ -22,6 +30,47 @@ let assets = getStoredData('crane_assets', []);
 let events = eventsList;
 
 function runMigrationsAndSync() {
+    // Recupera o ativo #EQP-0001 original da AUTOKINITON caso tenha sido acidentalmente sobrescrito
+    const hasEqp1 = allAssetsList.find(a => a && (a.id === '#EQP-0001' || a.id === '#EQP 0001'));
+    if (hasEqp1 && (hasEqp1.tipo === 'TALHA MANUAL' || hasEqp1.empresa !== 'AUTOKINITON')) {
+        const originalAutokiniton = {
+            id: '#EQP-0001',
+            empresa: 'AUTOKINITON',
+            nome: 'PONTE ROLANTE VIGA DUPLA',
+            tipo: 'PONTE ROLANTE VIGA DUPLA',
+            local: 'ARMAZEM A',
+            fabricante: 'TECNOCRANE',
+            capacidade: '32 TON',
+            caboPrincipal: '',
+            capacidadeAuxiliar: '',
+            caboAuxiliar: '',
+            altura: '13 MTS',
+            vao: '19.730 MTS',
+            tensaoAlimentacao: '',
+            tensaoComando: '',
+            alimentacaoEquipamento: '',
+            motorElevPrincipalAlta: '',
+            motorElevPrincipalBaixa: '',
+            motorElevAuxiliarAlta: '',
+            motorElevAuxiliarBaixa: '',
+            motorDirecaoCarro: '',
+            motorTranslacaoPonte: '',
+            template_id: null,
+            template_name: null,
+            schema_snapshot: null,
+            custom_fields: {},
+            is_provisional: false,
+            provisional_id: null,
+            sync_status: 'synced'
+        };
+
+        const reallocated = { ...hasEqp1, id: '#EQP-0004' };
+        const updated = allAssetsList.filter(a => a.id !== hasEqp1.id);
+        updated.unshift(originalAutokiniton);
+        updated.push(reallocated);
+        setAllAssetsList(updated);
+    }
+
     // Migração dos ativos no localStorage para corresponder às especificações da nova lista técnica
     assets = assets.map(a => {
         const matchingTechnicalAsset = allAssetsList.find(ta => ta.id === a.id);
@@ -36,22 +85,6 @@ function runMigrationsAndSync() {
         return a;
     });
 
-    // Se assets estiver vazio, gera dados aleatórios baseados no allAssetsList técnico
-    if (assets.length === 0 && allAssetsList.length > 0) {
-        allAssetsList.forEach(asset => {
-            const randomDays = Math.floor(Math.random() * 60) - 10;
-            const d = new Date();
-            d.setDate(d.getDate() + randomDays);
-            
-            assets.push({
-                id: asset.id,
-                empresa: asset.empresa,
-                tipo: asset.tipo || asset.nome || "N/A",
-                local: asset.local || "SETOR OPERACIONAL",
-                data: formatDateFromDate(d)
-            });
-        });
-    }
     setStoredData('crane_assets', assets);
 
     // Atualiza eventos garantindo que tipo e local sejam enriquecidos a partir do cadastro tecnico allAssetsList
@@ -171,6 +204,7 @@ function renderCompanies() {
         renderAssets();
     });
 }
+window.renderCompanies = renderCompanies;
 
 
 // --- VIEW NAVIGATION ---
@@ -189,7 +223,8 @@ window.switchView = function(view) {
         assets: document.getElementById('assets-view'),
         users: document.getElementById('users-view'),
         'open-orders': document.getElementById('open-orders-view'),
-        reports: document.getElementById('reports-view')
+        reports: document.getElementById('reports-view'),
+        templates: document.getElementById('templates-view')
     };
     
     const navs = {
@@ -197,6 +232,7 @@ window.switchView = function(view) {
         calendar: document.getElementById('nav-calendar'),
         assets: document.getElementById('nav-assets'),
         inspections: document.getElementById('nav-inspections'),
+        templates: document.getElementById('nav-templates'),
         users: document.getElementById('nav-users'),
         reports: document.getElementById('nav-reports'),
         'open-orders': document.getElementById('nav-open-orders')
@@ -214,6 +250,7 @@ window.switchView = function(view) {
     else if (view === 'open-orders') renderOpenOrders();
     else if (view === 'reports') renderReportsView();
     else if (view === 'assets') renderAtivosView();
+    else if (view === 'templates') renderTemplatesView();
 
     // Sincroniza dados com o Supabase em segundo plano ao alternar de menu
     if (isSupabaseConfigured) {
@@ -257,7 +294,10 @@ window.toggleSidebar = function() {
     overlay.classList.toggle('hidden');
 };
 
-// --- MODAL INSPEÇÃO ---
+window.openInspecaoModalWithTemplate = function(template) {
+    window.selectedInspectionTemplate = template;
+    window.openInspecaoModal();
+};
 
 window.openInspecaoModal = function() {
     const modal = document.getElementById('inspecao-modal');
@@ -274,6 +314,31 @@ window.openInspecaoModal = function() {
         }).join('');
     }
     window.updateInspecaoEquipments();
+
+    // Popula seleção de modelos imediatamente e atualiza assincronamente
+    const modeloSelect = document.getElementById('inspecao-modelo');
+    if (modeloSelect) {
+        const populateOptions = (list) => {
+            let optionsHtml = '<option value="DEFAULT">PONTE ROLANTE VIGA DUPLA</option>';
+            optionsHtml += (list || []).map(t => `<option value="${t.id}">${(t.nome || '').toUpperCase()}</option>`).join('');
+            modeloSelect.innerHTML = optionsHtml;
+            if (window.selectedInspectionTemplate) {
+                modeloSelect.value = window.selectedInspectionTemplate.id;
+            }
+        };
+
+        // 1. População síncrona imediata a partir da memória
+        populateOptions(getTemplates());
+
+        // 2. Atualização assíncrona da nuvem
+        loadTemplates().then(templates => {
+            populateOptions(templates || getTemplates() || []);
+            if (window.selectedInspectionTemplate) {
+                modeloSelect.value = window.selectedInspectionTemplate.id;
+                window.selectedInspectionTemplate = null;
+            }
+        });
+    }
 
     modal.classList.remove('hidden');
     setTimeout(() => {
@@ -317,23 +382,65 @@ window.updateInspecaoEquipments = function() {
 window.startChecklist = function() {
     const empresa = document.getElementById('inspecao-empresa')?.value;
     const equipamentoId = document.getElementById('inspecao-equipamento')?.value;
-    const tipo = document.getElementById('inspecao-tipo')?.value;
+    const tipo = document.getElementById('inspecao-tipo')?.value || 'PREVENTIVA';
+    const modeloId = document.getElementById('inspecao-modelo')?.value;
     const preenchimento = document.getElementById('inspecao-preenchimento')?.value;
 
     if (!empresa || !equipamentoId) {
         return window.showAlert('SELECIONE EMPRESA E ATIVO PARA INICIAR.', 'warning');
     }
 
+    let customSchema = null;
+    let templateId = null;
+    let templateName = null;
+    if (modeloId && modeloId !== 'DEFAULT') {
+        templateId = modeloId;
+        const tpl = getTemplateById(modeloId);
+        if (tpl) {
+            templateName = tpl.nome;
+            customSchema = convertTemplateToChecklistSchema(tpl);
+            if (!customSchema || customSchema.length === 0) {
+                return window.showAlert('O MODELO SELECIONADO NÃO POSSUI ITENS DE VERIFICAÇÃO CADASTRADOS. EDITE O MODELO OU SELECIONE OUTRO.', 'warning');
+            }
+        }
+    }
+    if (!customSchema || customSchema.length === 0) {
+        customSchema = CHECKLIST_SCHEMA;
+        templateName = 'PONTE ROLANTE VIGA DUPLA';
+    }
+
     const asset = allAssetsList.find(a => a.id === equipamentoId);
     const equipamentoNome = asset ? (asset.nome || asset.id) : equipamentoId;
 
+    const context = {
+        tipo,
+        empresa,
+        equipamentoId,
+        equipamentoNome,
+        assetInfo: `${equipamentoNome} — ${empresa}`,
+        templateId,
+        templateName,
+        preenchimento
+    };
+
+    if (tipo === 'CORRETIVA') {
+        window.closeInspecaoModal();
+        openCorretivaItemsPicker(context, customSchema, templateName);
+        return;
+    }
+
     window.closeInspecaoModal();
+    window.launchInspectionWithSchema(context, customSchema);
+};
+
+window.launchInspectionWithSchema = function(context, schemaToUse) {
+    const { tipo, empresa, equipamentoId, equipamentoNome, templateId, templateName, preenchimento } = context;
+    const schemaSnapshot = JSON.parse(JSON.stringify(schemaToUse || CHECKLIST_SCHEMA));
 
     let savedDoc = null;
     if (preenchimento === 'ULTIMA') {
         const matchingReports = (finalizedReports || []).filter(r => r.equipamentoId === equipamentoId || r.equipamento === equipamentoId);
         if (matchingReports.length > 0) {
-            // Ordenar decrescentemente por data
             matchingReports.sort((a, b) => {
                 const dateA = new Date(a.createdAt || a.updatedAt || parseAssetDate(a.date));
                 const dateB = new Date(b.createdAt || b.updatedAt || parseAssetDate(b.date));
@@ -341,9 +448,8 @@ window.startChecklist = function() {
             });
             const lastReport = matchingReports[0];
             
-            // Clonar o relatório
             savedDoc = JSON.parse(JSON.stringify(lastReport));
-            savedDoc.id = null; // não sobrescrever o ID
+            savedDoc.id = null;
             savedDoc.status = 'DRAFT';
             savedDoc.createdAt = new Date().toISOString();
             savedDoc.updatedAt = new Date().toISOString();
@@ -379,6 +485,10 @@ window.startChecklist = function() {
         equipamentoId,
         equipamentoNome,
         assetInfo: `${equipamentoNome} — ${empresa}`,
+        schema: schemaSnapshot,
+        schema_snapshot: schemaSnapshot,
+        templateId: templateId,
+        templateName: templateName
     }, savedDoc);
 };
 
@@ -417,9 +527,45 @@ async function openChecklistForm(context, savedDoc = null) {
     const infoEl = document.getElementById('checklist-asset-info');
     const formRoot = document.getElementById('checklist-form-root');
 
-    const doc = savedDoc
+    let doc = savedDoc
         ? mergeLegacyReport(savedDoc)
         : createInspectionDocument(context);
+
+    // Se houver um rascunho rápido local na sessão (ex: após F5), restaura os dados preenchidos
+    if (doc.id) {
+        const fastDraft = getFastLocalDraft(doc.id);
+        if (fastDraft && fastDraft.responses && Object.keys(fastDraft.responses).length > 0) {
+            doc.responses = { ...doc.responses, ...fastDraft.responses };
+            if (fastDraft.generalObservation !== undefined) doc.generalObservation = fastDraft.generalObservation;
+            if (fastDraft.generalImages && Array.isArray(fastDraft.generalImages)) doc.generalImages = fastDraft.generalImages;
+            if (fastDraft.customSections && Array.isArray(fastDraft.customSections)) doc.customSections = fastDraft.customSections;
+            if (fastDraft.customItems && Array.isArray(fastDraft.customItems)) doc.customItems = fastDraft.customItems;
+            if (fastDraft.responsaveis && Array.isArray(fastDraft.responsaveis)) doc.responsaveis = fastDraft.responsaveis;
+        }
+    }
+
+    currentChecklistContext = {
+        ...context,
+        schema: doc.schema_snapshot || doc.schema,
+        schema_snapshot: doc.schema_snapshot || doc.schema,
+        templateId: doc.templateId,
+        templateName: doc.templateName
+    };
+
+    // Persistência local segura para novas ordens antes de abrir o formulário
+    if (!savedDoc) {
+        if (!doc.id) {
+            doc.id = generateNextOrderId(openOrders);
+        }
+        editingOrderId = doc.id;
+
+        try {
+            saveDraftOrder(doc, openOrders);
+            syncKeyToSupabase('crane_open_orders', openOrders).catch(e => console.warn('Supabase sync background notice:', e));
+        } catch (err) {
+            console.error('Falha ao persistir rascunho inicial:', err);
+        }
+    }
 
     activeCustomSections = doc.customSections || [];
     activeCustomItems = doc.customItems || [];
@@ -432,7 +578,8 @@ async function openChecklistForm(context, savedDoc = null) {
     if (saveBtn) {
         saveBtn.disabled = false;
         saveBtn.classList.remove('opacity-50', 'pointer-events-none');
-        if (editingOrderId && String(editingOrderId).startsWith('REL-')) {
+        const isEditingReport = editingOrderId && String(editingOrderId).toUpperCase().startsWith('REL');
+        if (isEditingReport) {
             saveBtn.classList.add('hidden');
         } else {
             saveBtn.classList.remove('hidden');
@@ -460,6 +607,24 @@ async function openChecklistForm(context, savedDoc = null) {
 
 // --- MODALS ---
 
+function populateTechnicianDropdowns(select1Id, select2Id, currentVal1 = '', currentVal2 = '') {
+    const s1 = document.getElementById(select1Id);
+    const s2 = document.getElementById(select2Id);
+    if (!s1 || !s2) return;
+
+    const optionsHTML = `<option value="">SELECIONE...</option>` + 
+        (usersList || []).map(u => {
+            const shortName = formatShortName(u.name || '');
+            return `<option value="${u.name}">${shortName.toUpperCase()}</option>`;
+        }).join('');
+
+    s1.innerHTML = optionsHTML;
+    s2.innerHTML = optionsHTML;
+
+    if (currentVal1) s1.value = currentVal1;
+    if (currentVal2) s2.value = currentVal2;
+}
+
 window.openProgModal = function(dateStr) {
     const modal = document.getElementById('prog-modal');
     const panel = document.getElementById('prog-panel');
@@ -472,6 +637,7 @@ window.openProgModal = function(dateStr) {
         }).join('');
     }
     window.updateProgEquipments();
+    populateTechnicianDropdowns('prog-tecnico-1', 'prog-tecnico-2');
     const dateInput = document.getElementById('prog-date');
     if (dateInput) {
         if (dateStr) dateInput.value = dateStr;
@@ -504,8 +670,15 @@ window.saveProgEvent = function() {
     const equipamento = document.getElementById('prog-equipamento').value;
     const date = document.getElementById('prog-date').value;
     const recorrencia = parseInt(document.getElementById('prog-recorrencia').value);
+    const tec1 = document.getElementById('prog-tecnico-1')?.value || '';
+    const tec2 = document.getElementById('prog-tecnico-2')?.value || '';
 
     if (!empresa || !equipamento || !date) return window.showAlert('POR FAVOR, PREENCHA TODOS OS CAMPOS.', 'warning');
+
+    const selectedTecs = [];
+    if (tec1) selectedTecs.push(formatShortName(tec1));
+    if (tec2 && tec2 !== tec1) selectedTecs.push(formatShortName(tec2));
+    const tecnicoStr = selectedTecs.join(' | ');
 
     const groupId = Date.now();
     const companyColor = getCompanyColor(empresa);
@@ -530,6 +703,8 @@ window.saveProgEvent = function() {
             tipo: assetTipo,
             local: assetLocal,
             date: dateStr,
+            tecnico: tecnicoStr,
+            tecnicos: selectedTecs,
             color: companyColor.color, textColor: companyColor.textColor, status: 'PENDENTE'
         };
 
@@ -583,6 +758,23 @@ window.openEditModal = async function(eventOrId, id) {
     }
     currentEventLockKey = lockKey;
 
+    // Identifica o equipamento limpo (ex: #EQP-0001) e busca dados de cadastro
+    let rawEquip = event.equipamento;
+    if (!rawEquip && event.id) {
+        rawEquip = event.id.includes('-20') ? event.id.substring(0, event.id.lastIndexOf('-20')) : event.id;
+    }
+    
+    const assetObj = allAssetsList.find(a => a && (
+        String(a.id).trim().toUpperCase() === String(rawEquip).trim().toUpperCase() ||
+        String(a.id).trim().toUpperCase() === String(event.id).trim().toUpperCase() ||
+        String(a.id).trim().toUpperCase() === String(event.equipamento).trim().toUpperCase()
+    ));
+
+    const cleanEquipId = (assetObj && assetObj.id) ? assetObj.id : (rawEquip || event.id);
+    const empresaName = (event && event.empresa) || (assetObj && assetObj.empresa) || "N/A";
+    const tipoName = (event && event.tipo) || (assetObj && (assetObj.tipo || assetObj.nome)) || "N/A";
+    const localName = (assetObj && assetObj.local) || (event && event.local) || "---";
+
     const els = {
         id: document.getElementById('edit-asset-id'),
         date: document.getElementById('edit-asset-date'),
@@ -590,16 +782,35 @@ window.openEditModal = async function(eventOrId, id) {
         just: document.getElementById('edit-asset-justificativa'),
         idVal: document.getElementById('edit-asset-id-val'),
         empresaVal: document.getElementById('edit-asset-empresa-val'),
-        tipoVal: document.getElementById('edit-asset-tipo-val')
+        tipoVal: document.getElementById('edit-asset-tipo-val'),
+        localVal: document.getElementById('edit-asset-local-val')
     };
 
-    if (els.id) els.id.innerText = `${event.id} | ${event.empresa}`;
+    if (els.id) els.id.innerText = `${cleanEquipId} | ${empresaName}`;
     if (els.date) els.date.value = event.date;
     if (els.status) els.status.value = event.status || 'PENDENTE';
     if (els.just) els.just.value = event.justificativa || '';
-    if (els.idVal) els.idVal.innerText = event.id;
-    if (els.empresaVal) els.empresaVal.innerText = event.empresa;
-    if (els.tipoVal) els.tipoVal.innerText = event.tipo || "N/A";
+    if (els.idVal) els.idVal.innerText = cleanEquipId;
+    if (els.empresaVal) els.empresaVal.innerText = empresaName;
+    if (els.tipoVal) els.tipoVal.innerText = tipoName;
+    if (els.localVal) els.localVal.innerText = localName;
+
+    let curTec1 = '';
+    let curTec2 = '';
+    if (event && event.tecnicos && Array.isArray(event.tecnicos)) {
+        curTec1 = event.tecnicos[0] || '';
+        curTec2 = event.tecnicos[1] || '';
+    } else if (event && event.tecnico) {
+        const parts = event.tecnico.split(/\s*\|\s*/);
+        curTec1 = parts[0] || '';
+        curTec2 = parts[1] || '';
+    }
+    const findUser = (name) => {
+        if (!name) return '';
+        const found = (usersList || []).find(u => u.name.toLowerCase() === name.toLowerCase() || formatShortName(u.name).toLowerCase() === name.toLowerCase());
+        return found ? found.name : name;
+    };
+    populateTechnicianDropdowns('edit-asset-tecnico-1', 'edit-asset-tecnico-2', findUser(curTec1), findUser(curTec2));
 
     window.updateNaoRealizadoButtonState();
 
@@ -697,21 +908,47 @@ window.updateNaoRealizadoButtonState = function() {
 };
 
 window.updateEventFromIndustrial = function() {
-    const dateInput = document.getElementById('edit-asset-date').value;
-    const status = document.getElementById('edit-asset-status').value;
-    const justificativa = document.getElementById('edit-asset-justificativa').value;
-    let eventIdx = events.findIndex(e => e.id == id);
-    const targetEquip = (eventIdx !== -1 ? events[eventIdx].equipamento : null) || assets.find(a => a.id == id)?.id || id;
-    const empresa = events[eventIdx]?.empresa || assets.find(a => a.id == id)?.empresa || "N/A";
-    const tipo = events[eventIdx]?.tipo || assets.find(a => a.id == id)?.tipo || assets.find(a => a.id == id)?.nome || "N/A";
+    const id = window.currentEditingEventId;
+    if (!id) return;
+
+    const dateInput = document.getElementById('edit-asset-date')?.value;
+    if (!dateInput) {
+        return window.showAlert('SELECIONE UMA DATA VÁLIDA.', 'warning');
+    }
+    const status = document.getElementById('edit-asset-status')?.value || 'PENDENTE';
+    const justificativa = document.getElementById('edit-asset-justificativa')?.value || '';
+    
+    let eventIdx = events.findIndex(e => String(e.id) === String(id));
+    const currentEv = eventIdx !== -1 ? events[eventIdx] : null;
+    
+    let targetEquip = (currentEv ? currentEv.equipamento : null) || (id.includes('-20') ? id.substring(0, id.lastIndexOf('-20')) : id);
+    const assetObj = allAssetsList.find(a => a && (
+        String(a.id).trim().toUpperCase() === String(targetEquip).trim().toUpperCase() ||
+        String(a.id).trim().toUpperCase() === String(id).trim().toUpperCase()
+    ));
+    if (assetObj && assetObj.id) {
+        targetEquip = assetObj.id;
+    }
+
+    const empresa = (currentEv && currentEv.empresa) || (assetObj && assetObj.empresa) || "N/A";
+    const tipo = (currentEv && currentEv.tipo) || (assetObj && (assetObj.tipo || assetObj.nome)) || "N/A";
+    const local = (assetObj && assetObj.local) || (currentEv && currentEv.local) || "";
     const companyColor = getCompanyColor(empresa);
-    const finalId = (String(id) === String(targetEquip)) ? `${targetEquip}-${dateInput}` : id;
+    const finalId = `${targetEquip}-${dateInput}`;
     
     if (String(id) !== String(finalId)) {
         deleteEventFromCloud(id).catch(e => console.error("Erro ao deletar evento antigo:", e));
     }
 
+    const tec1 = document.getElementById('edit-asset-tecnico-1')?.value || '';
+    const tec2 = document.getElementById('edit-asset-tecnico-2')?.value || '';
+    const selectedTecs = [];
+    if (tec1) selectedTecs.push(formatShortName(tec1));
+    if (tec2 && tec2 !== tec1) selectedTecs.push(formatShortName(tec2));
+    const tecnicoStr = selectedTecs.join(' | ');
+
     const eventData = {
+        ...(currentEv || {}),
         id: finalId,
         date: dateInput,
         status: status,
@@ -719,17 +956,25 @@ window.updateEventFromIndustrial = function() {
         empresa: empresa,
         equipamento: targetEquip,
         tipo: tipo,
+        local: local,
+        tecnico: tecnicoStr,
+        tecnicos: selectedTecs,
         color: status === 'NAO_REALIZADO' ? 'border-red-500 bg-red-50' : companyColor.color,
         textColor: status === 'NAO_REALIZADO' ? 'text-red-700' : companyColor.textColor
     };
 
-    if (eventIdx !== -1) events[eventIdx] = { ...events[eventIdx], ...eventData };
-    else events.push(eventData);
+    if (eventIdx !== -1) {
+        events[eventIdx] = eventData;
+    } else {
+        events.push(eventData);
+    }
     
     setStoredData('crane_events', events);
     window.closeEditAssetModal();
     renderCalendar();
-    renderAssets();
+    if (typeof renderAssets === 'function') renderAssets();
+    if (typeof renderOpenOrders === 'function') renderOpenOrders();
+    window.showAlert('AGENDAMENTO ATUALIZADO COM SUCESSO!', 'success');
 };
 
 window.confirmDeleteModal = function() {
@@ -880,12 +1125,17 @@ window.openChecklistModal = async function(id = null) {
         }
     }
     if (order) {
+        const resolvedSchema = order.schema_snapshot || order.schema || null;
         openChecklistForm({
-            tipo: order.type,
-            empresa: order.empresa,
-            equipamentoId: order.equipamentoId,
-            equipamentoNome: order.equipamentoNome,
-            assetInfo: order.assetInfo,
+            tipo: order.type || 'PREVENTIVA',
+            empresa: order.empresa || '',
+            equipamentoId: order.equipamentoId || '',
+            equipamentoNome: order.equipamentoNome || '',
+            assetInfo: order.assetInfo || '',
+            schema: resolvedSchema,
+            schema_snapshot: resolvedSchema,
+            templateId: order.templateId || null,
+            templateName: order.templateName || null
         }, order);
         return;
     }
@@ -901,12 +1151,17 @@ window.openChecklistModal = async function(id = null) {
         }
     }
     if (report) {
+        const resolvedSchema = report.schema_snapshot || report.schema || null;
         openChecklistForm({
-            tipo: report.type,
-            empresa: report.empresa,
-            equipamentoId: report.equipamentoId || report.equipamento,
-            equipamentoNome: report.equipamentoNome || report.equipamento,
-            assetInfo: report.assetInfo,
+            tipo: report.type || 'PREVENTIVA',
+            empresa: report.empresa || '',
+            equipamentoId: report.equipamentoId || report.equipamento || '',
+            equipamentoNome: report.equipamentoNome || report.equipamento || '',
+            assetInfo: report.assetInfo || '',
+            schema: resolvedSchema,
+            schema_snapshot: resolvedSchema,
+            templateId: report.templateId || null,
+            templateName: report.templateName || null
         }, report);
     }
 };
@@ -936,10 +1191,14 @@ window.closeChecklistModal = function() {
     setTimeout(() => modal?.classList.add('hidden'), 75);
 };
 
-window.savePartialInspection = function() {
+window.savePartialInspection = async function() {
     if (isSavingOrSendingChecklist) return;
     const formRoot = getFormRoot() || document.getElementById('checklist-form-root');
     if (!formRoot || !currentChecklistContext) return;
+
+    if (editingOrderId && String(editingOrderId).toUpperCase().startsWith('REL')) {
+        return window.showAlert('RELATÓRIO FINALIZADO DEVE SER ENVIADO PELO BOTÃO "ENVIAR".', 'warning');
+    }
 
     isSavingOrSendingChecklist = true;
     const btn = document.getElementById('checklist-save-btn');
@@ -949,35 +1208,35 @@ window.savePartialInspection = function() {
     }
 
     const formData = collectFormData(formRoot);
-    let doc;
-    const tempOpenOrders = [...openOrders];
+    const existing = (editingOrderId && String(editingOrderId).startsWith('ORD-'))
+        ? openOrders.find(o => String(o.id) === String(editingOrderId))
+        : null;
+    const resolvedSchema = currentChecklistContext?.schema_snapshot || currentChecklistContext?.schema || existing?.schema_snapshot || existing?.schema || null;
 
-    if (editingOrderId && tempOpenOrders.find(o => o.id === editingOrderId)) {
-        const existing = tempOpenOrders.find(o => o.id === editingOrderId);
-        doc = createInspectionDocument(currentChecklistContext, {
-            ...existing,
-            ...formData,
-            customSections: activeCustomSections,
-            customItems: activeCustomItems,
-            id: editingOrderId,
-        });
-        const idx = tempOpenOrders.findIndex(o => o.id === editingOrderId);
-        tempOpenOrders[idx] = doc;
-    } else {
-        const newId = 'ORD-' + Math.floor(1000 + Math.random() * 9000);
-        doc = createInspectionDocument(currentChecklistContext, {
-            ...formData,
-            customSections: activeCustomSections,
-            customItems: activeCustomItems,
-            status: 'DRAFT',
-            id: newId,
-        });
-        tempOpenOrders.push(doc);
-    }
+    const docId = (editingOrderId && String(editingOrderId).startsWith('ORD-'))
+        ? editingOrderId
+        : generateNextOrderId(openOrders);
+
+    const loggedUser = getCurrentUser();
+    const currentUserName = loggedUser?.name || document.getElementById('user-name-display')?.innerText || "MAYCON DIAS";
+
+    const doc = createInspectionDocument(currentChecklistContext, {
+        ...(existing || {}),
+        ...formData,
+        schema: resolvedSchema,
+        schema_snapshot: resolvedSchema,
+        templateId: currentChecklistContext?.templateId || existing?.templateId || null,
+        templateName: currentChecklistContext?.templateName || existing?.templateName || null,
+        customSections: activeCustomSections,
+        customItems: activeCustomItems,
+        status: 'DRAFT',
+        id: docId,
+        tecnico: existing?.tecnico || currentUserName,
+    });
 
     try {
-        setStoredData('crane_open_orders', tempOpenOrders);
-        updateArrayInPlace(openOrders, tempOpenOrders);
+        await saveDraftOrder(doc, openOrders);
+        syncKeyToSupabase('crane_open_orders', openOrders).catch(e => console.warn('Supabase sync background notice:', e));
     } catch (e) {
         console.error("Erro ao salvar rascunho:", e);
         isSavingOrSendingChecklist = false;
@@ -1010,29 +1269,41 @@ window.generateWorkOrder = function() {
         btn.classList.add('opacity-50', 'pointer-events-none');
     }
 
-function generateNextReportId() {
-    let maxNum = 0;
-    const allReports = finalizedReports || [];
-    allReports.forEach(r => {
-        if (r && r.id) {
-            const match = String(r.id).match(/\d+/);
-            if (match) {
-                const num = parseInt(match[0], 10);
-                if (num > maxNum) maxNum = num;
+    function generateNextReportId() {
+        let maxNum = 0;
+        const allReports = finalizedReports || [];
+        allReports.forEach(r => {
+            if (r && r.id) {
+                const match = String(r.id).match(/\d+/);
+                if (match) {
+                    const num = parseInt(match[0], 10);
+                    if (num > maxNum) maxNum = num;
+                }
             }
-        }
-    });
-    const nextNum = maxNum + 1;
-    return `REL - ${String(nextNum).padStart(2, '0')}`;
-}
+        });
+        const nextNum = maxNum + 1;
+        return `REL - ${String(nextNum).padStart(2, '0')}`;
+    }
 
     const formData = collectFormData(formRoot);
     const isEditingRel = editingOrderId && (String(editingOrderId).startsWith('REL-') || String(editingOrderId).startsWith('REL - '));
     const reportId = isEditingRel ? editingOrderId : generateNextReportId();
 
-    const userName = document.getElementById('user-name-display')?.innerText || "MAYCON DIAS";
+    const loggedUser = getCurrentUser();
+    const userName = loggedUser?.name || document.getElementById('user-name-display')?.innerText || "MAYCON DIAS";
+    const existing = isEditingRel
+        ? finalizedReports.find(r => String(r.id) === String(editingOrderId))
+        : (editingOrderId ? openOrders.find(o => String(o.id) === String(editingOrderId)) : null);
+
+    const resolvedSchema = currentChecklistContext?.schema_snapshot || currentChecklistContext?.schema || existing?.schema_snapshot || existing?.schema || null;
+
     const newReport = createInspectionDocument(currentChecklistContext, {
+        ...(existing || {}),
         ...formData,
+        schema: resolvedSchema,
+        schema_snapshot: resolvedSchema,
+        templateId: currentChecklistContext?.templateId || existing?.templateId || null,
+        templateName: currentChecklistContext?.templateName || existing?.templateName || null,
         customSections: activeCustomSections,
         customItems: activeCustomItems,
         status: 'FINALIZED',
@@ -1051,6 +1322,7 @@ function generateNextReportId() {
 
     if (editingOrderId && String(editingOrderId).startsWith('ORD-')) {
         newOpenOrders = newOpenOrders.filter(o => o.id !== editingOrderId);
+        clearFastLocalDraft(editingOrderId);
         deleteOrderFromCloud(editingOrderId).catch(err => console.error("Erro ao deletar ordem concluída do Supabase:", err));
     }
 
@@ -1096,8 +1368,7 @@ function renderUsers(searchTerm = '') {
     filtered.forEach(user => {
         const tr = document.createElement('tr');
         tr.className = "hover:bg-zinc-50 transition-colors group";
-        const nameParts = user.name.trim().split(' ');
-        const displayName = nameParts.length > 1 ? `${nameParts[0]} ${nameParts[1]}` : nameParts[0];
+        const displayName = formatShortName(user.name);
         tr.innerHTML = `
             <td class="p-4 text-table-data font-bold uppercase">${displayName}</td>
             <td class="p-4 text-table-data text-zinc-500 lowercase">${user.email}</td>
@@ -1105,7 +1376,7 @@ function renderUsers(searchTerm = '') {
                 <span class="px-2 py-1 ${user.permission === 'ADMINISTRADOR' ? 'bg-primary-container/20 text-on-surface' : 'bg-zinc-100 text-zinc-600'} text-[10px] font-bold">${user.permission}</span>
             </td>
             <td class="p-4 text-right">
-                <button onclick="window.openEditUserModal(${user.id})" class="text-zinc-400 hover:text-black p-1">
+                <button onclick="window.openEditUserModal('${user.id}')" class="text-zinc-400 hover:text-black p-1">
                     <span class="material-symbols-outlined text-lg">edit</span>
                 </button>
             </td>`;
@@ -1132,17 +1403,10 @@ window.openUserModal = function() {
     document.getElementById('user-password-input').value = '';
     document.getElementById('user-permission-select').value = 'TECNICO';
     
-    // Tenta carregar a empresa interna do localStorage
-    const internalCompanyRaw = localStorage.getItem('crane_internal_company');
-    let internalCompany = null;
-    if (internalCompanyRaw) {
-        try {
-            internalCompany = JSON.parse(internalCompanyRaw);
-        } catch (e) {
-            console.error("Erro ao fazer parse da empresa interna:", e);
-        }
-    }
+    // Tenta carregar a empresa interna do storage
+    const internalCompany = getStoredData('crane_internal_company', null);
 
+    const removeLogoBtn = document.getElementById('remove-interno-logo-btn');
     if (internalCompany) {
         document.getElementById('interno-empresa-name').value = internalCompany.name || '';
         document.getElementById('interno-empresa-cnpj').value = internalCompany.cnpj || '';
@@ -1157,8 +1421,10 @@ window.openUserModal = function() {
         if (previewContainer) {
             if (internalCompany.logo) {
                 previewContainer.innerHTML = `<img src="${internalCompany.logo}" class="w-full h-full object-cover" />`;
+                if (removeLogoBtn) removeLogoBtn.classList.remove('hidden');
             } else {
                 previewContainer.innerHTML = '<span class="material-symbols-outlined text-on-surface-variant">add_a_photo</span>';
+                if (removeLogoBtn) removeLogoBtn.classList.add('hidden');
             }
         }
         window.currentInternoLogoBase64 = internalCompany.logo || null;
@@ -1172,8 +1438,12 @@ window.openUserModal = function() {
         if (previewContainer) {
             previewContainer.innerHTML = '<span class="material-symbols-outlined text-on-surface-variant">add_a_photo</span>';
         }
+        if (removeLogoBtn) removeLogoBtn.classList.add('hidden');
         window.currentInternoLogoBase64 = null;
     }
+    
+    const fileInput = document.getElementById('interno-empresa-logo');
+    if (fileInput) fileInput.value = '';
     
     document.getElementById('btn-user-delete').style.display = 'none'; // Hide delete when creating
     
@@ -1194,7 +1464,7 @@ window.openUserModal = function() {
 let currentUserLockKey = null;
 
 window.openEditUserModal = async function(id) {
-    const user = usersList.find(u => u.id === id);
+    const user = usersList.find(u => String(u.id) === String(id));
     if (!user) return;
 
     const lockKey = `user:${id}`;
@@ -1304,8 +1574,22 @@ window.handleInternoLogoPreview = function(event) {
         if (previewContainer) {
             previewContainer.innerHTML = `<img src="${base64}" class="w-full h-full object-cover" />`;
         }
+        const removeLogoBtn = document.getElementById('remove-interno-logo-btn');
+        if (removeLogoBtn) removeLogoBtn.classList.remove('hidden');
     };
     reader.readAsDataURL(file);
+};
+
+window.removeInternoLogo = function() {
+    window.currentInternoLogoBase64 = "";
+    const previewContainer = document.getElementById('interno-logo-preview-container');
+    if (previewContainer) {
+        previewContainer.innerHTML = '<span class="material-symbols-outlined text-on-surface-variant">add_a_photo</span>';
+    }
+    const fileInput = document.getElementById('interno-empresa-logo');
+    if (fileInput) fileInput.value = '';
+    const removeLogoBtn = document.getElementById('remove-interno-logo-btn');
+    if (removeLogoBtn) removeLogoBtn.classList.add('hidden');
 };
 
 window.saveCadastroInterno = function() {
@@ -1317,20 +1601,15 @@ window.saveCadastroInterno = function() {
     const cep = document.getElementById('interno-empresa-cep').value.trim();
     const cidade = document.getElementById('interno-empresa-cidade').value.trim();
     const estado = document.getElementById('interno-empresa-estado').value.trim();
-    const logo = window.currentInternoLogoBase64 || "";
+    const logo = window.currentInternoLogoBase64 !== null ? window.currentInternoLogoBase64 : "";
 
     if (!name) {
         return window.showAlert('O NOME DA EMPRESA É OBRIGATÓRIO.', 'warning');
     }
 
     // Tenta carregar a empresa interna antiga para identificar se o nome mudou ou se é a mesma
-    const internalCompanyRaw = localStorage.getItem('crane_internal_company');
-    let oldName = "";
-    if (internalCompanyRaw) {
-        try {
-            oldName = JSON.parse(internalCompanyRaw).name;
-        } catch (e) {}
-    }
+    const internalCompany = getStoredData('crane_internal_company', null);
+    let oldName = (internalCompany && internalCompany.name) ? internalCompany.name : "";
 
     // Verifica se existe outra empresa com este nome, exceto se for a mesma empresa que estamos editando
     const exists = (companies || []).some(c => {
@@ -1448,11 +1727,11 @@ window.saveUserFromForm = async function() {
     const hashedPassword = await hashPassword(password);
 
     let updatedList = [];
+    let savedUser = null;
     if (idVal) {
-        const userId = parseInt(idVal);
         updatedList = usersList.map(u => {
-            if (u.id === userId) {
-                return {
+            if (String(u.id) === String(idVal)) {
+                savedUser = {
                     ...u,
                     name: name.toUpperCase(),
                     cargo: cargo.toUpperCase(),
@@ -1462,12 +1741,13 @@ window.saveUserFromForm = async function() {
                     signature: window.currentUserSignatureBase64 !== null ? window.currentUserSignatureBase64 : (u.signature || ""),
                     tenant_code: u.tenant_code || getTenantCode() || '001'
                 };
+                return savedUser;
             }
             return u;
         });
     } else {
         const nextId = usersList.length > 0 ? Math.max(...usersList.map(u => Number(u.id) || 0)) + 1 : 1;
-        updatedList = [...usersList, {
+        savedUser = {
             id: nextId,
             name: name.toUpperCase(),
             cargo: cargo.toUpperCase(),
@@ -1476,10 +1756,22 @@ window.saveUserFromForm = async function() {
             permission: permission,
             signature: window.currentUserSignatureBase64 || "",
             tenant_code: getTenantCode() || '001'
-        }];
+        };
+        updatedList = [...usersList, savedUser];
     }
     
     setUsersList(updatedList);
+
+    // Se o usuário editado for o usuário logado atualmente, atualiza a sessão ativa
+    const loggedUser = getCurrentUser();
+    if (savedUser && loggedUser && (String(loggedUser.id) === String(savedUser.id) || (loggedUser.email && loggedUser.email.toLowerCase() === savedUser.email.toLowerCase()))) {
+        setCurrentUser(savedUser);
+        const roleEl = document.getElementById('user-role-display');
+        const nameEl = document.getElementById('user-name-display');
+        if (roleEl) roleEl.innerText = savedUser.permission || 'TECNICO';
+        if (nameEl) nameEl.innerText = savedUser.name || 'USUÁRIO';
+    }
+
     window.closeUserModal();
     renderUsers();
     window.showAlert('USUÁRIO SALVO COM SUCESSO.', 'success');
@@ -1489,11 +1781,10 @@ window.deleteUserFromForm = function() {
     const idVal = document.getElementById('user-id-input').value;
     if (!idVal) return;
     
-    const userId = parseInt(idVal);
     window.showAlert('DESEJA EXCLUIR ESTE USUÁRIO DEFINITIVAMENTE?', 'warning', () => {
-        const updatedList = usersList.filter(u => u.id !== userId);
+        const updatedList = usersList.filter(u => String(u.id) !== String(idVal));
         setUsersList(updatedList);
-        deleteUserFromCloud(userId);
+        deleteUserFromCloud(idVal);
         window.closeUserModal();
         renderUsers();
         window.showAlert('USUÁRIO EXCLUÍDO COM SUCESSO.', 'success');
@@ -1517,29 +1808,35 @@ function renderOpenOrders() {
             <td class="p-4 text-table-data uppercase text-zinc-500">${emp}</td>
             <td class="p-4 text-table-data uppercase font-bold text-zinc-900">${equip}</td>
             <td class="p-4"><span class="px-2 py-1 bg-amber-100 text-amber-700 text-[9px] font-black uppercase border border-amber-200">EM ABERTO</span></td>
-            <td class="p-4 text-right"><button onclick="window.openChecklistModal('${order.id}')" class="text-zinc-400 hover:text-black p-1"><span class="material-symbols-outlined text-lg">edit_note</span></button></td>`;
+            <td class="p-4 text-right">
+                <div class="flex items-center justify-end gap-1">
+                    <button onclick="window.openChecklistModal('${order.id}')" class="text-zinc-400 hover:text-black p-1 transition-colors" title="Editar Ordem">
+                        <span class="material-symbols-outlined text-lg">edit_note</span>
+                    </button>
+                    <button onclick="window.deleteOpenOrder('${order.id}')" class="text-zinc-400 hover:text-error p-1 transition-colors" title="Excluir Ordem">
+                        <span class="material-symbols-outlined text-lg">delete</span>
+                    </button>
+                </div>
+            </td>`;
         tbody.appendChild(tr);
     });
 }
+window.renderOpenOrders = renderOpenOrders;
+
+window.deleteOpenOrder = async function(orderId) {
+    if (!orderId) return;
+    await deleteDraftOrder(orderId, openOrders);
+    renderOpenOrders();
+    window.showAlert('ORDEM DE SERVIÇO EXCLUÍDA.', 'success');
+};
 
 let reportsSelectedCompany = selectedCompany;
 let reportsSelectedAssetId = null;
 
 function formatTechnicianName(fullName) {
     if (!fullName) return "N/A";
-    const parts = fullName.trim().split(/\s+/);
-    if (parts.length === 1) return parts[0];
-    return `${parts[0]} ${parts[1]}`;
+    return formatShortName(fullName);
 }
-
-window.selectReportsAsset = function(assetId) {
-    if (reportsSelectedAssetId === assetId) {
-        reportsSelectedAssetId = null;
-    } else {
-        reportsSelectedAssetId = assetId;
-    }
-    renderReportsView();
-};
 
 function renderReportsView() {
     const comTbody = document.getElementById('reports-companies-tbody');
@@ -1547,13 +1844,24 @@ function renderReportsView() {
     const repTbody = document.getElementById('reports-tbody');
     if (!comTbody || !assTbody || !repTbody) return;
 
-    // Se a empresa selecionada nos relatórios não for válida na lista atual, reseta
     const currentList = companies || [];
+    
+    // Se não houver empresas cadastradas no sistema
+    if (currentList.length === 0) {
+        comTbody.innerHTML = `<tr><td class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUMA EMPRESA CADASTRADA</td></tr>`;
+        assTbody.innerHTML = `<tr><td colspan="3" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM ATIVO TÉCNICO ENCONTRADO</td></tr>`;
+        repTbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM RELATÓRIO ENCONTRADO</td></tr>`;
+        reportsSelectedCompany = "";
+        reportsSelectedAssetId = null;
+        return;
+    }
+
+    // Se houver empresas, verifica se a empresa atualmente selecionada é válida
     const validCompany = currentList.find(c => {
         const name = typeof c === 'string' ? c : (c?.name || "");
-        return name.toLowerCase() === reportsSelectedCompany.toLowerCase();
+        return normCompReports(name) === normCompReports(reportsSelectedCompany);
     });
-    if (!validCompany && currentList.length > 0) {
+    if (!validCompany || !reportsSelectedCompany) {
         const firstComp = currentList[0];
         reportsSelectedCompany = typeof firstComp === 'string' ? firstComp : (firstComp?.name || "");
         reportsSelectedAssetId = null;
@@ -1567,9 +1875,16 @@ function renderReportsView() {
     });
 
     // 2. Render Card 2 (Assets: ID EQUIPAMENTO, LOCALIZAÇÃO, TIPO)
-    const filteredAssets = allAssetsList.filter(a => a.empresa && reportsSelectedCompany && a.empresa.toLowerCase() === reportsSelectedCompany.toLowerCase());
+    const filteredAssets = allAssetsList
+        .filter(a => a.empresa && reportsSelectedCompany && normCompReports(a.empresa) === normCompReports(reportsSelectedCompany))
+        .sort((a, b) => {
+            const numA = parseInt(String(a.id || '').replace(/\D+/g, ''), 10) || 0;
+            const numB = parseInt(String(b.id || '').replace(/\D+/g, ''), 10) || 0;
+            if (numA !== numB) return numA - numB;
+            return String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true });
+        });
     assTbody.innerHTML = filteredAssets.map(a => {
-        const isSelected = a.id === reportsSelectedAssetId;
+        const isSelected = reportsSelectedAssetId && (a.id === reportsSelectedAssetId || normAssetReports(a.id) === normAssetReports(reportsSelectedAssetId));
         const bgClass = isSelected ? "bg-primary-container border-l-4 border-primary font-bold" : "hover:bg-surface-container cursor-pointer border-l-4 border-transparent";
         return `
             <tr class="${bgClass} transition-colors duration-200" onclick="window.selectReportsAsset('${a.id}')">
@@ -1581,37 +1896,21 @@ function renderReportsView() {
     }).join('') || `<tr><td colspan="3" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM ATIVO TÉCNICO ENCONTRADO PARA ESTA EMPRESA</td></tr>`;
 
     // 3. Render Card 3 (Reports)
-    let filteredReports = finalizedReports.filter(r => r.empresa && reportsSelectedCompany && r.empresa.toLowerCase() === reportsSelectedCompany.toLowerCase());
-    if (reportsSelectedAssetId) {
-        filteredReports = filteredReports.filter(r => {
-            const eqId = r.equipamentoId || r.equipamentoid || '';
-            const eqNome = r.equipamentoNome || r.equipamentonome || r.equipamento || '';
-            return eqId.toLowerCase() === reportsSelectedAssetId.toLowerCase() || eqNome.toLowerCase() === reportsSelectedAssetId.toLowerCase() || r.equipamento === reportsSelectedAssetId;
-        });
-    }
+    const filteredReports = filterReports(finalizedReports, reportsSelectedCompany, reportsSelectedAssetId, allAssetsList);
 
     repTbody.innerHTML = '';
     filteredReports.forEach((report, index) => {
         const tr = document.createElement('tr');
         tr.className = "hover:bg-zinc-50 transition-colors group border-b border-outline-variant";
         
-        let repNumber = report.id || '';
-        if (repNumber.toUpperCase().startsWith('REL')) {
-            const match = repNumber.match(/\d+/);
-            if (match) {
-                repNumber = '#' + String(match[0]).padStart(2, '0');
-            }
-        } else {
-            repNumber = '#' + String(index + 1).padStart(2, '0');
-        }
-
+        const repNumber = formatReportNumber(report, index);
         const typeLabel = (report.type || 'PREVENTIVA').toUpperCase();
-        const techName = formatTechnicianName(report.tecnico || document.getElementById('user-name-display')?.innerText || 'MAYCON DIAS');
+        const techName = formatTechnicianName(report.tecnico || 'MAYCON DIAS');
 
         tr.innerHTML = `
             <td class="px-card_padding py-3 text-label-md font-bold text-zinc-900">${repNumber}</td>
             <td class="px-card_padding py-3 text-label-md uppercase text-zinc-600">${typeLabel}</td>
-            <td class="px-card_padding py-3 text-label-md uppercase text-zinc-500">${report.date}</td>
+            <td class="px-card_padding py-3 text-label-md uppercase text-zinc-500">${report.date || ''}</td>
             <td class="px-card_padding py-3 text-label-md uppercase text-zinc-700">${techName}</td>
             <td class="px-card_padding py-3 text-right">
                 <button onclick="window.toggleActionMenu(event, '${report.id}')" class="text-zinc-400 hover:text-black p-1">
@@ -1626,10 +1925,11 @@ function renderReportsView() {
         repTbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM RELATÓRIO ENCONTRADO</td></tr>`;
     }
 }
+window.renderReportsView = renderReportsView;
 
 window.selectReportsAsset = function(assetId) {
     if (reportsSelectedAssetId === assetId) {
-        reportsSelectedAssetId = null; // Toggle off if clicked again
+        reportsSelectedAssetId = null; // Toggle off se clicado novamente para ver todos os relatórios da empresa
     } else {
         reportsSelectedAssetId = assetId;
     }
@@ -1676,1582 +1976,8 @@ window.execMenuAction = async function(action) {
 };
 
 window.printReportPDF = async function(reportId) {
-    showPrintLoadingOverlay();
-    const safetyTimeout = setTimeout(() => hidePrintLoadingOverlay(), 15000);
-
-    let report = finalizedReports.find(r => String(r.id) === String(reportId));
-    if (!report || !report.responses || Object.keys(report.responses || {}).length === 0) {
-        const localReports = await getDBValue('crane_reports', []);
-        const foundLocal = localReports.find(r => String(r.id) === String(reportId));
-        if (foundLocal) {
-            report = report ? { ...report, ...foundLocal } : foundLocal;
-            const idx = finalizedReports.findIndex(r => String(r.id) === String(reportId));
-            if (idx !== -1) finalizedReports[idx] = report;
-        }
-    }
-    if (!report) {
-        hidePrintLoadingOverlay();
-        clearTimeout(safetyTimeout);
-        return window.showAlert('RELATÓRIO NÃO ENCONTRADO.', 'error');
-    }
-
-    let company = companies.find(c => c.name.toLowerCase() === report.empresa.toLowerCase());
-    if (!company) {
-        const internalCompanyRaw = localStorage.getItem('crane_internal_company');
-        if (internalCompanyRaw) {
-            try {
-                company = JSON.parse(internalCompanyRaw);
-            } catch (e) {
-                console.error("Erro ao ler empresa interna de fallback:", e);
-            }
-        }
-    }
-    if (!company) company = {};
-
-    const asset = allAssetsList.find(a => a.id === report.equipamentoId) || {};
-
-    // Tenta carregar a empresa do cadastro interno para exibir seu logotipo no cabeçalho do PDF
-    const internalCompanyRaw = localStorage.getItem('crane_internal_company');
-    let internalCompany = null;
-    if (internalCompanyRaw) {
-        try {
-            internalCompany = JSON.parse(internalCompanyRaw);
-        } catch (e) {}
-    }
-
-    // Pré-carregamento determinístico de todas as mídias salvas no Supabase Storage / Blob / Local
-    try {
-        const mediaUrls = collectAllReportImageUrls(report, company, internalCompany, usersList);
-        await preloadImageUrls(mediaUrls);
-    } catch (e) {
-        console.warn("Aviso no pré-carregamento determinístico de mídias:", e);
-    }
-
-    const reportTypeUpper = (report.type || 'PREVENTIVA').toUpperCase();
-    
-    // Formatações de data
-    const formatReportDate = (dateStr, delimiter = '/') => {
-        if (!dateStr) return '';
-        const parts = dateStr.split('-');
-        if (parts.length === 3) {
-            return `${parts[2]}${delimiter}${parts[1]}${delimiter}${parts[0]}`;
-        }
-        return dateStr;
-    };
-    const reportDateFormattedHeader = formatReportDate(report.date, '/');
-    const reportDateFormattedTable = formatReportDate(report.date, '-');
-    
-    const internalCompanyName = (internalCompany && internalCompany.name) ? internalCompany.name.toUpperCase() : "TECNOCRANE";
-    
-    const clientLogoHtml = (company && company.logo)
-        ? `<img src="${company.logo}">`
-        : `<div class="footer-meta-logo-text">${(company && company.name || "CLIENTE").toUpperCase()}</div>`;
-
-    const headerLogoHtml = (internalCompany && internalCompany.logo)
-        ? `<img src="${internalCompany.logo}" style="max-height: 55px; max-width: 180px; object-fit: contain;">`
-        : `<div style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: #facc15; border: 2px solid #000000; padding: 4px 10px; font-weight: 900; font-size: 16px; color: #000000; letter-spacing: 0.5px; text-transform: uppercase;">
-             <span class="material-symbols-outlined" style="font-size: 20px; font-weight: bold;">crane</span>
-             <span>${internalCompanyName} ®</span>
-           </div>`;
-
-    const sectionsHTML = getChecklistPrintHTML(report);
-
-    // Calcula estatísticas gerais
-    let totalItems = 0;
-    let okCount = 0;
-    let nokCount = 0;
-    if (report.responses) {
-        Object.values(report.responses).forEach(resp => {
-            if (resp.status !== undefined) {
-                totalItems++;
-                if (resp.status === 'OK') okCount++;
-                if (resp.status === 'NOK') nokCount++;
-            }
-        });
-    }
-
-    let printFrame = document.getElementById('crane-print-iframe');
-    if (printFrame) {
-        printFrame.remove();
-    }
-    printFrame = document.createElement('iframe');
-    printFrame.id = 'crane-print-iframe';
-    printFrame.style.position = 'fixed';
-    printFrame.style.left = '-9999px';
-    printFrame.style.top = '-9999px';
-    printFrame.style.width = '1000px';
-    printFrame.style.height = '1000px';
-    printFrame.style.border = '0';
-    printFrame.style.opacity = '0';
-    printFrame.style.pointerEvents = 'none';
-    document.body.appendChild(printFrame);
-
-    const printWindow = printFrame.contentWindow;
-    printWindow.document.open();
-    printWindow.document.write(`
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Relatório de Inspeção - ${report.id}</title>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
-        
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            color: #1f2937;
-            background: #ffffff;
-            line-height: 1.4;
-            font-size: 11px;
-            padding: 20px;
-        }
-
-        /* Layout do Cabeçalho Principal */
-        .print-header {
-            display: grid;
-            grid-template-columns: 200px 1fr 200px;
-            align-items: center;
-            border-bottom: 2px solid #000000;
-            padding-bottom: 12px;
-            margin-bottom: 16px;
-        }
-
-        .header-left {
-            display: flex;
-            align-items: center;
-            justify-content: flex-start;
-        }
-
-        .header-title-block {
-            text-align: center;
-        }
-
-        .header-title-block h1 {
-            font-size: 14px;
-            font-weight: 800;
-            color: #000000;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin: 0;
-            padding: 0;
-            line-height: 1;
-        }
-
-        .header-right {
-            text-align: right;
-        }
-
-        .report-badge {
-            display: inline-block;
-            background: #facc15;
-            color: #000000;
-            font-size: 10px;
-            font-weight: 900;
-            padding: 4px 8px;
-            border-radius: 4px;
-            margin-bottom: 4px;
-        }
-
-        .report-meta-text {
-            font-size: 8px;
-            text-transform: uppercase;
-            color: #4b5563;
-            font-weight: 600;
-        }
-
-        /* Seções de Metadados (Empresa e Ativo) */
-        .metadata-section {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 16px;
-        }
-
-        .meta-card {
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
-            background: #f9fafb;
-            padding: 10px;
-        }
-
-        .meta-card-title {
-            font-size: 9px;
-            font-weight: 800;
-            text-transform: uppercase;
-            color: #000000;
-            border-bottom: 1px solid #e5e7eb;
-            padding-bottom: 4px;
-            margin-bottom: 6px;
-            letter-spacing: 0.3px;
-        }
-
-        .meta-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 6px;
-        }
-
-        .meta-item {
-            font-size: 8px;
-            text-transform: uppercase;
-        }
-
-        .meta-item strong {
-            color: #374151;
-            font-weight: 700;
-        }
-
-        .meta-item span {
-            color: #4b5563;
-            font-weight: 600;
-            display: block;
-            margin-top: 1px;
-            font-size: 9px;
-        }
-
-        /* Resumo Estatístico */
-        .stats-bar {
-            display: flex;
-            justify-content: space-around;
-            background: #f3f4f6;
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
-            padding: 8px;
-            margin-bottom: 16px;
-            text-align: center;
-        }
-
-        .stat-box {
-            flex: 1;
-        }
-
-        .stat-box-title {
-            font-size: 7px;
-            font-weight: 800;
-            text-transform: uppercase;
-            color: #6b7280;
-        }
-
-        .stat-box-val {
-            font-size: 12px;
-            font-weight: 800;
-            margin-top: 2px;
-        }
-
-        .stat-ok { color: #10b981; }
-        .stat-nok { color: #ef4444; }
-        .stat-total { color: #000000; }
-
-        /* Checklist Conteúdo */
-        .print-section {
-            margin-top: 12px;
-        }
-
-        .print-section {
-            margin-bottom: 16px;
-        }
-
-        .main-section {
-            margin-top: 18px;
-        }
-
-        .print-section-title {
-            font-size: 11px;
-            font-weight: 800;
-            color: #1f2937;
-            text-transform: uppercase;
-            margin-top: 14px;
-            margin-bottom: 8px;
-            padding-bottom: 4px;
-        }
-
-        .print-section-content {
-            padding-left: 8px;
-        }
-
-        /* Items e Tabelas */
-        .print-group-container {
-            margin-bottom: 8px;
-            page-break-inside: avoid;
-        }
-
-        .print-group-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 4px;
-        }
-
-        .print-group-table th, .print-group-table td {
-            border: 1px solid #e5e7eb;
-            padding: 4px 6px;
-            text-align: left;
-            font-size: 8px;
-            text-transform: uppercase;
-        }
-
-        .print-group-table th {
-            background: #f9fafb;
-            color: #374151;
-            font-weight: 800;
-        }
-
-        .print-group-row td {
-            font-weight: 600;
-            color: #4b5563;
-        }
-
-        .print-item {
-            border: 1px solid #f3f4f6;
-            background: #fafafa;
-            border-radius: 4px;
-            padding: 6px;
-            margin-bottom: 6px;
-            page-break-inside: avoid;
-        }
-
-        .print-item-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .print-item-label {
-            font-size: 8.5px;
-            font-weight: 700;
-            text-transform: uppercase;
-        }
-
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 14px;
-            font-weight: bold;
-            background: none !important;
-            border: none !important;
-            padding: 0;
-            margin: 0;
-        }
-
-        .status-ok {
-            background: none !important;
-            color: #10b981 !important;
-        }
-
-        .status-nok {
-            background: none !important;
-            color: #ef4444 !important;
-        }
-
-        .status-na {
-            background: none !important;
-            color: #9ca3af !important;
-        }
-
-        .print-obs-container {
-            margin-top: 6px;
-            margin-bottom: 14px;
-            page-break-inside: avoid;
-        }
-
-        .print-obs-label {
-            font-weight: 800;
-            color: #111827;
-            font-size: 8px;
-            margin-bottom: 3px;
-            letter-spacing: 0.3px;
-            text-transform: uppercase;
-        }
-
-        .print-obs-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 0;
-        }
-
-        .print-obs-table td {
-            border: 1px solid #e5e7eb;
-            background: #ffffff;
-            padding: 6px 8px;
-            font-size: 8.5px;
-            font-weight: 600;
-            color: #374151;
-            text-transform: uppercase;
-            white-space: pre-wrap;
-            word-break: break-word;
-            line-height: 1.5;
-        }
-
-        .print-images-grid {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 6px;
-            margin-bottom: 6px;
-            justify-content: center;
-            align-items: center;
-            width: 100%;
-            page-break-inside: avoid;
-        }
-
-        .print-images-grid.grid-cols-3 {
-            max-width: 555px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        .print-images-grid.grid-cols-2 {
-            max-width: 460px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        .print-images-grid img {
-            width: 175px;
-            height: 135px;
-            object-fit: cover;
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
-        }
-
-        /* Rodapé de Assinatura */
-        .signature-footer {
-            margin-top: 40px;
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 32px 48px;
-            page-break-inside: avoid;
-            width: 100%;
-        }
-
-        .signature-block {
-            text-align: center;
-            border-top: 1px solid #374151;
-            padding-top: 8px;
-            font-size: 8.5px;
-            text-transform: uppercase;
-        }
-
-        .signature-block strong {
-            display: block;
-            margin-bottom: 2px;
-        }
-
-        .signature-block span {
-            color: #6b7280;
-        }
-
-        /* Estilos da Capa Personalizada */
-        .print-header-grid {
-            display: grid;
-            grid-template-columns: 200px 1fr 200px;
-            align-items: center;
-            border: 1px solid #e5e7eb;
-            margin-bottom: 0;
-            text-align: center;
-        }
-        
-        .header-logo-cell {
-            padding: 10px;
-            border-right: 1px solid #e5e7eb;
-            height: 75px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .header-logo-cell img {
-            max-height: 55px;
-            max-width: 180px;
-            object-fit: contain;
-        }
-        
-        .header-title-cell {
-            padding: 10px;
-            font-size: 11px;
-            font-weight: 900;
-            color: #000000;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            border-right: 1px solid #e5e7eb;
-            height: 75px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .header-meta-cell {
-            padding: 6px 10px;
-            height: 75px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            font-size: 8px;
-            font-weight: bold;
-            color: #4b5563;
-        }
-
-        .header-meta-cell .report-badge {
-            margin-bottom: 2px;
-        }
-
-        .cover-page {
-            page-break-after: always;
-            box-sizing: border-box;
-            display: flex;
-            flex-direction: column;
-            height: 265mm; /* Preenche a área útil exata da página A4 considerando 1.5cm de margem do body */
-        }
-
-        .cover-body-container {
-            border-left: 1px solid #e5e7eb;
-            border-right: 1px solid #e5e7eb;
-            border-bottom: 1px solid #e5e7eb;
-            padding: 0;
-            flex-grow: 1;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            box-sizing: border-box;
-        }
-
-        .cover-center-block {
-            text-align: center;
-            margin: 40px 0;
-            padding: 0 40px;
-            flex-grow: 1;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            gap: 16px;
-        }
-
-        .cover-center-title {
-            font-size: 20px;
-            font-weight: 900;
-            color: #111827;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            line-height: 1.2;
-        }
-
-        .cover-center-subtitle {
-            font-size: 15px;
-            font-weight: 800;
-            color: #111827;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-        }
-
-        .disclaimer-box {
-            font-size: 7.5px;
-            color: #4b5563;
-            line-height: 1.4;
-            margin-bottom: 0;
-            text-align: left;
-            border-top: 1px solid #e5e7eb;
-            border-bottom: 1px solid #e5e7eb;
-            border-left: none;
-            border-right: none;
-            padding: 10px 15px;
-            background-color: #f9fafb;
-            border-radius: 0;
-        }
-        .disclaimer-box p {
-            margin-bottom: 4px;
-        }
-        .disclaimer-box p:last-child {
-            margin-bottom: 0;
-        }
-
-        .revision-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 0;
-            margin-top: -1px;
-            table-layout: fixed;
-        }
-        .revision-table td {
-            border: 1px solid #e5e7eb;
-            padding: 4px 6px;
-            text-align: center;
-            font-size: 7.5px;
-            text-transform: uppercase;
-            height: 24px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .revision-table tr.label-row td {
-            background: #ffffff;
-            font-weight: 800;
-            color: #111827;
-            line-height: 1.1;
-            font-size: 7px;
-            height: 28px;
-        }
-        .revision-table tr.val-row td {
-            font-weight: 600;
-            color: #374151;
-        }
-
-        .footer-metadata-grid {
-            display: grid;
-            grid-template-columns: 200px 1fr 1fr;
-            border-top: 1px solid #e5e7eb;
-            border-left: none;
-            border-right: none;
-            border-bottom: none;
-            align-items: stretch;
-            margin-top: -1px;
-            margin-bottom: 0;
-        }
-        
-        .footer-meta-logo-cell {
-            border-right: 1px solid #e5e7eb;
-            padding: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 120px;
-            background: #ffffff;
-        }
-        
-        .footer-meta-logo-cell img {
-            max-height: 112px;
-            max-width: 192px;
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-        }
-
-        .footer-meta-logo-text {
-            font-size: 10px;
-            font-weight: 800;
-            color: #4b5563;
-            text-transform: uppercase;
-            text-align: center;
-        }
-        
-        .footer-meta-company-cell {
-            border-right: 1px solid #e5e7eb;
-            padding: 10px;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start;
-        }
-
-        .footer-meta-company-cell h3, .footer-meta-asset-cell h3 {
-            font-size: 8px;
-            font-weight: 900;
-            color: #000000;
-            border-bottom: 1.5px solid #e5e7eb;
-            padding-bottom: 4px;
-            margin-bottom: 8px;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-        }
-        
-        .footer-meta-asset-cell {
-            padding: 10px;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start;
-        }
-        
-        .meta-subgrid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 6px;
-        }
-        
-        .meta-subitem {
-            font-size: 7.5px;
-            text-transform: uppercase;
-        }
-
-        .meta-subitem.double {
-            grid-column: span 2;
-        }
-        
-        .meta-subitem strong {
-            display: block;
-            color: #111827;
-            font-weight: 800;
-            margin-bottom: 1px;
-        }
-        
-        .meta-subitem span {
-            color: #4b5563;
-            font-weight: 600;
-            font-size: 8px;
-        }
-
-        /* Configuração de Impressão */
-        @media print {
-            @page {
-                size: auto;
-                margin: 1.5cm;
-            }
-            body {
-                margin: 0;
-                padding: 0;
-                background: none;
-            }
-            .no-print {
-                display: none;
-            }
-            .page-break {
-                page-break-before: always;
-            }
-            /* Garantir cores de fundo ao imprimir */
-            * {
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-            }
-        }
-
-        /* Estilos de Layout para Medição em Tela e Impressão */
-        .print-page {
-            page-break-after: always;
-            break-after: page;
-            box-sizing: border-box;
-            display: flex;
-            flex-direction: column;
-            height: 265mm; /* Preenche a área útil exata da página A4 */
-            justify-content: flex-start;
-        }
-        .print-page-content {
-            flex-grow: 1;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start;
-        }
-        .print-page-content .signature-footer {
-            margin-top: auto !important;
-        }
-        
-        .print-section,
-        .print-group-container,
-        .print-group-table {
-            page-break-inside: avoid;
-            break-inside: avoid;
-        }
-    </style>
-</head>
-<body>
-    <!-- PÁGINA 1: CAPA DO RELATÓRIO -->
-    <div class="cover-page">
-        <!-- Cabeçalho da Capa -->
-        <div class="print-header-grid">
-            <div class="header-logo-cell">
-                ${headerLogoHtml}
-            </div>
-            <div class="header-title-cell">
-                RELATÓRIO DE MANUTENÇÃO ${reportTypeUpper}
-            </div>
-            <div class="header-meta-cell">
-                <div class="report-badge">${report.id}</div>
-                <div style="margin-top: 6px;">DATA: ${reportDateFormattedHeader}</div>
-                <div style="margin-top: 2px;">PAGINA: 1</div>
-            </div>
-        </div>
-
-        <!-- Corpo da Capa com Bordas Integradas -->
-        <div class="cover-body-container">
-            <!-- Título Central -->
-            <div class="cover-center-block">
-                <div class="cover-center-title">
-                    RELATÓRIO DE MANUTENÇÃO ${reportTypeUpper}
-                </div>
-                <div class="cover-center-subtitle" style="margin-top: 8px;">
-                    #${report.equipamentoId} — ${report.equipamentoNome.toUpperCase()}
-                </div>
-            </div>
-
-            <!-- Rodapé da Capa -->
-            <div>
-                <!-- Disclaimer de Propriedade Intelectual -->
-                <div class="disclaimer-box">
-                    <p>Este documento contém informações de propriedade da ${internalCompanyName} e só deve ser utilizado exclusivamente pelo destinatário com relação às finalidades pelas quais foi recebido. E qualquer forma de reprodução ou divulgação sem o consentimento da ${internalCompanyName} é vetada.</p>
-                    <p>This document is property of ${internalCompanyName}. It is strictly forbidden to reproduce this document, in whole or in part, and to provide to others any related information without the previous written consent by ${internalCompanyName}</p>
-                </div>
-
-                <!-- Tabela de Revisão -->
-                <table class="revision-table">
-                    <tr>
-                        <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
-                    </tr>
-                    <tr>
-                        <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
-                    </tr>
-                    <tr class="val-row">
-                        <td>01</td>
-                        <td>${reportDateFormattedTable}</td>
-                        <td>EMISSÃO INICIAL</td>
-                        <td>GILBERTO M</td>
-                        <td>MERILDO I.</td>
-                        <td>REINALDO A.</td>
-                        <td>DAVISON R.</td>
-                    </tr>
-                    <tr class="label-row">
-                        <td>REV</td>
-                        <td>DATA<br>DATE</td>
-                        <td>DESCRIÇÃO<br>DESCRIPTION</td>
-                        <td>PREPARADO<br>PREPARED</td>
-                        <td>COLABORAÇÃO<br>CO-OPERATIONS</td>
-                        <td>CONTROLADO<br>CHECKED</td>
-                        <td>APROVADOR<br>APPROVED</td>
-                    </tr>
-                </table>
-
-                <!-- Grid de Metadados -->
-                <div class="footer-metadata-grid">
-                    <div class="footer-meta-logo-cell">
-                        ${clientLogoHtml}
-                    </div>
-                    <div class="footer-meta-company-cell">
-                        <h3>DADOS CADASTRAIS DA EMPRESA</h3>
-                        <div class="meta-subgrid">
-                            <div class="meta-subitem double">
-                                <strong>Razão Social</strong>
-                                <span>${company.name || '---'}</span>
-                            </div>
-                            <div class="meta-subitem">
-                                <strong>CNPJ</strong>
-                                <span>${company.cnpj || '---'}</span>
-                            </div>
-                            <div class="meta-subitem double">
-                                <strong>Endereço</strong>
-                                <span>${company.endereco || '---'}${company.numero ? `, ${company.numero}` : ''}${company.bairro ? ` - ${company.bairro}` : ''}</span>
-                            </div>
-                            <div class="meta-subitem">
-                                <strong>CEP</strong>
-                                <span>${company.cep || '---'}</span>
-                            </div>
-                            <div class="meta-subitem">
-                                <strong>Cidade / Estado</strong>
-                                <span>${(company.cidade && company.estado) ? `${company.cidade} - ${company.estado}` : (company.cidade || company.estado || company.referencia || '---')}</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="footer-meta-asset-cell">
-                        <h3>ESPECIFICAÇÕES DO EQUIPAMENTO</h3>
-                        <div class="meta-subgrid">
-                            <div class="meta-subitem">
-                                <strong>ID Equipamento</strong>
-                                <span>${report.equipamentoId || '---'}</span>
-                            </div>
-                            <div class="meta-subitem">
-                                <strong>Tipo/Nome</strong>
-                                <span>${report.equipamentoNome || '---'}</span>
-                            </div>
-                            <div class="meta-subitem">
-                                <strong>Localização</strong>
-                                <span>${asset.local || '---'}</span>
-                            </div>
-                            <div class="meta-subitem">
-                                <strong>Fabricante</strong>
-                                <span>${asset.fabricante || '---'}</span>
-                            </div>
-                            <div class="meta-subitem">
-                                <strong>Capac. Principal</strong>
-                                <span>${asset.capacidade || '---'}</span>
-                            </div>
-                            <div class="meta-subitem">
-                                <strong>Vão Ponte</strong>
-                                <span>${asset.vao || '---'}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- PÁGINA 2 EM DIANTE: CONTEÚDO E CHECKLIST (FONTE PARA PAGINAÇÃO DINÂMICA) -->
-    <div id="print-content-source" style="display: block;">
-        <div id="temp-measurer" style="width: 100%;">
-            ${sectionsHTML}
-        </div>
-        <!-- ASSINATURAS DO RELATÓRIO (NOVO MODELO) -->
-        <div id="temp-signatures" class="signature-footer" style="margin-top: 40px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 32px 48px; width: 100%; box-sizing: border-box;">
-            ${(() => {
-                let selectedResponsaveisList = [];
-                if (report.responsaveis && Array.isArray(report.responsaveis) && report.responsaveis.length > 0) {
-                    selectedResponsaveisList = report.responsaveis.map(id => {
-                        return usersList.find(u => String(u.id) === String(id));
-                    }).filter(Boolean);
-                }
-
-                if (selectedResponsaveisList.length === 0) {
-                    const defaultUser = usersList.find(u => u.name && u.name.toUpperCase() === (report.tecnico || '').toUpperCase()) || {
-                        name: report.tecnico || "MAYCON DIAS",
-                        cargo: "TÉCNICO RESPONSÁVEL",
-                        signature: ""
-                    };
-                    selectedResponsaveisList = [defaultUser];
-                }
-
-                return selectedResponsaveisList.map(u => {
-                    const uName = (u.name || report.tecnico || "RESPONSÁVEL").toUpperCase();
-                    const uCargo = (u.cargo || u.role || "TÉCNICO RESPONSÁVEL").toUpperCase();
-                    const uSig = u.signature || "";
-
-                    const sigImgHtml = uSig
-                        ? `<img src="${uSig}" style="max-height: 48px; max-width: 180px; object-fit: contain; margin-bottom: 4px;" alt="Assinatura Digital">`
-                        : `<div style="height: 48px;"></div>`;
-
-                    return `
-                    <div style="text-align: center; width: 100%; max-width: 320px; margin: 0 auto; page-break-inside: avoid;">
-                        <div style="height: 52px; display: flex; align-items: flex-end; justify-content: center;">
-                            ${sigImgHtml}
-                        </div>
-                        <div style="border-top: 1.5px solid #000000; width: 100%; margin-top: 4px; margin-bottom: 6px;"></div>
-                        <div style="font-size: 11px; font-weight: 700; color: #111827; text-transform: uppercase; line-height: 1.2;">${escapeHTML(uCargo)}</div>
-                        <div style="font-size: 12px; font-weight: 800; color: #000000; text-transform: uppercase; margin-top: 2px; line-height: 1.2;">${escapeHTML(uName)}</div>
-                    </div>`;
-                }).join('');
-            })()}
-        </div>
-    </div>
-
-    <!-- LOCAL ONDE AS PÁGINAS GERADAS SERÃO INSERIDAS -->
-    <div id="print-pages-container"></div>
-
-    <script>
-        window.onload = function() {
-            // Aguarda o carregamento de todas as imagens para ter as medidas reais
-            const images = Array.from(document.querySelectorAll('img'));
-            Promise.all(images.map(img => {
-                if (img.complete) return Promise.resolve();
-                return new Promise(resolve => {
-                    img.onload = resolve;
-                    img.onerror = resolve;
-                });
-            })).then(() => {
-                setTimeout(paginate, 100);
-            });
-
-            function paginate() {
-                const temp = document.getElementById('temp-measurer');
-                const sigs = document.getElementById('temp-signatures');
-                const source = document.getElementById('print-content-source');
-                
-                // Define a largura de medição para corresponder exatamente à área de impressão (180mm)
-                source.style.width = '180mm';
-                
-                // Função recursiva para achatar e desmembrar seções em sub-elementos granulares
-                function flattenSection(sec) {
-                    const result = [];
-                    const children = Array.from(sec.children);
-                    
-                    const titleEl = children.find(c => c.classList && c.classList.contains('print-section-title'));
-                    if (titleEl) {
-                        result.push(titleEl.cloneNode(true));
-                    }
-                    
-                    const contentEl = children.find(c => c.classList && c.classList.contains('print-section-content'));
-                    if (!contentEl) {
-                        children.forEach(c => {
-                            if (!c.classList || !c.classList.contains('print-section-title')) {
-                                result.push(c.cloneNode(true));
-                            }
-                        });
-                        return result;
-                    }
-                    
-                    Array.from(contentEl.children).forEach(child => {
-                        if (child.classList && child.classList.contains('print-section')) {
-                            const nestedResults = flattenSection(child);
-                            nestedResults.forEach(r => result.push(r));
-                        } else if (child.classList && child.classList.contains('print-group-container')) {
-                            Array.from(child.children).forEach(subChild => {
-                                result.push(subChild.cloneNode(true));
-                            });
-                        } else {
-                            result.push(child.cloneNode(true));
-                        }
-                    });
-                    
-                    return result;
-                }
-                
-                // Achata TODAS as seções recursivamente
-                const flatElements = [];
-                Array.from(temp.children).forEach(mainSec => {
-                    const results = flattenSection(mainSec);
-                    results.forEach(r => flatElements.push(r));
-                });
-                
-                // Limpa o temp-measurer e insere a lista plana para medição
-                temp.innerHTML = '';
-                flatElements.forEach(el => temp.appendChild(el));
-                
-                // Força reflow
-                void temp.offsetHeight;
-                
-                const sections = Array.from(temp.children);
-                
-                // Calibração: mede a altura de 265mm útil da print-page em pixels
-                const pageRuler = document.createElement('div');
-                pageRuler.style.cssText = 'height:265mm;width:0;position:absolute;visibility:hidden;';
-                document.body.appendChild(pageRuler);
-                const totalPagePx = pageRuler.offsetHeight;
-                document.body.removeChild(pageRuler);
-                
-                // Mede o cabeçalho real
-                const headerProbe = document.createElement('div');
-                headerProbe.style.cssText = 'position:absolute;visibility:hidden;width:180mm;';
-                const coverHeader = document.querySelector('.print-header-grid');
-                if (coverHeader) {
-                    const hClone = coverHeader.cloneNode(true);
-                    hClone.style.marginBottom = '20px';
-                    headerProbe.appendChild(hClone);
-                }
-                document.body.appendChild(headerProbe);
-                const headerPx = headerProbe.offsetHeight || 120;
-                document.body.removeChild(headerProbe);
-                
-                // Altura útil de conteúdo = altura total da página - cabeçalho - margem de segurança de 30px
-                const maxPageHeight = totalPagePx - headerPx - 30; 
-                const sigsHeight = sigs.offsetHeight || 120;
-                
-                const pages = [];
-                let currentPageSections = [];
-                let currentPageHeight = 0;
-                
-                sections.forEach((sec, idx) => {
-                    // Obtém margens reais do elemento para um cálculo de altura 100% fiel ao layout
-                    const style = window.getComputedStyle(sec);
-                    const marginTop = parseFloat(style.marginTop) || 0;
-                    const marginBottom = parseFloat(style.marginBottom) || 0;
-                    const h = sec.offsetHeight + marginTop + marginBottom;
-                    
-                    // Prevenção de Orfandade Encadeada de Títulos (H2, H3, H4 e print-section-title)
-                    const isHeadingEl = function(el) {
-                        if (!el) return false;
-                        const tag = el.tagName ? el.tagName.toLowerCase() : '';
-                        return tag === 'h2' || tag === 'h3' || tag === 'h4' || (el.classList && el.classList.contains('print-section-title'));
-                    };
-
-                    let willNextElementFit = true;
-                    if (isHeadingEl(sec)) {
-                        let chainHeight = h;
-                        let k = idx + 1;
-                        while (k < sections.length) {
-                            const candidate = sections[k];
-                            const cStyle = window.getComputedStyle(candidate);
-                            const cMarginTop = parseFloat(cStyle.marginTop) || 0;
-                            const cMarginBottom = parseFloat(cStyle.marginBottom) || 0;
-                            const candidateH = candidate.offsetHeight + cMarginTop + cMarginBottom;
-                            
-                            chainHeight += candidateH;
-                            if (!isHeadingEl(candidate)) {
-                                break;
-                            }
-                            k++;
-                        }
-
-                        if (currentPageHeight + chainHeight > maxPageHeight) {
-                            willNextElementFit = false;
-                        }
-                    }
-                    
-                    if ((currentPageHeight + h > maxPageHeight || !willNextElementFit) && currentPageSections.length > 0) {
-                        pages.push({ sections: currentPageSections, hasSignatures: false });
-                        currentPageSections = [sec];
-                        currentPageHeight = h;
-                    } else {
-                        currentPageSections.push(sec);
-                        currentPageHeight += h;
-                    }
-                });
-                
-                if (currentPageSections.length > 0) {
-                    if (currentPageHeight + sigsHeight + 30 > maxPageHeight) {
-                        pages.push({ sections: currentPageSections, hasSignatures: false });
-                        pages.push({ sections: [], hasSignatures: true });
-                    } else {
-                        pages.push({ sections: currentPageSections, hasSignatures: true });
-                    }
-                } else {
-                    pages.push({ sections: [], hasSignatures: true });
-                }
-                
-                const totalPages = pages.length + 1; // + 1 para a Capa
-                
-                // Atualiza total de páginas na capa
-                const coverPagesPlaceholder = document.querySelector('.cover-page .total-pages-placeholder');
-                if (coverPagesPlaceholder) {
-                    coverPagesPlaceholder.innerText = totalPages;
-                }
-                
-                // Atualiza o texto dinâmico na capa (PAGINA: 1 / TOTAL)
-                const coverBadgeCell = document.querySelector('.cover-page .header-meta-cell');
-                if (coverBadgeCell) {
-                    const pageTextEl = Array.from(coverBadgeCell.children).find(c => c.innerText.includes('PAGINA:'));
-                    if (pageTextEl) {
-                        pageTextEl.innerHTML = 'PAGINA: 1 / <span class="total-pages-placeholder">' + totalPages + '</span>';
-                    }
-                }
-                
-                const container = document.getElementById('print-pages-container');
-                
-                pages.forEach((page, index) => {
-                    const pageNum = index + 2;
-                    
-                    const pageDiv = document.createElement('div');
-                    pageDiv.className = 'print-page';
-                    
-                    // Cabeçalho da página de conteúdo
-                    let headerHTML = '<div class="print-header-grid" style="margin-bottom: 20px;">' +
-                        '<div class="header-logo-cell">' +
-                            document.querySelector('.header-logo-cell').innerHTML +
-                        '</div>' +
-                        '<div class="header-title-cell">' +
-                            'RELATÓRIO DE MANUTENÇÃO ${reportTypeUpper}' +
-                        '</div>' +
-                        '<div class="header-meta-cell">' +
-                            '<div class="report-badge">${report.id}</div>' +
-                            '<div style="margin-top: 6px;">DATA: ${reportDateFormattedHeader}</div>' +
-                            '<div style="margin-top: 2px;">PAGINA: ' + pageNum + ' / <span class="total-pages-placeholder">' + totalPages + '</span></div>' +
-                        '</div>' +
-                    '</div>';
-                    
-                    const contentDiv = document.createElement('div');
-                    contentDiv.className = 'print-page-content';
-                    
-                    page.sections.forEach(sec => {
-                        contentDiv.appendChild(sec.cloneNode(true));
-                    });
-                    
-                    if (page.hasSignatures) {
-                        contentDiv.appendChild(sigs.cloneNode(true));
-                    }
-                    
-                    pageDiv.innerHTML = headerHTML;
-                    pageDiv.appendChild(contentDiv);
-                    container.appendChild(pageDiv);
-                });
-                
-                // Oculta a fonte original
-                document.getElementById('print-content-source').style.display = 'none';
-                
-                const finishAndPrint = async () => {
-                    const images = Array.from(document.querySelectorAll('img'));
-                    if (images.length > 0) {
-                        await Promise.allSettled(images.map(img => {
-                            return new Promise(resolve => {
-                                if (img.complete && img.naturalHeight !== 0) {
-                                    if ('decode' in img) {
-                                        img.decode().then(resolve).catch(resolve);
-                                    } else {
-                                        resolve();
-                                    }
-                                } else {
-                                    img.onload = () => {
-                                        if ('decode' in img) {
-                                            img.decode().then(resolve).catch(resolve);
-                                        } else {
-                                            resolve();
-                                        }
-                                    };
-                                    img.onerror = resolve;
-                                }
-                            });
-                        }));
-                    }
-                    if (window.parent && typeof window.parent.hidePrintLoadingOverlay === 'function') {
-                        window.parent.hidePrintLoadingOverlay();
-                    }
-                    setTimeout(() => {
-                        window.focus();
-                        window.print();
-                    }, 150);
-                };
-                finishAndPrint();
-            }
-        };
-    </script>
-</body>
-</html>
-    `);
-    printWindow.document.close();
+    return await printReportPDF(reportId, { finalizedReports, companies, allAssetsList, usersList });
 };
-
-function escapeHTML(str) {
-    if (!str) return '';
-    return str
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-}
-
-function renderPrintImagesGrid(images) {
-    if (!images || !Array.isArray(images)) return '';
-    const validImgs = images.filter(img => img && String(img).trim() !== "");
-    if (validImgs.length === 0) return '';
-
-    const count = validImgs.length;
-    let gridClass = 'grid-cols-3';
-    if (count === 4) {
-        gridClass = 'grid-cols-2';
-    } else {
-        gridClass = 'grid-cols-3';
-    }
-
-    return `
-    <div class="print-images-grid ${gridClass}">
-        ${validImgs.map(img => `<img src="${img}" alt="Foto da Inspeção">`).join('')}
-    </div>`;
-}
-
-function renderPrintObsBlock(text, title = "OBSERVAÇÕES:") {
-    if (!text || !text.trim()) return '';
-    const titleHtml = title ? `<div class="print-obs-label">${title}</div>` : '';
-    return `
-    <div class="print-obs-container">
-        ${titleHtml}
-        <table class="print-obs-table">
-            <tbody>
-                <tr>
-                    <td>${escapeHTML(text).trim()}</td>
-                </tr>
-            </tbody>
-        </table>
-    </div>`;
-}
-
-function getChecklistPrintHTML(report) {
-    const responses = report.responses || {};
-
-    function renderPrintNode(node) {
-        if (node.fieldType === 'inspectable') {
-            const resp = responses[node.id] || {};
-            const status = resp.status || '-';
-            const observation = resp.observation || '';
-            const images = (resp.images || []).filter(img => img && String(img).trim() !== "");
-
-            let statusClass = 'status-na';
-            let statusSymbol = '-';
-            if (status === 'OK') {
-                statusClass = 'status-ok';
-                statusSymbol = '✔';
-            } else if (status === 'NOK') {
-                statusClass = 'status-nok';
-                statusSymbol = '✖';
-            }
-
-            let obsHtml = renderPrintObsBlock(observation);
-
-            let imgsHtml = renderPrintImagesGrid(images);
-
-            return `
-            <div class="print-item">
-                <div class="print-item-header">
-                    <span class="print-item-label">${node.label}</span>
-                    <span class="status-badge ${statusClass}">${statusSymbol}</span>
-                </div>
-                ${imgsHtml}
-                ${obsHtml}
-            </div>`;
-        }
-
-        if (node.fieldType === 'textarea' || node.fieldType === 'text') {
-            const resp = responses[node.id] || {};
-            const val = (resp.value || '').trim();
-            const images = (resp.images || []).filter(img => img && String(img).trim() !== "");
-
-            let imgsHtml = renderPrintImagesGrid(images);
-            const isObsLabel = node.label && node.label.toUpperCase().includes('OBSERVAÇ');
-            let obsHtml = renderPrintObsBlock(val || '(SEM OBSERVAÇÕES)', isObsLabel ? '' : 'OBSERVAÇÕES:');
-
-            return `
-            <div class="print-item">
-                <div class="print-item-header" style="margin-bottom: 4px;">
-                    <span class="print-item-label">${node.label}</span>
-                </div>
-                ${imgsHtml}
-                ${obsHtml}
-            </div>`;
-        }
-
-        // --- Interceptação especial: Tabela de Inspeção do Cabo de Aço (5.6.1 e 6.6.1) ---
-        if (node.id === '5.6.1' || node.id === '6.6.1') {
-            const prefix = node.id;
-            const arames = (responses[`${prefix}.arames`] || {}).value || '';
-            const bitola = (responses[`${prefix}.bitola`] || {}).value || '';
-            const diametro = (responses[`${prefix}.diametro`] || {}).value || '';
-            const diametro_medido = (responses[`${prefix}.diametro_medido`] || {}).value || '';
-            const reducao = (responses[`${prefix}.reducao`] || {}).value || '';
-            const corrosao = (responses[`${prefix}.corrosao`] || {}).value || '';
-            const danos = (responses[`${prefix}.danos`] || {}).value || '';
-            const deterioracao = (responses[`${prefix}.deterioracao`] || {}).value || '';
-            const obsText = (responses[`${prefix}.observacoes`] || {}).value || '';
-
-            const cableSubfields = ['arames', 'bitola', 'diametro', 'diametro_medido', 'reducao', 'corrosao', 'danos', 'deterioracao', 'observacoes'];
-            let cableAllImages = [];
-            cableSubfields.forEach(sub => {
-                const resp = responses[`${prefix}.${sub}`] || {};
-                const imgs = (resp.images || []).filter(img => img && String(img).trim() !== "");
-                cableAllImages = cableAllImages.concat(imgs);
-            });
-
-            let cableObsHtml = renderPrintObsBlock(obsText, "OBSERVAÇÕES DO CABO DE AÇO:");
-
-            let cableImgsHtml = renderPrintImagesGrid(cableAllImages);
-
-            // Extrair labels diretamente do schema (node.children)
-            const lblArames     = node.children[0].label;
-            const lblBitola     = node.children[1].label;
-            const lblDiametro   = node.children[2].label;
-            const lblDiamMedido = node.children[3].label;
-            const lblReducao    = node.children[4].label;
-            const lblCorrosaoFull   = node.children[5].label;
-            const lblDanosFull      = node.children[6].label;
-            const lblDeterioraFull  = node.children[7].label;
-
-            // Separar nome e escala de grau dos campos que contêm "Grau" ou "1 = ok"
-            function splitGrauLabel(label) {
-                const match = label.match(/^(.+?)\s*(?:Grau\s*)?(\d\s*=.+)$/i);
-                if (match) {
-                    const scale = match[2].replace(/;\s*/g, '<br>').replace(/\s*=\s*/g, ' = ');
-                    return { name: match[1].trim(), scale: 'GRAU<br>' + scale };
-                }
-                return { name: label, scale: '' };
-            }
-
-            const grauCorrosao   = splitGrauLabel(lblCorrosaoFull);
-            const grauDanos      = splitGrauLabel(lblDanosFull);
-            const grauDeteriora  = splitGrauLabel(lblDeterioraFull);
-
-            const thStyle = 'text-align: center; font-weight: 600; border: 1px solid #e5e7eb; color: #374151; background: #ffffff;';
-            const thGrauStyle = 'text-align: center; font-weight: 600; font-size: 7px; text-transform: none; line-height: 1.4; border: 1px solid #e5e7eb; color: #374151; background: #ffffff; padding: 2px;';
-            const tdStyle = 'text-align: center; vertical-align: middle; border: 1px solid #e5e7eb; color: #4b5563; font-weight: 600;';
-
-            const cableTableHtml = `
-            <div class="print-group-container">
-                <table class="print-group-table" style="table-layout: fixed; width: 100%; border-collapse: collapse; background: #ffffff;">
-                    <thead>
-                        <tr>
-                            <th rowspan="2" style="${thStyle} vertical-align: middle; width: 8%;">${escapeHTML(lblArames)}</th>
-                            <th colspan="4" style="${thStyle} width: 44%;">Redução do Diâmetro</th>
-                            <th style="${thStyle} vertical-align: middle; width: 13%;">${escapeHTML(grauCorrosao.name)}</th>
-                            <th style="${thStyle} vertical-align: middle; width: 15%;">${escapeHTML(grauDanos.name)}</th>
-                            <th style="${thStyle} vertical-align: middle; width: 16%;">${escapeHTML(grauDeteriora.name)} (e outras observações)</th>
-                        </tr>
-                        <tr>
-                            <th style="${thStyle} width: 8%;">${escapeHTML(lblBitola)}</th>
-                            <th style="${thStyle} width: 14%;">${escapeHTML(lblDiametro)}</th>
-                            <th style="${thStyle} width: 9%;">${escapeHTML(lblDiamMedido)}</th>
-                            <th style="${thStyle} width: 13%;">${escapeHTML(lblReducao)}</th>
-                            <th style="${thGrauStyle}">${grauCorrosao.scale}</th>
-                            <th style="${thGrauStyle}">${grauDanos.scale}</th>
-                            <th style="${thGrauStyle}">${grauDeteriora.scale}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr class="print-group-row">
-                            <td style="${tdStyle}">${escapeHTML(arames || '-')}</td>
-                            <td style="${tdStyle}">${escapeHTML(bitola || '-')}</td>
-                            <td style="${tdStyle}">${escapeHTML(diametro || '-')}</td>
-                            <td style="${tdStyle}">${escapeHTML(diametro_medido || '-')}</td>
-                            <td style="${tdStyle}">${escapeHTML(reducao || '-')}</td>
-                            <td style="${tdStyle}">${escapeHTML(corrosao || '-')}</td>
-                            <td style="${tdStyle}">${escapeHTML(danos || '-')}</td>
-                            <td style="${tdStyle}">${escapeHTML(deterioracao || '-')}</td>
-                        </tr>
-                    </tbody>
-                </table>
-                ${cableObsHtml}
-                ${cableImgsHtml}
-            </div>`;
-
-            const cableHeadingTag = node.level === 1 ? 'h2' : node.level === 2 ? 'h3' : 'h4';
-            const cableSectionClass = node.level === 1 ? 'print-section main-section' : 'print-section';
-
-            return `
-            <div class="${cableSectionClass}">
-                <${cableHeadingTag} class="print-section-title">${node.title}</${cableHeadingTag}>
-                <div class="print-section-content">
-                    ${cableTableHtml}
-                </div>
-            </div>`;
-        }
-        // --- Fim da interceptação da Tabela de Inspeção do Cabo de Aço ---
-
-        // --- Interceptação especial: Tabela do Moitão (5.7.2 e 6.7.2) ---
-        if (node.id === '5.7.2' || node.id === '6.7.2') {
-            const prefix = node.id;
-            // Lê os campos dinamicamente do schema (filtrando observacoes)
-            const hookFields = node.children.filter(c => c.id !== `${prefix}.observacoes`);
-            const obsText = (responses[`${prefix}.observacoes`] || {}).value || '';
-
-            // Coleta todas as imagens dos campos
-            let hookAllImages = [];
-            node.children.forEach(child => {
-                const resp = responses[child.id] || {};
-                const imgs = (resp.images || []).filter(img => img && String(img).trim() !== "");
-                hookAllImages = hookAllImages.concat(imgs);
-            });
-
-            const thStyle = 'text-align: center; font-weight: 600; border: 1px solid #e5e7eb; color: #374151; background: #ffffff; padding: 6px 4px; text-transform: uppercase; font-size: 8px;';
-            const tdStyle = 'text-align: center; vertical-align: middle; border: 1px solid #e5e7eb; color: #4b5563; font-weight: 600; padding: 6px 4px;';
-
-            const headersHtml = hookFields.map(field =>
-                `<th style="${thStyle}">${escapeHTML(field.label)}</th>`
-            ).join('');
-
-            const cellsHtml = hookFields.map(field => {
-                const val = (responses[field.id] || {}).value || '-';
-                return `<td style="${tdStyle}">${escapeHTML(val)}</td>`;
-            }).join('');
-
-            let hookObsHtml = renderPrintObsBlock(obsText, "OBSERVAÇÕES DO MOITÃO:");
-
-            let hookImgsHtml = renderPrintImagesGrid(hookAllImages);
-
-            const hookTableHtml = `
-            <div class="print-group-container">
-                <table class="print-group-table" style="table-layout: fixed; width: 100%; border-collapse: collapse; background: #ffffff;">
-                    <thead>
-                        <tr>${headersHtml}</tr>
-                    </thead>
-                    <tbody>
-                        <tr class="print-group-row">${cellsHtml}</tr>
-                    </tbody>
-                </table>
-                ${hookImgsHtml}
-                ${hookObsHtml}
-            </div>`;
-
-            const hookHeadingTag = node.level === 1 ? 'h2' : node.level === 2 ? 'h3' : 'h4';
-            const hookSectionClass = node.level === 1 ? 'print-section main-section' : 'print-section';
-
-            return `
-            <div class="${hookSectionClass}">
-                <${hookHeadingTag} class="print-section-title">${node.title}</${hookHeadingTag}>
-                <div class="print-section-content">
-                    ${hookTableHtml}
-                </div>
-            </div>`;
-        }
-        // --- Fim da interceptação da Tabela do Moitão ---
-
-        const isGroup = node.children && node.children.length > 0 && node.children[0].fieldType === 'inspectable';
-        let childrenHtml = '';
-
-        if (isGroup) {
-            const sectionCustomItems = (report.customItems || []).filter(ci => ci.sectionId === node.id);
-            const allItems = [...node.children, ...sectionCustomItems];
-
-            const itemsHtml = allItems.map(child => {
-                const resp = responses[child.id] || {};
-                const status = resp.status || '-';
-                let statusClass = 'status-na';
-                let statusSymbol = '-';
-                if (status === 'OK') {
-                    statusClass = 'status-ok';
-                    statusSymbol = '✔';
-                } else if (status === 'NOK') {
-                    statusClass = 'status-nok';
-                    statusSymbol = '✖';
-                }
-
-                return `
-                <tr class="print-group-row">
-                    <td>${child.label}</td>
-                    <td style="text-align: center; width: 80px;"><span class="status-badge ${statusClass}">${statusSymbol}</span></td>
-                </tr>`;
-            }).join('');
-
-            // O grupo armazena a observação/imagens no ID do seu primeiro filho
-            const firstChildId = node.children && node.children.length > 0 ? node.children[0].id : null;
-            const groupResp = firstChildId ? responses[firstChildId] || {} : {};
-            const groupObs = groupResp.observation || '';
-            const groupImgs = (groupResp.images || []).filter(img => img && String(img).trim() !== "");
-            const additionalObs = groupResp.additionalObservations || [];
-
-            let groupObsHtml = renderPrintObsBlock(groupObs);
-
-            let groupImgsHtml = renderPrintImagesGrid(groupImgs);
-
-            let additionalObsHtml = '';
-            if (additionalObs && additionalObs.length > 0) {
-                additionalObsHtml = additionalObs.map(addBlock => {
-                    const addObs = addBlock.observation || '';
-                    const addImgs = (addBlock.images || []).filter(img => img && String(img).trim() !== "");
-
-                    let addObsText = renderPrintObsBlock(addObs);
-                    let addImgsBlockHtml = renderPrintImagesGrid(addImgs);
-
-                    return `${addImgsBlockHtml}${addObsText}`;
-                }).join('');
-            }
-
-            childrenHtml = `
-            <div class="print-group-container">
-                <table class="print-group-table">
-                    <thead>
-                        <tr>
-                            <th>Descrição</th>
-                            <th style="text-align: center; width: 80px;">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${itemsHtml}
-                    </tbody>
-                </table>
-                ${groupImgsHtml}
-                ${groupObsHtml}
-                ${additionalObsHtml}
-            </div>`;
-        } else {
-            childrenHtml = node.children.map(child => renderPrintNode(child)).join('');
-        }
-
-        if (!childrenHtml) return '';
-
-        const headingTag = node.level === 1 ? 'h2' : node.level === 2 ? 'h3' : 'h4';
-        const sectionClass = node.level === 1 ? 'print-section main-section' : 'print-section';
-
-        if (node.id === '5.7.1' || node.id === '6.7.1') {
-            return `
-            <div class="print-section">
-                <div class="print-section-content">
-                    ${childrenHtml}
-                </div>
-            </div>`;
-        }
-
-        return `
-        <div class="${sectionClass}">
-            <${headingTag} class="print-section-title">${node.title}</${headingTag}>
-            <div class="print-section-content">
-                ${childrenHtml}
-            </div>
-        </div>`;
-    }
-
-    const standardSectionsHTML = CHECKLIST_SCHEMA.map(node => renderPrintNode(node)).join('');
-
-    let customSectionsHTML = '';
-    if (report.customSections && report.customSections.length > 0) {
-        customSectionsHTML = report.customSections.map(node => renderPrintNode(node)).join('');
-    }
-
-    return standardSectionsHTML + customSectionsHTML;
-}
 
 window.toggleAssetActionMenu = function(event, id) {
     if (event) event.stopPropagation();
@@ -3291,13 +2017,26 @@ window.execAssetAction = function(action) {
 
 
 async function editReport(id) {
-    let report = finalizedReports.find(r => String(r.id) === String(id));
+    const normalizeId = (val) => String(val || '').replace(/[\s\-_]/g, '').toLowerCase();
+    let report = (finalizedReports || []).find(r => 
+        String(r.id) === String(id) ||
+        normalizeId(r.id) === normalizeId(id) ||
+        (String(r.id).replace(/\D+/g, '') !== '' && String(r.id).replace(/\D+/g, '') === String(id).replace(/\D+/g, ''))
+    );
     if (!report || !report.responses || Object.keys(report.responses || {}).length === 0) {
         const localReports = await getDBValue('crane_reports', []);
-        const foundLocal = localReports.find(r => String(r.id) === String(id));
+        const foundLocal = (localReports || []).find(r => 
+            String(r.id) === String(id) ||
+            normalizeId(r.id) === normalizeId(id) ||
+            (String(r.id).replace(/\D+/g, '') !== '' && String(r.id).replace(/\D+/g, '') === String(id).replace(/\D+/g, ''))
+        );
         if (foundLocal) {
             report = report ? { ...report, ...foundLocal } : foundLocal;
-            const idx = finalizedReports.findIndex(r => String(r.id) === String(id));
+            const idx = finalizedReports.findIndex(r => 
+                String(r.id) === String(id) ||
+                normalizeId(r.id) === normalizeId(id) ||
+                (String(r.id).replace(/\D+/g, '') !== '' && String(r.id).replace(/\D+/g, '') === String(id).replace(/\D+/g, ''))
+            );
             if (idx !== -1) finalizedReports[idx] = report;
         }
     }
@@ -3308,6 +2047,9 @@ async function editReport(id) {
             equipamentoId: report.equipamentoId || report.equipamento,
             equipamentoNome: report.equipamentoNome || report.equipamento,
             assetInfo: report.assetInfo,
+            schema: report.schema,
+            templateId: report.templateId,
+            templateName: report.templateName
         }, report);
     }
 }
@@ -3370,15 +2112,7 @@ window.exportOperationalDashboardData = function() {
     filteredEvents.sort((a, b) => new Date(a.date) - new Date(b.date));
 
     // 2. Carregar dados do Cadastro Interno (Empresa Executante)
-    const internalCompanyRaw = localStorage.getItem('crane_internal_company');
-    let internalCompany = null;
-    if (internalCompanyRaw) {
-        try {
-            internalCompany = JSON.parse(internalCompanyRaw);
-        } catch (e) {
-            console.error("Erro ao carregar empresa interna para PDF:", e);
-        }
-    }
+    const internalCompany = getStoredData('crane_internal_company', null);
 
     const companyName = (internalCompany && internalCompany.name) ? internalCompany.name.toUpperCase() : "CRANE PRO";
     const companyCnpj = (internalCompany && internalCompany.cnpj) ? internalCompany.cnpj : "---";
@@ -3687,6 +2421,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const dbFinalizedReports = await getDBValue('crane_reports', finalizedReports);
     updateArrayInPlace(finalizedReports, dbFinalizedReports);
 
+    // Carrega modelos dinâmicos de inspeção e de ativos
+    try {
+        await Promise.all([loadTemplates(), loadAssetTemplates()]);
+    } catch (e) {
+        console.warn('CRANE PRO: Erro ao carregar templates na inicialização:', e);
+    }
+
     // 3. Roda as migrações com os dados atualizados do DB
     runMigrationsAndSync();
     
@@ -3727,37 +2468,77 @@ function renderAtivosView() {
     const tbody = document.getElementById('assets-view-tbody');
     if (!tbody) return;
 
+    const currentList = companies || [];
+    if (currentList.length === 0) {
+        renderCompaniesUI('assets-view-companies-tbody', [], '', () => {});
+        tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUMA EMPRESA OU ATIVO CADASTRADO</td></tr>`;
+        selectedCompany = "";
+        return;
+    }
+
+    const validCompany = currentList.find(c => {
+        const name = typeof c === 'string' ? c : (c?.name || "");
+        return name.toLowerCase() === (selectedCompany || "").toLowerCase();
+    });
+    if (!validCompany || !selectedCompany) {
+        const firstComp = currentList[0];
+        selectedCompany = typeof firstComp === 'string' ? firstComp : (firstComp?.name || "");
+    }
+
     // Sidebar de empresas na vista de ativos
     renderCompaniesUI('assets-view-companies-tbody', companies, selectedCompany, (company) => {
         selectedCompany = company;
         renderAtivosView();
     });
 
-    const filteredAssets = allAssetsList.filter(a => a.empresa && selectedCompany && a.empresa.toLowerCase() === selectedCompany.toLowerCase());
+    const filteredAssets = allAssetsList
+        .filter(a => a.empresa && selectedCompany && a.empresa.toLowerCase() === selectedCompany.toLowerCase())
+        .sort((a, b) => {
+            const numA = parseInt(String(a.id || '').replace(/\D+/g, ''), 10) || 0;
+            const numB = parseInt(String(b.id || '').replace(/\D+/g, ''), 10) || 0;
+            if (numA !== numB) return numA - numB;
+            return String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true });
+        });
     
-    tbody.innerHTML = filteredAssets.map(a => `
-        <tr class="hover:bg-surface-container transition-colors duration-200 group">
-            <td class="px-card_padding py-3 text-label-md font-bold uppercase text-on-surface">
+    tbody.innerHTML = filteredAssets.map(a => {
+        const customFields = a.custom_fields || a.customFields || {};
+        let displayCapacidade = a.capacidade;
+        if (!displayCapacidade && customFields) {
+            const capKey = Object.keys(customFields).find(k => k.toLowerCase().includes('capacidade') || k.toLowerCase().includes('peso'));
+            if (capKey && customFields[capKey]) displayCapacidade = customFields[capKey];
+        }
+
+        let displayVao = a.vao;
+        if (!displayVao && customFields) {
+            const vaoKey = Object.keys(customFields).find(k => k.toLowerCase().includes('vao') || k.toLowerCase().includes('ano') || k.toLowerCase().includes('data'));
+            if (vaoKey && customFields[vaoKey]) displayVao = customFields[vaoKey];
+        }
+
+        return `
+        <tr class="hover:bg-surface-container transition-colors duration-200 group border-b border-outline-variant/60">
+            <td class="px-card_padding py-3 text-label-md font-bold uppercase text-on-surface truncate">
                 <div class="flex items-center justify-between">
-                    <span>${a.id}</span>
-                    <button onclick="event.stopPropagation(); window.openEditAssetModal('${a.id}', '${a.empresa}')" class="opacity-0 group-hover:opacity-100 text-on-surface-variant hover:text-on-surface p-0.5 transition-all duration-200 flex items-center justify-center rounded">
+                    <span class="truncate">${a.id}</span>
+                    <button onclick="event.stopPropagation(); window.openEditAssetModal('${a.id}', '${a.empresa}')" class="opacity-0 group-hover:opacity-100 text-on-surface-variant hover:text-on-surface p-0.5 transition-all duration-200 flex items-center justify-center rounded shrink-0" title="Editar Ativo">
                         <span class="material-symbols-outlined" style="font-size:16px;">edit</span>
                     </button>
                 </div>
             </td>
-            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant">${(a.local || 'N/A').toUpperCase()}</td>
-            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant">${(a.tipo || a.nome || 'N/A').toUpperCase()}</td>
-            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant">${(a.capacidade || 'N/A').toUpperCase()}</td>
-            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant">${(a.vao || 'N/A').toUpperCase()}</td>
-            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant">${(a.altura || 'N/A').toUpperCase()}</td>
-            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant">${(a.fabricante || 'N/A').toUpperCase()}</td>
+            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(a.local || 'N/A').toUpperCase()}">${(a.local || 'N/A').toUpperCase()}</td>
+            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(a.tipo || a.nome || 'N/A').toUpperCase()}">${(a.tipo || a.nome || 'N/A').toUpperCase()}</td>
+            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(displayCapacidade || 'N/A').toUpperCase()}">${(displayCapacidade || 'N/A').toUpperCase()}</td>
+            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(displayVao || 'N/A').toUpperCase()}">${(displayVao || 'N/A').toUpperCase()}</td>
+            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(a.fabricante || 'N/A').toUpperCase()}">${(a.fabricante || 'N/A').toUpperCase()}</td>
         </tr>
-    `).join('') || `<tr><td colspan="7" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">Nenhum ativo técnico encontrado para esta empresa</td></tr>`;
+        `;
+    }).join('') || `<tr><td colspan="6" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM ATIVO TÉCNICO ENCONTRADO PARA ESTA EMPRESA</td></tr>`;
 }
+
+window.renderAtivosView = renderAtivosView;
 
 // --- UNIFIED REGISTRATION ---
 
-window.openUnifiedRegistrationModal = function() {
+window.openUnifiedRegistrationModal = async function() {
     const modal = document.getElementById('modal-unified-registration');
     const panel = modal.querySelector('.relative');
     const typeSelect = document.getElementById('reg-type-select');
@@ -3777,6 +2558,10 @@ window.openUnifiedRegistrationModal = function() {
     selectAtivo.innerHTML = companyOptions;
     selectEditEmpresa.innerHTML = `<option value="">SELECIONAR...</option>` + companyOptions;
     document.getElementById('reg-edit-ativo-id').innerHTML = `<option value="">SELECIONAR EMPRESA PRIMEIRO</option>`;
+
+    // Popular templates de ativo
+    const tplSelect = document.getElementById('reg-ativo-template-select');
+    if (tplSelect) populateAssetTemplateDropdown(tplSelect);
 
     // Clear Empresa fields
     ['reg-empresa-name', 'reg-empresa-cnpj', 'reg-empresa-endereco', 'reg-empresa-numero', 'reg-empresa-bairro', 'reg-empresa-cep', 'reg-empresa-referencia', 'reg-empresa-cidade', 'reg-empresa-estado'].forEach(id => {
@@ -3824,6 +2609,10 @@ window.handleRegistrationTypeChange = function(keepFields = false) {
     editSelectors.classList.add('hidden');
     empresaContainer.classList.remove('hidden');
 
+    // Popula templates de ativos no select
+    const tplSelect = document.getElementById('reg-ativo-template-select');
+    if (tplSelect) populateAssetTemplateDropdown(tplSelect);
+
     function clearEmpresaFields() {
         ['reg-empresa-name', 'reg-empresa-cnpj', 'reg-empresa-endereco', 'reg-empresa-numero', 'reg-empresa-bairro', 'reg-empresa-cep', 'reg-empresa-referencia'].forEach(id => {
             const el = document.getElementById(id);
@@ -3852,6 +2641,13 @@ window.handleRegistrationTypeChange = function(keepFields = false) {
                 el.disabled = false;
             }
         });
+        const dynamicWrapper = document.getElementById('reg-ativo-dynamic-fields-wrapper');
+        const dynamicContainer = document.getElementById('reg-ativo-dynamic-fields');
+        const defaultExtendedFields = document.getElementById('reg-ativo-default-extended-fields');
+        if (defaultExtendedFields) defaultExtendedFields.classList.remove('hidden');
+        if (dynamicWrapper) dynamicWrapper.classList.add('hidden');
+        if (dynamicContainer) dynamicContainer.innerHTML = '';
+        if (tplSelect) tplSelect.value = '';
     }
 
     const btnCancel = document.getElementById('reg-btn-cancel');
@@ -3872,12 +2668,32 @@ window.handleRegistrationTypeChange = function(keepFields = false) {
         if (!keepFields) clearEmpresaFields();
     } else if (type === 'ativo') {
         fieldsAtivo.classList.remove('hidden');
-        if (!keepFields) clearAtivoFields();
+        const idInput = document.getElementById('reg-ativo-id');
+        if (idInput) {
+            idInput.readOnly = true;
+            idInput.classList.add('bg-zinc-100', 'cursor-not-allowed');
+        }
+        if (!keepFields) {
+            clearAtivoFields();
+            // Preenche automaticamente o próximo ID sequencial
+            reserveNextAssetId().then(res => {
+                const idEl = document.getElementById('reg-ativo-id');
+                if (idEl && (!idEl.value || idEl.value.trim() === '')) {
+                    idEl.value = res.id;
+                }
+            }).catch(err => {
+                console.warn('CRANE PRO: Erro ao obter próximo ID sequencial:', err);
+            });
+        }
     } else if (type === 'edit-ativo') {
         fieldsAtivo.classList.remove('hidden');
         editSelectors.classList.remove('hidden');
         empresaContainer.classList.add('hidden');
-        document.getElementById('reg-ativo-id').disabled = false;
+        const idInput = document.getElementById('reg-ativo-id');
+        if (idInput) {
+            idInput.readOnly = true;
+            idInput.classList.add('bg-zinc-100', 'cursor-not-allowed');
+        }
         
         if (!keepFields) {
             const selectEditEmpresa = document.getElementById('reg-edit-empresa');
@@ -3886,6 +2702,87 @@ window.handleRegistrationTypeChange = function(keepFields = false) {
             if (selectEditAtivo) selectEditAtivo.innerHTML = '<option value="">SELECIONAR EMPRESA PRIMEIRO</option>';
             clearAtivoFields();
         }
+    }
+};
+
+window.handleAssetTemplateChange = function(prefilledValues = null) {
+    const templateSelect = document.getElementById('reg-ativo-template-select');
+    const templateId = templateSelect ? templateSelect.value : '';
+    const wrapper = document.getElementById('reg-ativo-dynamic-fields-wrapper');
+    const container = document.getElementById('reg-ativo-dynamic-fields');
+    const defaultExtendedFields = document.getElementById('reg-ativo-default-extended-fields');
+    
+    if (!wrapper || !container) return;
+
+    if (!templateId) {
+        // Padrão Crane Pro: Exibe os 14 campos técnicos legados
+        if (defaultExtendedFields) defaultExtendedFields.classList.remove('hidden');
+        wrapper.classList.add('hidden');
+        container.innerHTML = '';
+        return;
+    }
+
+    const tpl = getAssetTemplateById(templateId);
+    if (!tpl) {
+        if (defaultExtendedFields) defaultExtendedFields.classList.remove('hidden');
+        wrapper.classList.add('hidden');
+        container.innerHTML = '';
+        return;
+    }
+
+    // Modelo customizado selecionado: OCULTA SEMPRE os 14 campos estendidos legados do padrão Crane Pro!
+    if (defaultExtendedFields) defaultExtendedFields.classList.add('hidden');
+
+    // Seta tipo default se aplicável
+    const tipoInput = document.getElementById('reg-ativo-tipo');
+    if (tipoInput && tpl.tipoEquipamento && (!tipoInput.value || tipoInput.value.trim() === '')) {
+        tipoInput.value = tpl.tipoEquipamento;
+    }
+
+    const customFields = Array.isArray(tpl.customFields) ? tpl.customFields : [];
+    if (customFields.length > 0) {
+        container.innerHTML = '';
+        customFields.forEach(f => {
+            const fieldDiv = document.createElement('div');
+            fieldDiv.className = 'space-y-stack_sm';
+            const fieldId = f.id || `cf_${(f.label || '').toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+            
+            let val = '';
+            if (prefilledValues && typeof prefilledValues === 'object') {
+                if (prefilledValues[fieldId] !== undefined) {
+                    val = prefilledValues[fieldId];
+                } else if (f.label) {
+                    const labelKey = Object.keys(prefilledValues).find(k => k.toLowerCase() === f.label.toLowerCase() || k.toLowerCase().replace(/[^a-z0-9]/g, '_') === fieldId);
+                    if (labelKey && prefilledValues[labelKey] !== undefined) val = prefilledValues[labelKey];
+                }
+            }
+
+            let inputHtml = '';
+            if (f.type === 'number') {
+                inputHtml = `
+                    <input type="number" step="any" data-field-id="${fieldId}" value="${val}" class="reg-dynamic-field-input w-full bg-surface-container-low border border-outline py-2.5 px-4 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-all rounded-xl" placeholder="0.00">
+                `;
+            } else if (f.type === 'date') {
+                inputHtml = `
+                    <input type="date" data-field-id="${fieldId}" value="${val}" class="reg-dynamic-field-input w-full bg-surface-container-low border border-outline py-2.5 px-4 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-all rounded-xl">
+                `;
+            } else {
+                inputHtml = `
+                    <input type="text" data-field-id="${fieldId}" value="${val}" class="reg-dynamic-field-input w-full bg-surface-container-low border border-outline py-2.5 px-4 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-all rounded-xl" placeholder="PREENCHA...">
+                `;
+            }
+
+            fieldDiv.innerHTML = `
+                <label class="text-label-md text-on-surface-variant uppercase font-bold">${f.label}</label>
+                ${inputHtml}
+            `;
+            container.appendChild(fieldDiv);
+        });
+        wrapper.classList.remove('hidden');
+    } else {
+        // Modelo com 0 campos customizados adicionais: oculta campos customizados e mantém APENAS os 7 fixos
+        wrapper.classList.add('hidden');
+        container.innerHTML = '';
     }
 };
 
@@ -3948,7 +2845,7 @@ window.updateEditAssetList = function() {
         selectAtivo.innerHTML = `<option value="">NENHUM ATIVO ENCONTRADO</option>`;
     } else {
         selectAtivo.innerHTML = `<option value="">SELECIONAR ATIVO...</option>` + 
-            filtered.map(a => `<option value="${a.id}">${a.id} - ${a.nome.toUpperCase()}</option>`).join('');
+            filtered.map(a => `<option value="${a.id}">${a.id} - ${(a.nome || a.tipo || '').toUpperCase()}</option>`).join('');
     }
 };
 
@@ -3965,25 +2862,54 @@ window.loadAssetDataForEdit = function() {
         
         // Remove sufixos para o input numérico e preenche
         document.getElementById('reg-ativo-capacidade-principal').value = (asset.capacidade || asset.capacidadePrincipal || "").replace(/[^\d.]/g, '');
-        document.getElementById('reg-ativo-cabo-principal').value = asset.caboPrincipal || '';
-        document.getElementById('reg-ativo-capacidade-auxiliar').value = (asset.capacidadeAuxiliar || "").replace(/[^\d.]/g, '');
-        document.getElementById('reg-ativo-cabo-auxiliar').value = asset.caboAuxiliar || '';
+        document.getElementById('reg-ativo-cabo-principal').value = asset.caboPrincipal || asset.caboprincipal || '';
+        document.getElementById('reg-ativo-capacidade-auxiliar').value = (asset.capacidadeAuxiliar || asset.capacidadeauxiliar || "").replace(/[^\d.]/g, '');
+        document.getElementById('reg-ativo-cabo-auxiliar').value = asset.caboAuxiliar || asset.caboauxiliar || '';
         document.getElementById('reg-ativo-altura-elevacao').value = (asset.altura || asset.alturaElevacao || "").replace(/[^\d.]/g, '');
         document.getElementById('reg-ativo-vao-ponte').value = (asset.vao || asset.vaoPonte || "").replace(/[^\d.]/g, '');
         
-        document.getElementById('reg-ativo-tensao-alimentacao').value = asset.tensaoAlimentacao || '';
-        document.getElementById('reg-ativo-tensao-comando').value = asset.tensaoComando || '';
-        document.getElementById('reg-ativo-alimentacao-equipamento').value = asset.alimentacaoEquipamento || '';
-        document.getElementById('reg-ativo-motor-elev-principal-alta').value = asset.motorElevPrincipalAlta || '';
-        document.getElementById('reg-ativo-motor-elev-principal-baixa').value = asset.motorElevPrincipalBaixa || '';
-        document.getElementById('reg-ativo-motor-elev-auxiliar-alta').value = asset.motorElevAuxiliarAlta || '';
-        document.getElementById('reg-ativo-motor-elev-auxiliar-baixa').value = asset.motorElevAuxiliarBaixa || '';
-        document.getElementById('reg-ativo-motor-direcao-carro').value = asset.motorDirecaoCarro || '';
-        document.getElementById('reg-ativo-motor-translacao-ponte').value = asset.motorTranslacaoPonte || '';
+        document.getElementById('reg-ativo-tensao-alimentacao').value = asset.tensaoAlimentacao || asset.tensaoalimentacao || '';
+        document.getElementById('reg-ativo-tensao-comando').value = asset.tensaoComando || asset.tensaocomando || '';
+        document.getElementById('reg-ativo-alimentacao-equipamento').value = asset.alimentacaoEquipamento || asset.alimentacaoequipamento || '';
+        document.getElementById('reg-ativo-motor-elev-principal-alta').value = asset.motorElevPrincipalAlta || asset.motorelevprincipalalta || '';
+        document.getElementById('reg-ativo-motor-elev-principal-baixa').value = asset.motorElevPrincipalBaixa || asset.motorelevprincipalbaixa || '';
+        document.getElementById('reg-ativo-motor-elev-auxiliar-alta').value = asset.motorElevAuxiliarAlta || asset.motorelevauxiliaralta || '';
+        document.getElementById('reg-ativo-motor-elev-auxiliar-baixa').value = asset.motorElevAuxiliarBaixa || asset.motorelevauxiliarbaixa || '';
+        document.getElementById('reg-ativo-motor-direcao-carro').value = asset.motorDirecaoCarro || asset.motordirecaocarro || '';
+        document.getElementById('reg-ativo-motor-translacao-ponte').value = asset.motorTranslacaoPonte || asset.motortranslacaoponte || '';
+
+        // Carrega template de ativo e campos customizados se existirem
+        const tplSelect = document.getElementById('reg-ativo-template-select');
+        if (tplSelect) {
+            let targetTemplateId = asset.template_id || asset.templateId || '';
+            
+            // Se não houver template_id explícito gravado, busca template correspondente por tipo de equipamento ou nome
+            if (!targetTemplateId) {
+                const assetTipoNorm = (asset.tipo || asset.nome || '').trim().toLowerCase();
+                const availableTemplates = getAssetTemplates() || [];
+                const matchedTpl = availableTemplates.find(t => {
+                    const tNome = (t.nome || '').trim().toLowerCase();
+                    const tTipo = (t.tipoEquipamento || '').trim().toLowerCase();
+                    return tNome === assetTipoNorm || tTipo === assetTipoNorm || (assetTipoNorm && tNome && (assetTipoNorm.includes(tNome) || tNome.includes(assetTipoNorm)));
+                });
+                if (matchedTpl) {
+                    targetTemplateId = matchedTpl.id;
+                }
+            }
+
+            populateAssetTemplateDropdown(tplSelect, targetTemplateId);
+            tplSelect.value = targetTemplateId || '';
+
+            if (targetTemplateId) {
+                window.handleAssetTemplateChange(asset.custom_fields || asset.customFields || asset);
+            } else {
+                window.handleAssetTemplateChange();
+            }
+        }
     }
 };
 
-window.saveUnifiedRegistration = function() {
+window.saveUnifiedRegistration = async function() {
     const type = document.getElementById('reg-type-select').value;
 
     if (type === 'empresa') {
@@ -4000,7 +2926,16 @@ window.saveUnifiedRegistration = function() {
 
         if (!name) return window.showAlert('O NOME DA EMPRESA É OBRIGATÓRIO.', 'warning');
 
-        const newCompany = { name, cnpj, endereco, numero, bairro, cep, cidade, estado, referencia, logo };
+        const existingComp = companies.find(c => {
+            const cName = typeof c === 'string' ? c : (c?.name || "");
+            return cName.toLowerCase() === name.toLowerCase();
+        });
+        if (existingComp) {
+            return window.showAlert(`⚠️ A EMPRESA "${name.toUpperCase()}" JÁ ESTÁ CADASTRADA. CASO DESEJE ALTERAR SEUS DADOS, UTILIZE A OPÇÃO EDITAR.`, 'warning');
+        }
+
+        const id = 'comp_' + (cnpj ? cnpj.replace(/\D+/g, '') : (Date.now() + '_' + name.toLowerCase().replace(/\W+/g, '_')));
+        const newCompany = { id, name, cnpj, endereco, numero, bairro, cep, cidade, estado, referencia, logo };
         setCompanies([...companies, newCompany]);
         selectedCompany = name;
         
@@ -4034,19 +2969,50 @@ window.saveUnifiedRegistration = function() {
 
         if (!empresa || !id || !tipo) return window.showAlert('PREENCHA TODOS OS CAMPOS OBRIGATÓRIOS.', 'warning');
 
+        // Bloqueio rigoroso contra duplicidade de ID na criação de novo ativo
+        if (!isEdit) {
+            const existingAsset = allAssetsList.find(a => {
+                if (!a || !a.id) return false;
+                const parseA = parseAssetSequenceNumber(a.id);
+                const parseCurr = parseAssetSequenceNumber(id);
+                if (parseA && parseCurr && parseA === parseCurr) return true;
+                return String(a.id).trim().toUpperCase() === String(id).trim().toUpperCase();
+            });
+
+            if (existingAsset) {
+                return window.showAlert(`⚠️ O ID "${id}" JÁ ESTÁ CADASTRADO PARA O EQUIPAMENTO "${(existingAsset.nome || existingAsset.tipo).toUpperCase()}" DA EMPRESA "${(existingAsset.empresa).toUpperCase()}". POR FAVOR, UTILIZE OUTRO NÚMERO DE ID.`, 'warning');
+            }
+        }
+
         // Formata com sufixos
         const capacidade = capPrincipalRaw ? `${capPrincipalRaw} TON` : "";
         const vao = vaoRaw ? `${vaoRaw} MTS` : "";
         const altura = alturaRaw ? `${alturaRaw} MTS` : "";
         const capacidadeAuxiliar = capAuxiliarRaw ? `${capAuxiliarRaw} TON` : "";
 
-        const assetData = { 
+        // Coleta campos customizados do template
+        const templateSelect = document.getElementById('reg-ativo-template-select');
+        const selectedTemplateId = templateSelect ? templateSelect.value : null;
+        const selectedTemplate = selectedTemplateId ? getAssetTemplateById(selectedTemplateId) : null;
+        
+        const customFields = {};
+        const dynamicInputs = document.querySelectorAll('.reg-dynamic-field-input');
+        dynamicInputs.forEach(input => {
+            const fId = input.getAttribute('data-field-id');
+            if (fId) {
+                customFields[fId] = input.value;
+            }
+        });
+
+        const baseAsset = { 
             id, empresa, nome: tipo, tipo, local, fabricante,
             capacidade, caboPrincipal, capacidadeAuxiliar, caboAuxiliar,
             altura, vao, tensaoAlimentacao, tensaoComando, alimentacaoEquipamento,
             motorElevPrincipalAlta, motorElevPrincipalBaixa, motorElevAuxiliarAlta, motorElevAuxiliarBaixa,
             motorDirecaoCarro, motorTranslacaoPonte
         };
+
+        const assetData = prepareAssetPayload(baseAsset, selectedTemplate, customFields, false);
         
         const searchId = (isEdit && oldId) ? oldId : id;
 
@@ -4075,10 +3041,15 @@ window.saveUnifiedRegistration = function() {
             }
         });
 
-        // Sincronizar ordens de serviço em aberto e relatórios finalizados
+        // Sincronizar ordens de serviço em aberto (rascunhos)
         if (isEdit && oldId) {
             if (oldId !== id) {
-                // Se o código do ativo mudou, exclui o ID antigo no Supabase para evitar duplicidade
+                // Se o ativo possuir laudos finalizados, impede a alteração de ID
+                const hasFinalizedReports = finalizedReports.some(rep => rep.equipamentoId === oldId || rep.equipamento === oldId);
+                if (hasFinalizedReports) {
+                    return window.showAlert('O ID DO EQUIPAMENTO NÃO PODE SER ALTERADO POIS JÁ POSSUI LAUDOS FINALIZADOS EMITIDOS.', 'warning');
+                }
+                // Se não possuir laudos, exclui o ID antigo no Supabase
                 deleteAssetFromCloud(oldId);
             }
 
@@ -4089,12 +3060,11 @@ window.saveUnifiedRegistration = function() {
                 return order;
             }));
             
-            setFinalizedReports(finalizedReports.map(rep => {
-                if (rep.equipamentoId === oldId || rep.equipamento === oldId) {
-                    return { ...rep, equipamentoId: id, equipamento: id, empresa, tipo };
-                }
-                return rep;
-            }));
+            // Laudos finalizados são pericialmente imutáveis e jamais devem ser alterados
+        }
+
+        if (empresa) {
+            selectedCompany = empresa;
         }
 
         setStoredData('crane_assets', assets);
@@ -4107,6 +3077,7 @@ window.saveUnifiedRegistration = function() {
     renderCompanies();
     renderAssets();
     if (currentView === 'assets') renderAtivosView();
+    window.renderCalendar();
 };
 
 window.closeUnifiedRegistrationModal = function() {
@@ -4140,6 +3111,13 @@ window.openEditCompanyModal = async function(companyName) {
         const name = typeof c === 'string' ? c : (c?.name || "");
         return name.toLowerCase() === companyName.toLowerCase();
     }) || { name: companyName };
+
+    const compId = companyObj.id || ('comp_' + (companyObj.cnpj ? String(companyObj.cnpj).replace(/\D+/g, '') : companyName.toLowerCase().replace(/\W+/g, '_')));
+
+    const idInput = document.getElementById('edit-company-id-input');
+    const oldNameInput = document.getElementById('edit-company-old-name-input');
+    if (idInput) idInput.value = compId;
+    if (oldNameInput) oldNameInput.value = companyObj.name || companyName;
 
     document.getElementById('edit-company-name-input').value = (companyObj.name || "").toUpperCase();
     document.getElementById('edit-company-cnpj-input').value = companyObj.cnpj || "";
@@ -4256,8 +3234,11 @@ window.handleEditCompanyLogoPreview = function(event) {
     reader.readAsDataURL(file);
 };
 
-window.saveCompanyChange = function() {
-    const oldName = window.currentEditingCompanyName;
+window.saveCompanyChange = async function() {
+    const idInput = document.getElementById('edit-company-id-input');
+    const oldNameInput = document.getElementById('edit-company-old-name-input');
+    const companyId = idInput ? idInput.value : '';
+    const oldName = (oldNameInput && oldNameInput.value) ? oldNameInput.value.trim() : (window.currentEditingCompanyName || '');
     const newName = document.getElementById('edit-company-name-input').value.trim();
     const cnpj = document.getElementById('edit-company-cnpj-input').value.trim();
     const endereco = document.getElementById('edit-company-endereco-input').value.trim();
@@ -4271,63 +3252,73 @@ window.saveCompanyChange = function() {
     
     if (!newName) return window.showAlert('O NOME DA EMPRESA NÃO PODE SER VAZIO.', 'warning');
 
-    // 1. Update companies list (objects/strings)
+    const updatedCompany = {
+        id: companyId || ('comp_' + (cnpj ? cnpj.replace(/\D+/g, '') : newName.toLowerCase().replace(/\W+/g, '_'))),
+        name: newName,
+        cnpj: cnpj,
+        endereco: endereco,
+        numero: numero,
+        bairro: bairro,
+        cep: cep,
+        cidade: cidade,
+        estado: estado,
+        referencia: referencia,
+        logo: logo
+    };
+
+    // 1. Atualiza in-place a lista de empresas (substituição inequívoca por ID ou nome antigo)
+    let found = false;
     const newCompanies = (companies || []).map(c => {
-        const name = typeof c === 'string' ? c : (c?.name || "");
-        if (name.toLowerCase() === oldName.toLowerCase()) {
-            return {
-                name: newName,
-                cnpj: cnpj,
-                endereco: endereco,
-                numero: numero,
-                bairro: bairro,
-                cep: cep,
-                cidade: cidade,
-                estado: estado,
-                referencia: referencia,
-                logo: logo
-            };
+        const cId = typeof c === 'object' && c !== null ? c.id : null;
+        const cName = typeof c === 'string' ? c : (c?.name || "");
+        if ((companyId && cId === companyId) || (oldName && cName.toLowerCase() === oldName.toLowerCase()) || cName.toLowerCase() === newName.toLowerCase()) {
+            found = true;
+            return updatedCompany;
         }
         return c;
     });
+
+    if (!found) {
+        newCompanies.push(updatedCompany);
+    }
+
     setCompanies(newCompanies);
 
-    // 2. Propagate name change to other collections if name changed
+    // 2. Se o nome mudou, propaga para todas as outras coleções e remove o registro antigo da nuvem
     if (oldName && oldName.toLowerCase() !== newName.toLowerCase()) {
-        // Exclui a chave antiga no Supabase para não deixar registros duplicados
-        deleteCompanyFromCloud(oldName);
+        await deleteCompanyFromCloud(oldName);
 
-        // Update allAssetsList (Master)
+        // Atualiza allAssetsList (Master)
         const newAllAssets = allAssetsList.map(a => {
-            if (a.empresa.toLowerCase() === oldName.toLowerCase()) return { ...a, empresa: newName };
+            if (a.empresa && a.empresa.toLowerCase() === oldName.toLowerCase()) return { ...a, empresa: newName };
             return a;
         });
         setAllAssetsList(newAllAssets);
 
-        // Update dashboard assets
+        // Atualiza dashboard assets
         assets = assets.map(a => {
-            if (a.empresa.toLowerCase() === oldName.toLowerCase()) return { ...a, empresa: newName };
+            if (a.empresa && a.empresa.toLowerCase() === oldName.toLowerCase()) return { ...a, empresa: newName };
             return a;
         });
         setStoredData('crane_assets', assets);
 
-        // Update calendar events
+        // Atualiza eventos do calendário
         events = events.map(e => {
-            if (e.empresa.toLowerCase() === oldName.toLowerCase()) return { ...e, empresa: newName };
+            if (e.empresa && e.empresa.toLowerCase() === oldName.toLowerCase()) return { ...e, empresa: newName };
             return e;
         });
         setStoredData('crane_events', events);
 
-        // Update finalized reports if they exist
+        // Atualiza relatórios finalizados
         setFinalizedReports(finalizedReports.map(r => {
-            if (r.empresa.toLowerCase() === oldName.toLowerCase()) return { ...r, empresa: newName };
+            if (r.empresa && r.empresa.toLowerCase() === oldName.toLowerCase()) return { ...r, empresa: newName };
             return r;
         }));
 
-        if (selectedCompany.toLowerCase() === oldName.toLowerCase()) {
+        if (selectedCompany && selectedCompany.toLowerCase() === oldName.toLowerCase()) {
             selectedCompany = newName;
         }
-        if (reportsSelectedCompany.toLowerCase() === oldName.toLowerCase()) {
+        if (reportsSelectedCompany && reportsSelectedCompany.toLowerCase() === oldName.toLowerCase()) {
             reportsSelectedCompany = newName;
         }
     }
@@ -4338,7 +3329,7 @@ window.saveCompanyChange = function() {
     window.renderCalendar();
     if (currentView === 'assets') renderAtivosView();
     if (currentView === 'reports') renderReportsView();
-    window.showAlert('DADOS DA EMPRESA ATUALIZADOS EM TODO O SISTEMA.', 'success');
+    window.showAlert('DADOS DA EMPRESA ATUALIZADOS COM SUCESSO!', 'success');
 };
 
 window.closeEditCompanyModal = function() {
@@ -4660,3 +3651,22 @@ window.handleLogoPreview = function(event) {
     };
     reader.readAsDataURL(file);
 };
+
+// Listener para auto-save rápido síncrono local (zero lag, < 1ms)
+if (typeof document !== 'undefined') {
+    document.addEventListener('checklist-input-change', () => {
+        if (!editingOrderId) return;
+        const formRoot = getFormRoot() || document.getElementById('checklist-form-root');
+        if (!formRoot) return;
+        const formData = collectFormData(formRoot);
+        saveFastLocalDraft({
+            id: editingOrderId,
+            ...formData,
+            customSections: activeCustomSections,
+            customItems: activeCustomItems,
+            templateId: currentChecklistContext?.templateId || null,
+            templateName: currentChecklistContext?.templateName || null,
+            schema_snapshot: currentChecklistContext?.schema_snapshot || null
+        });
+    });
+}

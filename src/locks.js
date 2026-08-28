@@ -10,15 +10,29 @@ const activeLocalLocks = new Map(); // Trava em memória local
 
 let currentUserState = null;
 
-export function getCurrentUser() {
-    if (currentUserState) return currentUserState;
-    if (typeof window !== 'undefined' && window.currentUser) {
+export function getStoredLoggedUser() {
+    if (currentUserState && currentUserState.id && currentUserState.id !== 'anon') {
+        return currentUserState;
+    }
+    if (typeof window !== 'undefined' && window.currentUser && window.currentUser.id && window.currentUser.id !== 'anon') {
         return window.currentUser;
     }
     try {
-        const stored = sessionStorage.getItem('crane_logged_user') || localStorage.getItem('crane_logged_user');
-        if (stored) return JSON.parse(stored);
+        const stored = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('crane_logged_user') : null)
+            || (typeof localStorage !== 'undefined' ? localStorage.getItem('crane_logged_user') : null);
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed && parsed.id && parsed.id !== 'anon') {
+                return parsed;
+            }
+        }
     } catch (e) {}
+    return null;
+}
+
+export function getCurrentUser() {
+    const user = getStoredLoggedUser();
+    if (user) return user;
     return { id: 'anon', name: 'USUÁRIO', email: 'usuario@local' };
 }
 
@@ -29,9 +43,12 @@ export function setCurrentUser(user) {
     }
     try {
         if (user) {
-            sessionStorage.setItem('crane_logged_user', JSON.stringify(user));
+            const serialized = JSON.stringify(user);
+            if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('crane_logged_user', serialized);
+            if (typeof localStorage !== 'undefined') localStorage.setItem('crane_logged_user', serialized);
         } else {
-            sessionStorage.removeItem('crane_logged_user');
+            if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('crane_logged_user');
+            if (typeof localStorage !== 'undefined') localStorage.removeItem('crane_logged_user');
         }
     } catch (e) {}
 }

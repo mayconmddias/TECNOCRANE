@@ -106,3 +106,24 @@ export function compressImage(source, maxWidth = 1200, maxHeight = 1200, quality
     });
 }
 
+/**
+ * Formata um nome completo para exibição curta preservando preposições (ex: "JOSE DA SILVA", "APARECIDO DA SILVA")
+ */
+export function formatShortName(fullName) {
+    if (!fullName || typeof fullName !== 'string') return '';
+    const parts = fullName.trim().split(/\s+/);
+    if (parts.length <= 1) return parts[0] || '';
+    
+    const prepositions = new Set(['de', 'da', 'do', 'dos', 'das', 'e', 'del', 'du', 'di', 'van', 'von', 'der']);
+    const firstName = parts[0];
+    
+    if (prepositions.has(parts[1].toLowerCase())) {
+        if (parts.length >= 3) {
+            return `${firstName} ${parts[1]} ${parts[2]}`;
+        }
+        return `${firstName} ${parts[1]}`;
+    }
+    return `${firstName} ${parts[1]}`;
+}
+
+

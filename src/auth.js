@@ -1,9 +1,47 @@
 import { usersList, setStoredData, loadAllDataFromDB, syncAllFromSupabase } from './data.js';
 import { isSupabaseConfigured, dbFetchAll } from './supabase.js';
 import { hashPassword } from './utils.js';
-import { setCurrentUser, releaseAllLocks } from './locks.js';
+import { setCurrentUser, releaseAllLocks, getStoredLoggedUser } from './locks.js';
 
 console.log('CRANE PRO: Módulo de Autenticação Carregado.');
+
+/**
+ * Restaura a sessão do usuário logado caso exista no localStorage/sessionStorage
+ */
+export function restoreUserSession() {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    const user = getStoredLoggedUser();
+    if (user && user.id && user.id !== 'anon') {
+        setCurrentUser(user);
+        
+        const applyUI = () => {
+            const loginView = document.getElementById('login-view');
+            const mainApp = document.getElementById('main-app');
+            if (loginView) loginView.classList.add('hidden');
+            if (mainApp) mainApp.classList.remove('hidden');
+
+            const roleEl = document.getElementById('user-role-display');
+            const nameEl = document.getElementById('user-name-display');
+            if (roleEl) roleEl.innerText = user.permission || 'TECNICO';
+            if (nameEl) nameEl.innerText = user.name || 'USUÁRIO';
+
+            if (typeof window.reloadAppDataAndUI === 'function') {
+                window.reloadAppDataAndUI();
+            } else if (typeof window.renderAssets === 'function') {
+                window.renderAssets();
+            }
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', applyUI);
+        } else {
+            applyUI();
+        }
+    }
+}
+
+// Executa restauração imediata de sessão no startup
+restoreUserSession();
 
 /**
  * Funções expostas globalmente (window) para manter compatibilidade com o HTML.

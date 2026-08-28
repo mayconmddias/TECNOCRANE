@@ -33,7 +33,7 @@ const CABLE_INSPECTION_FIELDS = (prefix) => [
 ];
 
 const BLOCK_INSPECTION_FIELDS = (prefix) => [
-    textField(`${prefix}.abertura`, 'Abertura do Gancho'),
+    textField(`${prefix}.gancho_abertura`, 'Abertura do Gancho'),
     textField(`${prefix}.penetrante`, 'Líquido Penetrante'),
     textField(`${prefix}.protecao`, 'Proteção de Partes Móveis'),
     textField(`${prefix}.din`, 'Gancho conforme DIN 15400'),
@@ -73,29 +73,21 @@ function createElevationSection(num, title) {
             inspectable(`${p}.5.voltas`, 'Voltas de reserva do cabo de aço'),
             inspectable(`${p}.5.enrolamento`, 'Alinhamento do enrolamento do cabo de aço'),
         ]),
-        section(`${p}.6`, `${p}.6 Cabo de Aço de Elevação ${suffix} <br><span class="text-sm font-normal text-on-surface-variant block mt-1">Inspeção Técnica de acordo com a NBR ISO 4309 itens “3.4 Inspeção” e “3.5 Critérios de Descarte”</span>`, [
+        section(`${p}.6`, `${p}.6 Cabo de Aço de Elevação ${suffix}`, [
             inspectable(`${p}.6.fixacao`, 'Fixação e ancoragem do cabo de aço'),
             inspectable(`${p}.6.desgaste`, 'Ausência de desgaste dentro do limite aceitável pela norma NBR ISO 4309;'),
             inspectable(`${p}.6.esmagamento`, 'Ausência de esmagamento/engaiolamento'),
+            ...CABLE_INSPECTION_FIELDS(`${p}.6`),
         ]),
-        section(`${p}.6.1`, `${p}.6.1 Inspeção do Cabo de Aço da Elevação ${suffix}`,
-            CABLE_INSPECTION_FIELDS(`${p}.6.1`),
-            3
-        ),
         section(`${p}.7`, `${p}.7 Conjunto de Caixa de Gancho (Moitão) Elevação ${suffix}`, [
-            section(`${p}.7.1`, `${p}.7.1 Conjunto de Caixa de Gancho (Moitão) Elevação ${suffix}`, [
-                inspectable(`${p}.7.1.abertura`, 'Abertura e torção frontal dentro do limite aceitável DIN 15405.'),
-                inspectable(`${p}.7.1.roldanas`, 'Ausência de desgaste nas Roldanas com proteção de partes móveis'),
-                inspectable(`${p}.7.1.trincas`, 'Ausência de trincas e fissuras'),
-                inspectable(`${p}.7.1.desgastes_canal`, 'Ausência de desgastes no canal da polia'),
-                inspectable(`${p}.7.1.rolamentos`, 'Rolamentos da polia ausência de folgas, ruídos e a rotação está livre'),
-                inspectable(`${p}.7.1.mancal`, 'Mancal giratório lubrificação e rotação'),
-                inspectable(`${p}.7.1.trava`, 'Trava de segurança'),
-            ], 3),
-            section(`${p}.7.2`, `INSPEÇÃO CONJUNTO DE (MOITÃO) ELEVAÇÃO ${suffix.toUpperCase()}`,
-                BLOCK_INSPECTION_FIELDS(`${p}.7.2`),
-                3
-            )
+            inspectable(`${p}.7.abertura`, 'Abertura e torção frontal dentro do limite aceitável DIN 15405.'),
+            inspectable(`${p}.7.roldanas`, 'Ausência de desgaste nas Roldanas com proteção de partes móveis'),
+            inspectable(`${p}.7.trincas`, 'Ausência de trincas e fissuras'),
+            inspectable(`${p}.7.desgastes_canal`, 'Ausência de desgastes no canal da polia'),
+            inspectable(`${p}.7.rolamentos`, 'Rolamentos da polia ausência de folgas, ruídos e a rotação está livre'),
+            inspectable(`${p}.7.mancal`, 'Mancal giratório lubrificação e rotação'),
+            inspectable(`${p}.7.trava`, 'Trava de segurança'),
+            ...BLOCK_INSPECTION_FIELDS(`${p}.7`),
         ]),
         section(`${p}.8`, `${p}.8 Conjunto de Caixa de Gancho (Bloco Superior) Elevação ${suffix}`, [
             inspectable(`${p}.8.polias`, 'Polias e Roldanas ausência de desgaste, trincas e quebras nos canais'),
@@ -165,23 +157,15 @@ export const CHECKLIST_SCHEMA = [
             inspectable('7.6.caminho_nivelamento', 'Nivelamento das vigas ausência de deformação ou empenamento'),
         ]),
         section('7.7', '7.7 Sistema Festoon (Cortina de cabos) do Carro', [
-            section('7.7.1', '7.7.1 Cabos e Conexões elétricas', [
-                inspectable('7.6.1.cabos_isolamento', 'Ausência de cortes, esmagamentos ou ressecamento do isolamento do cabo.'),
-                inspectable('7.6.1.cabos_conexoes', 'Fixação e reaperto conexões elétricas'),
-                inspectable('7.6.1.cabos_arraste', 'Cabos de arraste/tração (quando presentes) ausência de rupturas, desgastes'),
-            ], 3),
-            section('7.7.2', '7.7.2 Carrinhos Porta-Cabos (Troles)', [
-                inspectable('7.6.2.troles_movimento', 'Troles porta cabo movimento sem travamentos ou trancos'),
-                inspectable('7.6.2.troles_rodizios', 'Rodízios e rolamentos ausência de desgastes ou travamentos'),
-                inspectable('7.6.2.troles_fixacao', 'Fixação dos cabos abraçadeiras e suportes'),
-            ], 3),
-            section('7.7.3', '7.7.3 Trilhos e Estrutura de Suporte:', [
-                inspectable('7.6.3.trilhos_alinhamento', 'Alinhamento e fixação do perfilado ou calha onde os carrinhos correm'),
-                inspectable('7.6.3.trilhos_desgaste', 'Ausência de desgaste, trincas ou quebra'),
-            ], 3),
-            section('7.7.4', '7.7.4 Loops (curvas) dos cabos', [
-                inspectable('7.6.4.loops_curvas', 'Curvas dos cabos nem muito esticadas ou muito longas'),
-            ], 3),
+            inspectable('7.7.cabos_isolamento', 'Ausência de cortes, esmagamentos ou ressecamento do isolamento do cabo.'),
+            inspectable('7.7.cabos_conexoes', 'Fixação e reaperto conexões elétricas'),
+            inspectable('7.7.cabos_arraste', 'Cabos de arraste/tração (quando presentes) ausência de rupturas, desgastes'),
+            inspectable('7.7.troles_movimento', 'Troles porta cabo movimento sem travamentos ou trancos'),
+            inspectable('7.7.troles_rodizios', 'Rodízios e rolamentos ausência de desgastes ou travamentos'),
+            inspectable('7.7.troles_fixacao', 'Fixação dos cabos abraçadeiras e suportes'),
+            inspectable('7.7.trilhos_alinhamento', 'Alinhamento e fixação do perfilado ou calha onde os carrinhos correm'),
+            inspectable('7.7.trilhos_desgaste', 'Ausência de desgaste, trincas ou quebra'),
+            inspectable('7.7.loops_curvas', 'Curvas dos cabos nem muito esticadas ou muito longas'),
         ]),
     ]),
     mainSection(8, '8 Sistema de Translação da Ponte Rolante', [
@@ -218,15 +202,11 @@ export const CHECKLIST_SCHEMA = [
             inspectable('8.6.caminho_nivelamento', 'Nivelamento das vigas ausência de deformação ou empenamento'),
         ]),
         section('8.7', '8.7 Estrutura do Equipamento (Junções vigas, Cabeceira e Carro Talha)', [
-            section('8.7.1', '8.7.1 Junções e Vigas', [
-                inspectable('8.7.1.juncoes_fixacao', 'Fixação e aperto geral de parafuso e porcas'),
-                inspectable('8.7.1.juncoes_soldas', 'Soldas e parafusos ausência de trincas, fissuras ou corrosão'),
-                inspectable('8.7.1.juncoes_deformacao', 'Deformação ausência de empenamento'),
-            ], 3),
-            section('8.7.2', '8.7.2 Cabeceira', [
-                inspectable('8.7.2.cabeceira_rodas', 'Rodas ausência de desgastes nos frisos e bandas de rodagem'),
-                inspectable('8.7.2.cabeceira_rolamentos', 'Rolamentos ausência de ruídos ou travamento e lubrificado'),
-            ], 3),
+            inspectable('8.7.juncoes_fixacao', 'Fixação e aperto geral de parafuso e porcas'),
+            inspectable('8.7.juncoes_soldas', 'Soldas e parafusos ausência de trincas, fissuras ou corrosão'),
+            inspectable('8.7.juncoes_deformacao', 'Deformação ausência de empenamento'),
+            inspectable('8.7.cabeceira_rodas', 'Rodas ausência de desgastes nos frisos e bandas de rodagem'),
+            inspectable('8.7.cabeceira_rolamentos', 'Rolamentos ausência de ruídos ou travamento e lubrificado'),
         ]),
     ]),
     mainSection(9, '9 Célula de carga', [
@@ -253,9 +233,10 @@ export function walkChecklistFields(schema, callback) {
 }
 
 /** Cria objeto responses vazio */
-export function createEmptyResponses() {
+export function createEmptyResponses(schema = CHECKLIST_SCHEMA) {
     const responses = {};
-    walkChecklistFields(CHECKLIST_SCHEMA, field => {
+    const schemaToUse = (schema && Array.isArray(schema) && schema.length > 0) ? schema : CHECKLIST_SCHEMA;
+    walkChecklistFields(schemaToUse, field => {
         if (field.fieldType === 'inspectable') {
             responses[field.id] = { status: null, observation: '', images: [] };
         } else {

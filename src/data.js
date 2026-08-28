@@ -1,6 +1,6 @@
 // Crane Pro - Data Layer
 
-import { isSupabaseConfigured, dbFetchAll, dbUpsert, dbDelete, uploadBase64ToStorage, getTenantCode } from './supabase.js';
+import { isSupabaseConfigured, dbFetchAll, dbUpsert, dbDelete, uploadBase64ToStorage, deleteStorageFile, deleteStorageFilesByPrefix, getTenantCode } from './supabase.js';
 import { hashPassword } from './utils.js';
 
 export let isInitialLoad = true;
@@ -13,6 +13,9 @@ const STORE_NAME = 'keyval';
 let dbPromise = null;
 
 function getDB() {
+    if (typeof indexedDB === 'undefined') {
+        return Promise.reject(new Error('indexedDB não disponível'));
+    }
     if (!dbPromise) {
         dbPromise = new Promise((resolve, reject) => {
             const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -30,6 +33,9 @@ function getDB() {
 }
 
 export function getDBValue(key, defaultValue) {
+    if (typeof indexedDB === 'undefined') {
+        return Promise.resolve(defaultValue);
+    }
     const tenantKey = getTenantKey(key);
     return getDB().then(db => {
         return new Promise((resolve) => {
@@ -37,33 +43,50 @@ export function getDBValue(key, defaultValue) {
             const store = transaction.objectStore(STORE_NAME);
             const request = store.get(tenantKey);
             request.onsuccess = () => {
-                if (request.result !== undefined) {
-                    resolve(request.result);
+                const res = request.result;
+                if (res !== undefined && res !== null && (!Array.isArray(res) || res.length > 0 || defaultValue === undefined)) {
+                    resolve(res);
                 } else {
                     const reqFallback = store.get(key);
                     reqFallback.onsuccess = () => {
-                        resolve(reqFallback.result !== undefined ? reqFallback.result : defaultValue);
+                        const fallbackRes = reqFallback.result;
+                        if (fallbackRes !== undefined && fallbackRes !== null && (!Array.isArray(fallbackRes) || fallbackRes.length > 0)) {
+                            resolve(fallbackRes);
+                        } else {
+                            resolve(res !== undefined ? res : defaultValue);
+                        }
                     };
-                    reqFallback.onerror = () => resolve(defaultValue);
+                    reqFallback.onerror = () => resolve(res !== undefined ? res : defaultValue);
                 }
             };
             request.onerror = () => {
                 resolve(defaultValue);
             };
         });
-    });
+    }).catch(() => defaultValue);
 }
 
 export function setDBValue(key, value) {
+    if (typeof indexedDB === 'undefined') {
+        return Promise.resolve();
+    }
+    const tenantKey = getTenantKey(key);
     return getDB().then(db => {
         return new Promise((resolve, reject) => {
             const transaction = db.transaction(STORE_NAME, 'readwrite');
             const store = transaction.objectStore(STORE_NAME);
-            const request = store.put(value, key);
-            request.onsuccess = () => resolve();
-            request.onerror = () => reject(request.error);
+            try {
+                store.put(value, tenantKey);
+                if (tenantKey !== key) {
+                    store.put(value, key);
+                }
+            } catch (err) {
+                return reject(err);
+            }
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = () => reject(transaction.error);
         });
-    });
+    }).catch(() => {});
 }
 
 // Chaves pesadas que contêm fotos/base64 e devem utilizar exclusivamente IndexedDB (evita 5MB limit)
@@ -80,6 +103,7 @@ export function getTenantKey(key) {
 
 // Funções de Persistência
 export function getStoredData(key, defaultValue) {
+    if (typeof localStorage === 'undefined') return defaultValue;
     try {
         const tenantKey = getTenantKey(key);
         const data = localStorage.getItem(tenantKey) || localStorage.getItem(key);
@@ -91,18 +115,20 @@ export function getStoredData(key, defaultValue) {
 
 export function setStoredData(key, data) {
     const tenantKey = getTenantKey(key);
-    if (!HEAVY_KEYS.has(key) && !HEAVY_KEYS.has(tenantKey)) {
-        try {
-            localStorage.setItem(tenantKey, JSON.stringify(data));
-        } catch (e) {
-            console.warn(`localStorage falhou para ${tenantKey} (limite excedido), continuando com IndexedDB:`, e);
+    if (typeof localStorage !== 'undefined') {
+        if (!HEAVY_KEYS.has(key) && !HEAVY_KEYS.has(tenantKey)) {
+            try {
+                localStorage.setItem(tenantKey, JSON.stringify(data));
+            } catch (e) {
+                console.warn(`localStorage falhou para ${tenantKey} (limite excedido), continuando com IndexedDB:`, e);
+            }
+        } else {
+            // Limpa chave legada no localStorage para liberar memória
+            try {
+                localStorage.removeItem(tenantKey);
+                localStorage.removeItem(key);
+            } catch (e) {}
         }
-    } else {
-        // Limpa chave legada no localStorage para liberar memória
-        try {
-            localStorage.removeItem(tenantKey);
-            localStorage.removeItem(key);
-        } catch (e) {}
     }
     
     setDBValue(tenantKey, data).catch(err => {
@@ -187,12 +213,21 @@ export async function syncKeyToSupabase(key, data) {
     if (!isSupabaseConfigured) return;
     try {
         if (key === 'crane_companies') {
+            const dbCompanies = await dbFetchAll('companies');
             const rows = await Promise.all(data.map(async c => {
                 let logoUrl = c.logo || '';
+                const compId = c.id || (c.cnpj ? String(c.cnpj).replace(/\W+/g, '') : String(c.name).replace(/\W+/g, '_'));
+                const oldComp = Array.isArray(dbCompanies) ? dbCompanies.find(oc => (oc.id && c.id && String(oc.id) === String(c.id)) || (oc.name && c.name && oc.name.trim().toLowerCase() === c.name.trim().toLowerCase())) : null;
+
                 if (typeof logoUrl === 'string' && logoUrl.startsWith('data:')) {
-                    const compId = c.id || (c.cnpj ? String(c.cnpj).replace(/\W+/g, '') : String(c.name).replace(/\W+/g, '_'));
-                    logoUrl = await uploadBase64ToStorage('crane-app-media', 'companies', logoUrl, `logo_${compId}`);
+                    if (oldComp && oldComp.logo && typeof oldComp.logo === 'string' && oldComp.logo.startsWith('http')) {
+                        await deleteStorageFile('crane-app-media', oldComp.logo);
+                    }
+                    const uniqueFileName = `logo_${compId}_${Date.now()}`;
+                    logoUrl = await uploadBase64ToStorage('crane-app-media', 'companies', logoUrl, uniqueFileName);
                     c.logo = logoUrl;
+                } else if (!logoUrl && oldComp && oldComp.logo && typeof oldComp.logo === 'string' && oldComp.logo.startsWith('http')) {
+                    await deleteStorageFile('crane-app-media', oldComp.logo);
                 }
                 return {
                     name: c.name,
@@ -208,8 +243,11 @@ export async function syncKeyToSupabase(key, data) {
                 };
             }));
             await dbUpsert('companies', rows);
+            const tenantKey = getTenantKey('crane_companies');
+            try { localStorage.setItem(tenantKey, JSON.stringify(data)); } catch (e) {}
+            await setDBValue(tenantKey, data);
         } else if (key === 'crane_all_assets') {
-            const rows = data.map(a => ({
+            const baseRows = data.map(a => ({
                 id: a.id,
                 empresa: a.empresa || '',
                 nome: a.nome || '',
@@ -217,29 +255,57 @@ export async function syncKeyToSupabase(key, data) {
                 local: a.local || '',
                 fabricante: a.fabricante || '',
                 capacidade: a.capacidade || '',
-                caboprincipal: a.caboPrincipal || '',
-                capacidadeauxiliar: a.capacidadeAuxiliar || '',
-                caboauxiliar: a.caboAuxiliar || '',
+                caboprincipal: a.caboPrincipal || a.caboprincipal || '',
+                capacidadeauxiliar: a.capacidadeAuxiliar || a.capacidadeauxiliar || '',
+                caboauxiliar: a.caboAuxiliar || a.caboauxiliar || '',
                 altura: a.altura || '',
                 vao: a.vao || '',
-                tensaoalimentacao: a.tensaoAlimentacao || '',
-                tensaocomando: a.tensaoComando || '',
-                alimentacaoequipamento: a.alimentacaoEquipamento || '',
-                motorelevprincipalalta: a.motorElevPrincipalAlta || '',
-                motorelevprincipalbaixa: a.motorElevPrincipalBaixa || '',
-                motorelevauxiliaralta: a.motorElevAuxiliarAlta || '',
-                motorelevauxiliarbaixa: a.motorElevAuxiliarBaixa || '',
-                motordirecaocarro: a.motorDirecaoCarro || '',
-                motortranslacaoponte: a.motorTranslacaoPonte || ''
+                tensaoalimentacao: a.tensaoAlimentacao || a.tensaoalimentacao || '',
+                tensaocomando: a.tensaoComando || a.tensaocomando || '',
+                alimentacaoequipamento: a.alimentacaoEquipamento || a.alimentacaoequipamento || '',
+                motorelevprincipalalta: a.motorElevPrincipalAlta || a.motorelevprincipalalta || '',
+                motorelevprincipalbaixa: a.motorElevPrincipalBaixa || a.motorelevprincipalbaixa || '',
+                motorelevauxiliaralta: a.motorElevAuxiliarAlta || a.motorelevauxiliaralta || '',
+                motorelevauxiliarbaixa: a.motorElevAuxiliarBaixa || a.motorelevauxiliarbaixa || '',
+                motordirecaocarro: a.motorDirecaoCarro || a.motordirecaocarro || '',
+                motortranslacaoponte: a.motorTranslacaoPonte || a.motortranslacaoponte || ''
             }));
-            await dbUpsert('all_assets', rows);
+
+            const fullRows = data.map((a, i) => ({
+                ...baseRows[i],
+                template_id: a.template_id || null,
+                template_name: a.template_name || null,
+                schema_snapshot: a.schema_snapshot || null,
+                custom_fields: a.custom_fields || {},
+                is_provisional: !!a.is_provisional,
+                provisional_id: a.provisional_id || null,
+                sync_status: a.sync_status || 'synced'
+            }));
+
+            try {
+                // Tenta enviar com as 7 colunas dinâmicas (se o banco já tiver o DDL V5 aplicado)
+                await dbUpsert('all_assets', fullRows);
+            } catch (err) {
+                console.warn('CRANE ASSETS: Falha ao persistir colunas dinâmicas em all_assets (fallback para colunas base):', err);
+                // Fallback automático para as 21 colunas base para garantir gravação mesmo sem migration no Supabase
+                await dbUpsert('all_assets', baseRows);
+            }
         } else if (key === 'crane_users') {
+            const dbUsers = await dbFetchAll('users');
             const rows = await Promise.all(data.map(async u => {
                 let sigUrl = u.signature || u.assinatura || '';
+                const userId = u.id || (u.email ? String(u.email).replace(/\W+/g, '_') : String(u.name).replace(/\W+/g, '_'));
+                const oldUser = Array.isArray(dbUsers) ? dbUsers.find(ou => (ou.id && u.id && String(ou.id) === String(u.id)) || (ou.email && u.email && ou.email.trim().toLowerCase() === u.email.trim().toLowerCase())) : null;
+
                 if (typeof sigUrl === 'string' && sigUrl.startsWith('data:')) {
-                    const userId = u.id || (u.email ? String(u.email).replace(/\W+/g, '_') : String(u.name).replace(/\W+/g, '_'));
-                    sigUrl = await uploadBase64ToStorage('crane-app-media', 'signatures', sigUrl, `signature_${userId}`);
+                    if (oldUser && oldUser.signature && typeof oldUser.signature === 'string' && oldUser.signature.startsWith('http')) {
+                        await deleteStorageFile('crane-app-media', oldUser.signature);
+                    }
+                    const uniqueFileName = `signature_${userId}_${Date.now()}`;
+                    sigUrl = await uploadBase64ToStorage('crane-app-media', 'signatures', sigUrl, uniqueFileName);
                     u.signature = sigUrl;
+                } else if (!sigUrl && oldUser && oldUser.signature && typeof oldUser.signature === 'string' && oldUser.signature.startsWith('http')) {
+                    await deleteStorageFile('crane-app-media', oldUser.signature);
                 }
                 return {
                     id: u.id,
@@ -253,8 +319,11 @@ export async function syncKeyToSupabase(key, data) {
                 };
             }));
             await dbUpsert('users', rows);
+            const tenantKey = getTenantKey('crane_users');
+            try { localStorage.setItem(tenantKey, JSON.stringify(data)); } catch (e) {}
+            await setDBValue(tenantKey, data);
         } else if (key === 'crane_events') {
-            const rows = data.map(e => ({
+            const baseRows = data.map(e => ({
                 id: String(e.id),
                 groupId: e.groupId ? String(e.groupId) : null,
                 empresa: e.empresa || '',
@@ -267,7 +336,19 @@ export async function syncKeyToSupabase(key, data) {
                 tipo: e.tipo || '',
                 local: e.local || ''
             }));
-            await dbUpsert('scheduled_inspections', rows);
+            const fullRows = data.map((e, idx) => ({
+                ...baseRows[idx],
+                tecnico: e.tecnico || (Array.isArray(e.tecnicos) ? e.tecnicos.join(' | ') : '')
+            }));
+            try {
+                await dbUpsert('scheduled_inspections', fullRows);
+            } catch (err) {
+                console.warn('CRANE EVENTS: Falha ao persistir coluna tecnico (fallback para colunas base):', err);
+                await dbUpsert('scheduled_inspections', baseRows);
+            }
+            const tenantKey = getTenantKey('crane_events');
+            try { localStorage.setItem(tenantKey, JSON.stringify(data)); } catch (e) {}
+            await setDBValue(tenantKey, data);
         } else if (key === 'crane_open_orders') {
             const processedData = await Promise.all(data.map(o => processReportImages(o)));
             const rows = processedData.map(o => ({
@@ -280,12 +361,21 @@ export async function syncKeyToSupabase(key, data) {
                 assetInfo: o.assetInfo || `${o.equipamentoNome || o.equipamento || ''} — ${o.empresa || ''}`,
                 date: o.date || '',
                 responsaveis: o.responsaveis || [],
-                responses: o.responses || {},
+                responses: {
+                    ...(o.responses || {}),
+                    __meta: {
+                        schema: o.schema_snapshot || o.schema || null,
+                        schema_snapshot: o.schema_snapshot || o.schema || null,
+                        templateId: o.templateId || null,
+                        templateName: o.templateName || null
+                    }
+                },
                 generalObservation: o.generalObservation || '',
                 generalImages: o.generalImages || [],
                 customSections: o.customSections || [],
                 customItems: o.customItems || [],
-                tecnico: o.tecnico || ''
+                tecnico: o.tecnico || '',
+                revisions: o.revisions || {}
             }));
             await dbUpsert('open_orders', rows);
         } else if (key === 'crane_reports') {
@@ -300,20 +390,51 @@ export async function syncKeyToSupabase(key, data) {
                 assetInfo: r.assetInfo || `${r.equipamentoNome || r.equipamento || ''} — ${r.empresa || ''}`,
                 date: r.date || '',
                 responsaveis: r.responsaveis || [],
-                responses: r.responses || {},
+                responses: {
+                    ...(r.responses || {}),
+                    __meta: {
+                        schema: r.schema_snapshot || r.schema || null,
+                        schema_snapshot: r.schema_snapshot || r.schema || null,
+                        templateId: r.templateId || null,
+                        templateName: r.templateName || null
+                    }
+                },
                 generalObservation: r.generalObservation || '',
                 generalImages: r.generalImages || [],
                 customSections: r.customSections || [],
                 customItems: r.customItems || [],
-                tecnico: r.tecnico || ''
+                tecnico: r.tecnico || '',
+                revisions: r.revisions || {}
             }));
             await dbUpsert('finalized_reports', rows);
         } else if (key === 'crane_internal_company') {
+            const tenant = data.tenant_code || getTenantCode() || '001';
             let logoUrl = data.logo || '';
+            const dbCurrent = await dbFetchAll('internal_company');
+            const currentRecord = Array.isArray(dbCurrent) ? (dbCurrent.find(c => c && String(c.tenant_code) === String(tenant)) || dbCurrent[0]) : null;
+
             if (typeof logoUrl === 'string' && logoUrl.startsWith('data:')) {
-                logoUrl = await uploadBase64ToStorage('crane-app-media', 'companies', logoUrl, 'internal_logo');
-                data.logo = logoUrl;
+                if (currentRecord && currentRecord.logo && typeof currentRecord.logo === 'string' && currentRecord.logo.startsWith('http')) {
+                    await deleteStorageFile('crane-app-media', currentRecord.logo);
+                }
+                await deleteStorageFilesByPrefix('crane-app-media', 'companies', `internal_logo_${tenant}_`);
+                await deleteStorageFilesByPrefix('crane-app-media', 'companies', `internal_logo.`);
+                
+                const uniqueFileName = `internal_logo_${tenant}_${Date.now()}`;
+                const uploadedUrl = await uploadBase64ToStorage('crane-app-media', 'companies', logoUrl, uniqueFileName);
+                if (uploadedUrl && uploadedUrl.startsWith('http')) {
+                    logoUrl = uploadedUrl;
+                    data.logo = logoUrl;
+                    const tenantKey = getTenantKey('crane_internal_company');
+                    try { localStorage.setItem(tenantKey, JSON.stringify(data)); } catch (e) {}
+                    await setDBValue(tenantKey, data);
+                }
+            } else if (!logoUrl && currentRecord && currentRecord.logo && typeof currentRecord.logo === 'string' && currentRecord.logo.startsWith('http')) {
+                await deleteStorageFile('crane-app-media', currentRecord.logo);
+                await deleteStorageFilesByPrefix('crane-app-media', 'companies', `internal_logo_${tenant}_`);
+                await deleteStorageFilesByPrefix('crane-app-media', 'companies', `internal_logo.`);
             }
+
             const row = {
                 id: 1,
                 name: data.name || '',
@@ -325,7 +446,7 @@ export async function syncKeyToSupabase(key, data) {
                 cidade: data.cidade || '',
                 estado: data.estado || '',
                 logo: logoUrl,
-                tenant_code: data.tenant_code || getTenantCode() || '001'
+                tenant_code: tenant
             };
             await dbUpsert('internal_company', [row]);
         }
@@ -338,7 +459,26 @@ export async function syncKeyToSupabase(key, data) {
  * Funções auxiliares atômicas de exclusão explícita no Supabase
  */
 export async function deleteCompanyFromCloud(companyName) {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !companyName) return;
+    try {
+        const target = companyName.trim().toLowerCase();
+        const dbCompanies = await dbFetchAll('companies');
+        if (dbCompanies && Array.isArray(dbCompanies)) {
+            const matchingComps = dbCompanies.filter(c => (c.name || '').trim().toLowerCase() === target);
+            for (const comp of matchingComps) {
+                if (comp && comp.logo) {
+                    await deleteStorageFile('crane-app-media', comp.logo);
+                }
+                if (comp.id) {
+                    await dbDelete('companies', 'id', comp.id);
+                } else if (comp.name) {
+                    await dbDelete('companies', 'name', comp.name);
+                }
+            }
+        }
+    } catch (e) {
+        console.warn(`Aviso ao excluir empresa ${companyName} do Supabase:`, e);
+    }
     return dbDelete('companies', 'name', companyName);
 }
 
@@ -347,7 +487,7 @@ export async function deleteCompanyAllDataFromCloud(companyName) {
     try {
         const target = companyName.trim().toLowerCase();
 
-        // 1. Delete company entry
+        // 1. Delete company entry and its logo in storage
         await deleteCompanyFromCloud(companyName);
 
         // 2. Delete all assets for company
@@ -435,21 +575,16 @@ export async function syncAllFromSupabase() {
 
         // 1. Companies
         let dbCompanies = await dbFetchAll('companies');
-        if (!dbCompanies || dbCompanies.length === 0) {
-            console.log('SUPABASE: Tabela de empresas vazia na nuvem. Migrando dados locais...');
-            const localCompanies = companies && companies.length > 0 ? companies : getStoredData('crane_companies', []);
-            if (localCompanies.length > 0) {
-                await syncKeyToSupabase('crane_companies', localCompanies);
-                dbCompanies = localCompanies;
-            }
-        }
-        if (dbCompanies && dbCompanies.length > 0) {
-            companies = normalizeCompanies(dbCompanies).sort((a, b) => a.name.localeCompare(b.name));
-            localStorage.setItem('crane_companies', JSON.stringify(companies));
-            await setDBValue('crane_companies', companies);
+        if (Array.isArray(dbCompanies) && dbCompanies.length > 0) {
+            const normalized = normalizeCompanies(dbCompanies).sort((a, b) => a.name.localeCompare(b.name));
+            updateArrayInPlace(companies, normalized);
+            setStoredData('crane_companies', companies);
+        } else if (Array.isArray(dbCompanies) && dbCompanies.length === 0) {
+            updateArrayInPlace(companies, []);
+            setStoredData('crane_companies', []);
         }
 
-        const validCompanyNames = new Set((companies || []).map(c => (typeof c === 'string' ? c : c.name).toLowerCase()));
+        const validCompanyNames = new Set((companies || []).map(c => (typeof c === 'string' ? c : c.name).toLowerCase().trim()));
         const internalComp = getStoredData('crane_internal_company', null);
         if (internalComp && internalComp.name) {
             validCompanyNames.add(String(internalComp.name).trim().toLowerCase());
@@ -457,72 +592,78 @@ export async function syncAllFromSupabase() {
 
         // 2. All Assets
         let dbAllAssets = await dbFetchAll('all_assets');
-        if (!dbAllAssets || dbAllAssets.length === 0) {
-            console.log('SUPABASE: Tabela de ativos vazia na nuvem. Migrando dados locais...');
-            const localAssets = allAssetsList && allAssetsList.length > 0 ? allAssetsList : getStoredData('crane_all_assets', initialAssets);
-            if (localAssets.length > 0) {
-                await syncKeyToSupabase('crane_all_assets', localAssets);
-                dbAllAssets = localAssets;
-            }
-        }
-        if (dbAllAssets && dbAllAssets.length > 0) {
-            allAssetsList = dbAllAssets.map(a => ({
-                id: a.id,
-                empresa: a.empresa || '',
-                nome: a.nome || '',
-                tipo: a.tipo || '',
-                local: a.local || '',
-                fabricante: a.fabricante || '',
-                capacidade: a.capacidade || '',
-                caboPrincipal: a.caboprincipal || a.caboPrincipal || '',
-                capacidadeAuxiliar: a.capacidadeauxiliar || a.capacidadeAuxiliar || '',
-                caboAuxiliar: a.caboauxiliar || a.caboAuxiliar || '',
-                altura: a.altura || '',
-                vao: a.vao || '',
-                tensaoAlimentacao: a.tensaoalimentacao || a.tensaoAlimentacao || '',
-                tensaoComando: a.tensaocomando || a.tensaoComando || '',
-                alimentacaoEquipamento: a.alimentacaoequipamento || a.alimentacaoEquipamento || '',
-                motorElevPrincipalAlta: a.motorelevprincipalalta || a.motorElevPrincipalAlta || '',
-                motorElevPrincipalBaixa: a.motorelevprincipalbaixa || a.motorElevPrincipalBaixa || '',
-                motorElevAuxiliarAlta: a.motorelevauxiliaralta || a.motorElevAuxiliarAlta || '',
-                motorElevAuxiliarBaixa: a.motorelevauxiliarbaixa || a.motorElevAuxiliarBaixa || '',
-                motorDirecaoCarro: a.motordirecaocarro || a.motorDirecaoCarro || '',
-                motorTranslacaoPonte: a.motortranslacaoponte || a.motorTranslacaoPonte || ''
-            }));
+        if (Array.isArray(dbAllAssets)) {
+            const handledIds = new Set();
+            const merged = dbAllAssets.map(a => {
+                const localAsset = (allAssetsList || []).find(l => l && String(l.id) === String(a.id));
+                handledIds.add(String(a.id));
+                return {
+                    id: a.id,
+                    empresa: a.empresa || (localAsset ? localAsset.empresa : ''),
+                    nome: a.nome || (localAsset ? localAsset.nome : ''),
+                    tipo: a.tipo || (localAsset ? localAsset.tipo : ''),
+                    local: a.local || (localAsset ? localAsset.local : ''),
+                    fabricante: a.fabricante || (localAsset ? localAsset.fabricante : ''),
+                    capacidade: a.capacidade || (localAsset ? localAsset.capacidade : ''),
+                    caboPrincipal: a.caboprincipal || a.caboPrincipal || (localAsset ? localAsset.caboPrincipal : ''),
+                    capacidadeAuxiliar: a.capacidadeauxiliar || a.capacidadeAuxiliar || (localAsset ? localAsset.capacidadeAuxiliar : ''),
+                    caboAuxiliar: a.caboauxiliar || a.caboAuxiliar || (localAsset ? localAsset.caboAuxiliar : ''),
+                    altura: a.altura || (localAsset ? localAsset.altura : ''),
+                    vao: a.vao || (localAsset ? localAsset.vao : ''),
+                    tensaoAlimentacao: a.tensaoalimentacao || a.tensaoAlimentacao || (localAsset ? localAsset.tensaoAlimentacao : ''),
+                    tensaoComando: a.tensaocomando || a.tensaoComando || (localAsset ? localAsset.tensaoComando : ''),
+                    alimentacaoEquipamento: a.alimentacaoequipamento || a.alimentacaoEquipamento || (localAsset ? localAsset.alimentacaoEquipamento : ''),
+                    motorElevPrincipalAlta: a.motorelevprincipalalta || a.motorElevPrincipalAlta || (localAsset ? localAsset.motorElevPrincipalAlta : ''),
+                    motorElevPrincipalBaixa: a.motorelevprincipalbaixa || a.motorElevPrincipalBaixa || (localAsset ? localAsset.motorElevPrincipalBaixa : ''),
+                    motorElevAuxiliarAlta: a.motorelevauxiliaralta || a.motorElevAuxiliarAlta || (localAsset ? localAsset.motorElevAuxiliarAlta : ''),
+                    motorElevAuxiliarBaixa: a.motorelevauxiliarbaixa || a.motorElevAuxiliarBaixa || (localAsset ? localAsset.motorElevAuxiliarBaixa : ''),
+                    motorDirecaoCarro: a.motordirecaocarro || a.motorDirecaoCarro || (localAsset ? localAsset.motorDirecaoCarro : ''),
+                    motorTranslacaoPonte: a.motortranslacaoponte || a.motorTranslacaoPonte || (localAsset ? localAsset.motorTranslacaoPonte : ''),
+                    template_id: a.template_id || (localAsset ? localAsset.template_id : null),
+                    template_name: a.template_name || (localAsset ? localAsset.template_name : null),
+                    schema_snapshot: a.schema_snapshot || (localAsset ? localAsset.schema_snapshot : null),
+                    custom_fields: a.custom_fields || (localAsset ? localAsset.custom_fields : {}),
+                    is_provisional: !!a.is_provisional,
+                    provisional_id: a.provisional_id || (localAsset ? localAsset.provisional_id : null),
+                    sync_status: a.sync_status || 'synced'
+                };
+            });
+
+            // Preserva ativos locais que ainda não constem no Supabase
+            (allAssetsList || []).forEach(local => {
+                if (local && local.id && !handledIds.has(String(local.id))) {
+                    merged.push(local);
+                }
+            });
+
+            updateArrayInPlace(allAssetsList, merged);
             localStorage.setItem('crane_all_assets', JSON.stringify(allAssetsList));
             await setDBValue('crane_all_assets', allAssetsList);
         }
 
-        const validAssetIds = new Set((allAssetsList || []).map(a => String(a.id).trim().toLowerCase()));
-
         // 3. Users (Sincronização pura do banco de dados na nuvem)
         let dbUsers = await dbFetchAll('users');
-        if (dbUsers && dbUsers.length > 0) {
-            const mappedUsers = await Promise.all(dbUsers.map(async u => ({
+        if (Array.isArray(dbUsers) && dbUsers.length > 0) {
+            const tenant = getTenantCode() || '001';
+            const filteredUsers = dbUsers.filter(u => !u.tenant_code || String(u.tenant_code) === String(tenant));
+            const usersToMap = filteredUsers.length > 0 ? filteredUsers : dbUsers;
+            const mappedUsers = await Promise.all(usersToMap.map(async u => ({
                 id: u.id,
                 name: u.name || '',
                 email: u.email ? u.email.trim().toLowerCase() : '',
                 password: await hashPassword(u.password),
                 permission: u.permission || 'TECNICO',
                 cargo: u.cargo || u.role || '',
-                signature: u.signature || u.assinatura || ''
+                signature: u.signature || u.assinatura || '',
+                tenant_code: u.tenant_code || tenant
             })));
             updateArrayInPlace(usersList, mappedUsers);
-            localStorage.setItem('crane_users', JSON.stringify(usersList));
-            await setDBValue('crane_users', usersList);
+            setStoredData('crane_users', usersList);
         }
 
         // 4. Scheduled Inspections (Events)
         let dbEvents = await dbFetchAll('scheduled_inspections');
-        if (!dbEvents || dbEvents.length === 0) {
-            console.log('SUPABASE: Tabela de agendamentos vazia na nuvem. Migrando dados locais...');
-            const localEvents = getStoredData('crane_events', []);
-            if (localEvents.length > 0) {
-                await syncKeyToSupabase('crane_events', localEvents);
-                dbEvents = localEvents;
-            }
-        }
-        if (dbEvents && dbEvents.length > 0) {
+        if (Array.isArray(dbEvents)) {
             const mappedEvents = [];
             for (const e of dbEvents) {
                 let eventId = String(e.id);
@@ -561,146 +702,108 @@ export async function syncAllFromSupabase() {
                     color: e.color || '',
                     textColor: e.textColor || '',
                     tipo: e.tipo || '',
-                    local: e.local || ''
+                    local: e.local || '',
+                    tecnico: e.tecnico || ''
                 });
             }
             updateArrayInPlace(eventsList, mappedEvents);
-            localStorage.setItem('crane_events', JSON.stringify(eventsList));
-            await setDBValue('crane_events', eventsList);
+            setStoredData('crane_events', eventsList);
+            // Limpa chave legada crane_assets se presente
+            try { localStorage.removeItem('crane_assets'); } catch (e) {}
         }
+
+        const parseIfNeeded = (val) => {
+            if (!val) return null;
+            if (typeof val === 'string') {
+                try { return JSON.parse(val); } catch (e) { return null; }
+            }
+            return val;
+        };
+        const hasValidKeys = (obj) => obj && typeof obj === 'object' && Object.keys(obj).length > 0;
 
         // 5. Open Orders
         let dbOpenOrders = await dbFetchAll('open_orders');
         if (Array.isArray(dbOpenOrders)) {
             const localOpenOrders = await getDBValue('crane_open_orders', []);
-            const parseIfNeeded = (val) => {
-                if (!val) return null;
-                if (typeof val === 'string') {
-                    try { return JSON.parse(val); } catch (e) { return null; }
-                }
-                return val;
-            };
-            const hasValidKeys = (obj) => obj && typeof obj === 'object' && Object.keys(obj).length > 0;
-
-            const mappedOrders = dbOpenOrders.map(o => ({
-                ...o,
-                equipamentoId: o.equipamentoId || o.equipamentoid || '',
-                equipamentoNome: o.equipamentoNome || o.equipamentonome || o.equipamento || '',
-                responses: parseIfNeeded(o.responses) || parseIfNeeded(o.responses_data) || {},
-                generalObservation: o.generalObservation || o.generalobservation || '',
-                generalImages: parseIfNeeded(o.generalImages) || parseIfNeeded(o.generalimages) || [],
-                customSections: parseIfNeeded(o.customSections) || parseIfNeeded(o.customsections) || [],
-                customItems: parseIfNeeded(o.customItems) || parseIfNeeded(o.customitems) || []
-            }));
-            const combinedOrders = mappedOrders.map(o => {
-                const localMatch = localOpenOrders.find(lo => String(lo.id) === String(o.id));
-                const cloudResp = parseIfNeeded(o.responses) || {};
+            const mappedOrders = dbOpenOrders.map(o => {
+                const parsedResp = parseIfNeeded(o.responses) || parseIfNeeded(o.responses_data) || {};
+                const meta = (parsedResp && parsedResp.__meta) || {};
+                const localMatch = (localOpenOrders || []).find(lo => String(lo.id) === String(o.id));
+                let mergedResp = parsedResp;
                 if (localMatch) {
                     const localResp = parseIfNeeded(localMatch.responses) || {};
-                    const mergedResp = hasValidKeys(localResp) 
-                        ? { ...cloudResp, ...localResp } 
-                        : (hasValidKeys(cloudResp) ? cloudResp : {});
-                    return {
-                        ...o,
-                        ...localMatch,
-                        responses: mergedResp,
-                        generalObservation: localMatch.generalObservation || o.generalObservation || '',
-                        generalImages: (localMatch.generalImages && localMatch.generalImages.length > 0) ? localMatch.generalImages : (o.generalImages || []),
-                        customSections: (localMatch.customSections && localMatch.customSections.length > 0) ? localMatch.customSections : (o.customSections || []),
-                        customItems: (localMatch.customItems && localMatch.customItems.length > 0) ? localMatch.customItems : (o.customItems || []),
-                        tecnico: localMatch.tecnico || o.tecnico || ''
-                    };
+                    if (hasValidKeys(localResp)) {
+                        mergedResp = { ...parsedResp, ...localResp };
+                    }
                 }
                 return {
                     ...o,
-                    responses: cloudResp
+                    equipamentoId: o.equipamentoId || o.equipamentoid || '',
+                    schema: parseIfNeeded(o.schema_snapshot) || parseIfNeeded(o.schema) || meta.schema_snapshot || meta.schema || (localMatch ? (localMatch.schema_snapshot || localMatch.schema) : null),
+                    schema_snapshot: parseIfNeeded(o.schema_snapshot) || parseIfNeeded(o.schema) || meta.schema_snapshot || meta.schema || (localMatch ? (localMatch.schema_snapshot || localMatch.schema) : null),
+                    templateId: o.templateId || o.templateid || meta.templateId || (localMatch ? localMatch.templateId : null),
+                    templateName: o.templateName || o.templatename || meta.templateName || (localMatch ? localMatch.templateName : null),
+                    responses: mergedResp,
+                    generalObservation: o.generalObservation || o.generalobservation || (localMatch ? localMatch.generalObservation : ''),
+                    generalImages: parseIfNeeded(o.generalImages) || parseIfNeeded(o.generalimages) || (localMatch ? localMatch.generalImages : []),
+                    customSections: parseIfNeeded(o.customSections) || parseIfNeeded(o.customsections) || (localMatch ? localMatch.customSections : []),
+                    customItems: parseIfNeeded(o.customItems) || parseIfNeeded(o.customitems) || (localMatch ? localMatch.customItems : []),
+                    tecnico: o.tecnico || (localMatch ? localMatch.tecnico : ''),
+                    revisions: parseIfNeeded(o.revisions) || meta.revisions || (localMatch ? localMatch.revisions : null)
                 };
             });
-            updateArrayInPlace(openOrders, combinedOrders);
-            await setDBValue('crane_open_orders', combinedOrders);
+            updateArrayInPlace(openOrders, mappedOrders);
+            await setDBValue('crane_open_orders', mappedOrders);
             try { localStorage.removeItem('crane_open_orders'); } catch (e) {}
         }
 
         // 6. Finalized Reports
         let dbFinalizedReports = await dbFetchAll('finalized_reports');
         if (Array.isArray(dbFinalizedReports)) {
-            const validReports = [];
-            for (const r of dbFinalizedReports) {
-                const reportCompany = (r.empresa || '').trim().toLowerCase();
-                const reportAssetId = String(r.equipamentoId || r.equipamentoid || r.equipamento || '').trim().toLowerCase();
-                if ((reportCompany && validCompanyNames.size > 0 && !validCompanyNames.has(reportCompany)) ||
-                    (reportAssetId && validAssetIds.size > 0 && !validAssetIds.has(reportAssetId))) {
-                    console.log(`SUPABASE: Removendo relatório órfão '${r.id}' vinculado a empresa/ativo excluído...`);
-                    await dbDelete('finalized_reports', 'id', String(r.id));
-                } else {
-                    validReports.push(r);
-                }
-            }
-            dbFinalizedReports = validReports;
-
             const localReports = await getDBValue('crane_reports', []);
-            const parseIfNeeded = (val) => {
-                if (!val) return null;
-                if (typeof val === 'string') {
-                    try { return JSON.parse(val); } catch (e) { return null; }
-                }
-                return val;
-            };
-            const hasValidKeys = (obj) => obj && typeof obj === 'object' && Object.keys(obj).length > 0;
-
-            const mappedReports = dbFinalizedReports.map(r => ({
-                ...r,
-                equipamentoId: r.equipamentoId || r.equipamentoid || '',
-                equipamentoNome: r.equipamentoNome || r.equipamentonome || r.equipamento || '',
-                responses: parseIfNeeded(r.responses) || parseIfNeeded(r.responses_data) || {},
-                generalObservation: r.generalObservation || r.generalobservation || '',
-                generalImages: parseIfNeeded(r.generalImages) || parseIfNeeded(r.generalimages) || [],
-                customSections: parseIfNeeded(r.customSections) || parseIfNeeded(r.customsections) || [],
-                customItems: parseIfNeeded(r.customItems) || parseIfNeeded(r.customitems) || []
-            }));
-            const combinedReports = mappedReports.map(r => {
-                const localMatch = localReports.find(lr => String(lr.id) === String(r.id));
-                const cloudResp = parseIfNeeded(r.responses) || {};
+            const mappedReports = dbFinalizedReports.map(r => {
+                const parsedResp = parseIfNeeded(r.responses) || parseIfNeeded(r.responses_data) || {};
+                const meta = (parsedResp && parsedResp.__meta) || {};
+                const localMatch = (localReports || []).find(lr => String(lr.id) === String(r.id));
+                let mergedResp = parsedResp;
                 if (localMatch) {
                     const localResp = parseIfNeeded(localMatch.responses) || {};
-                    const mergedResp = hasValidKeys(localResp) 
-                        ? { ...cloudResp, ...localResp } 
-                        : (hasValidKeys(cloudResp) ? cloudResp : {});
-                    return {
-                        ...r,
-                        ...localMatch,
-                        responses: mergedResp,
-                        generalObservation: localMatch.generalObservation || r.generalObservation || '',
-                        generalImages: (localMatch.generalImages && localMatch.generalImages.length > 0) ? localMatch.generalImages : (r.generalImages || []),
-                        customSections: (localMatch.customSections && localMatch.customSections.length > 0) ? localMatch.customSections : (r.customSections || []),
-                        customItems: (localMatch.customItems && localMatch.customItems.length > 0) ? localMatch.customItems : (r.customItems || []),
-                        tecnico: localMatch.tecnico || r.tecnico || ''
-                    };
+                    if (hasValidKeys(localResp)) {
+                        mergedResp = { ...parsedResp, ...localResp };
+                    }
                 }
+                const finalSchema = parseIfNeeded(r.schema_snapshot) || parseIfNeeded(r.schema) || meta.schema_snapshot || meta.schema || (localMatch ? (localMatch.schema_snapshot || localMatch.schema) : null);
                 return {
                     ...r,
-                    responses: cloudResp
+                    equipamentoId: r.equipamentoId || r.equipamentoid || '',
+                    equipamentoNome: r.equipamentoNome || r.equipamentonome || r.equipamento || '',
+                    schema: finalSchema,
+                    schema_snapshot: finalSchema,
+                    templateId: r.templateId || r.templateid || meta.templateId || (localMatch ? localMatch.templateId : null),
+                    templateName: r.templateName || r.templatename || meta.templateName || (localMatch ? localMatch.templateName : null),
+                    responses: mergedResp,
+                    generalObservation: r.generalObservation || r.generalobservation || (localMatch ? localMatch.generalObservation : ''),
+                    generalImages: parseIfNeeded(r.generalImages) || parseIfNeeded(r.generalimages) || (localMatch ? localMatch.generalImages : []),
+                    customSections: parseIfNeeded(r.customSections) || parseIfNeeded(r.customsections) || (localMatch ? localMatch.customSections : []),
+                    customItems: parseIfNeeded(r.customItems) || parseIfNeeded(r.customitems) || (localMatch ? localMatch.customItems : []),
+                    tecnico: r.tecnico || (localMatch ? localMatch.tecnico : ''),
+                    revisions: parseIfNeeded(r.revisions) || meta.revisions || (localMatch ? localMatch.revisions : null)
                 };
             });
-            updateArrayInPlace(finalizedReports, combinedReports);
-            await setDBValue('crane_reports', combinedReports);
+
+            updateArrayInPlace(finalizedReports, mappedReports);
+            await setDBValue('crane_reports', mappedReports);
             try { localStorage.removeItem('crane_reports'); } catch (e) {}
         }
 
         // 7. Internal Company
         let dbInternalCompany = await dbFetchAll('internal_company');
-        if (!dbInternalCompany || dbInternalCompany.length === 0) {
-            console.log('SUPABASE: Tabela de empresa interna vazia na nuvem. Sincronizando dados locais...');
-            const localInternal = getStoredData('crane_internal_company', null);
-            if (localInternal) {
-                await syncKeyToSupabase('crane_internal_company', localInternal);
-                dbInternalCompany = [localInternal];
+        if (Array.isArray(dbInternalCompany) && dbInternalCompany.length > 0) {
+            const tenant = getTenantCode() || '001';
+            const internalCompany = dbInternalCompany.find(c => c && String(c.tenant_code) === String(tenant)) || dbInternalCompany[0];
+            if (internalCompany) {
+                setStoredData('crane_internal_company', internalCompany);
             }
-        }
-        if (dbInternalCompany && dbInternalCompany.length > 0) {
-            const internalCompany = dbInternalCompany[0];
-            localStorage.setItem('crane_internal_company', JSON.stringify(internalCompany));
-            await setDBValue('crane_internal_company', internalCompany);
         }
 
         console.log('SUPABASE: Sincronização e migração concluídas com sucesso!');
@@ -716,14 +819,23 @@ export function updateArrayInPlace(target, source) {
     target.push(...source);
 }
 
-// Normaliza a lista de empresas do localStorage: garante que cada item seja sempre um objeto { name, ... }
+// Normaliza e deduplica a lista de empresas: garante que cada item seja sempre um objeto { id, name, ... } único
 function normalizeCompanies(list) {
     if (!Array.isArray(list)) return [];
-    return list.map(c => {
-        if (typeof c === 'string') return { name: c, cnpj: '', endereco: '', numero: '', bairro: '', cep: '', referencia: '', cidade: '', estado: '', logo: '' };
-        if (typeof c === 'object' && c !== null && typeof c.name === 'string') {
-            return {
-                name: c.name,
+    const map = new Map();
+    list.forEach(c => {
+        if (!c) return;
+        let item = null;
+        if (typeof c === 'string' && c.trim()) {
+            const trimmed = c.trim();
+            const idGen = 'comp_' + trimmed.toLowerCase().replace(/\W+/g, '_');
+            item = { id: idGen, name: trimmed, cnpj: '', endereco: '', numero: '', bairro: '', cep: '', referencia: '', cidade: '', estado: '', logo: '' };
+        } else if (typeof c === 'object' && c !== null && typeof c.name === 'string' && c.name.trim()) {
+            const trimmedName = c.name.trim();
+            const idGen = c.id || ('comp_' + (c.cnpj ? String(c.cnpj).replace(/\D+/g, '') : trimmedName.toLowerCase().replace(/\W+/g, '_')));
+            item = {
+                id: idGen,
+                name: trimmedName,
                 cnpj: c.cnpj || '',
                 endereco: c.endereco || '',
                 numero: c.numero || '',
@@ -735,14 +847,37 @@ function normalizeCompanies(list) {
                 logo: c.logo || ''
             };
         }
-        return null;
-    }).filter(Boolean);
+        if (item) {
+            const key = item.name.toLowerCase();
+            const existing = map.get(key);
+            if (!existing) {
+                map.set(key, item);
+            } else {
+                // Fusão inteligente: mantém os campos preenchidos e a versão com logotipo
+                map.set(key, {
+                    ...existing,
+                    ...item,
+                    id: existing.id || item.id,
+                    logo: item.logo || existing.logo || '',
+                    cnpj: item.cnpj || existing.cnpj || '',
+                    endereco: item.endereco || existing.endereco || '',
+                    numero: item.numero || existing.numero || '',
+                    bairro: item.bairro || existing.bairro || '',
+                    cep: item.cep || existing.cep || '',
+                    cidade: item.cidade || existing.cidade || '',
+                    estado: item.estado || existing.estado || '',
+                    referencia: item.referencia || existing.referencia || ''
+                });
+            }
+        }
+    });
+    return Array.from(map.values());
 }
 
 export let companies = normalizeCompanies(getStoredData('crane_companies', [])).sort((a, b) => a.name.localeCompare(b.name));
 
 export function setCompanies(newList) {
-    companies = normalizeCompanies(newList).sort((a, b) => a.name.localeCompare(b.name));
+    updateArrayInPlace(companies, normalizeCompanies(newList).sort((a, b) => a.name.localeCompare(b.name)));
     setStoredData('crane_companies', companies);
 }
 
@@ -768,7 +903,7 @@ if (!storedTechnicalAssets) {
 }
 
 export function setAllAssetsList(newList) {
-    allAssetsList = newList;
+    updateArrayInPlace(allAssetsList, newList || []);
     setStoredData('crane_all_assets', allAssetsList);
 }
 
@@ -805,6 +940,45 @@ export async function initializeIndexedDB() {
     }
 }
 
+// Função de higienização de dados: remove automaticamente registros órfãos locais que pertencem a empresas inexistentes
+export function purgeOrphanLocalData() {
+    const validCompanyNames = new Set((companies || []).map(c => (typeof c === 'string' ? c : c.name).toLowerCase().trim()));
+    const internalComp = getStoredData('crane_internal_company', null);
+    if (internalComp && internalComp.name) {
+        validCompanyNames.add(String(internalComp.name).trim().toLowerCase());
+    }
+
+    if (validCompanyNames.size > 0) {
+        // Filtra ativos
+        const cleanAssets = (allAssetsList || []).filter(a => a.empresa && validCompanyNames.has(String(a.empresa).trim().toLowerCase()));
+        if (cleanAssets.length !== allAssetsList.length) {
+            updateArrayInPlace(allAssetsList, cleanAssets);
+            setStoredData('crane_all_assets', allAssetsList);
+        }
+
+        // Filtra agendamentos
+        const cleanEvents = (eventsList || []).filter(e => e.empresa && validCompanyNames.has(String(e.empresa).trim().toLowerCase()));
+        if (cleanEvents.length !== eventsList.length) {
+            updateArrayInPlace(eventsList, cleanEvents);
+            setStoredData('crane_events', eventsList);
+        }
+
+        // Filtra ordens de serviço
+        const cleanOrders = (openOrders || []).filter(o => o.empresa && validCompanyNames.has(String(o.empresa).trim().toLowerCase()));
+        if (cleanOrders.length !== openOrders.length) {
+            updateArrayInPlace(openOrders, cleanOrders);
+            setStoredData('crane_open_orders', openOrders);
+        }
+
+        // Filtra relatórios finalizados
+        const cleanReports = (finalizedReports || []).filter(r => r.empresa && validCompanyNames.has(String(r.empresa).trim().toLowerCase()));
+        if (cleanReports.length !== finalizedReports.length) {
+            updateArrayInPlace(finalizedReports, cleanReports);
+            setStoredData('crane_reports', finalizedReports);
+        }
+    }
+}
+
 // Carrega todos os dados do banco de dados IndexedDB para a memória de forma assíncrona
 export async function loadAllDataFromDB() {
     await initializeIndexedDB();
@@ -837,6 +1011,9 @@ export async function loadAllDataFromDB() {
     const dbFinalizedReports = await getDBValue('crane_reports', []);
     updateArrayInPlace(finalizedReports, dbFinalizedReports || []);
 
+    // Higieniza dados órfãos locais imediatamente
+    purgeOrphanLocalData();
+
     // 2. Tenta sincronizar do Supabase em segundo plano (Não-bloqueante)
     if (isSupabaseConfigured) {
         syncAllFromSupabase().then(() => {
@@ -844,6 +1021,7 @@ export async function loadAllDataFromDB() {
             isInitialLoad = false; // Permite sincronizações futuras de salvamento
             if (typeof window.renderCompanies === 'function') window.renderCompanies();
             if (typeof window.renderAssets === 'function') window.renderAssets();
+            if (typeof window.renderAtivosView === 'function') window.renderAtivosView();
             if (typeof window.renderCalendar === 'function') window.renderCalendar();
             if (typeof window.renderOpenOrders === 'function') window.renderOpenOrders();
             if (typeof window.renderReportsView === 'function') window.renderReportsView();
@@ -932,5 +1110,7 @@ export async function migrateAllMediaToSupabase() {
 
 if (typeof window !== 'undefined') {
     window.migrateAllMediaToSupabase = migrateAllMediaToSupabase;
+    window.purgeOrphanLocalData = purgeOrphanLocalData;
+    window.syncAllFromSupabase = syncAllFromSupabase;
 }
 

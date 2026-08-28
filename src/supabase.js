@@ -211,4 +211,68 @@ export async function uploadBase64ToStorage(bucketName, folderPath, base64Data, 
     }
 }
 
+/**
+ * Remove um arquivo do Supabase Storage a partir de um path ou URL pública
+ */
+export async function deleteStorageFile(bucketName, pathOrUrl) {
+    const client = getActiveSupabase();
+    if (!client || !pathOrUrl || typeof pathOrUrl !== 'string') return false;
+    
+    try {
+        let storagePath = pathOrUrl.trim();
+        
+        // Se for URL completa (ex: https://.../storage/v1/object/public/crane-app-media/companies/logo_xxx.png)
+        if (storagePath.includes(`/${bucketName}/`)) {
+            storagePath = storagePath.split(`/${bucketName}/`)[1];
+        } else if (storagePath.startsWith('http://') || storagePath.startsWith('https://')) {
+            try {
+                const urlObj = new URL(storagePath);
+                const pathParts = urlObj.pathname.split(`/${bucketName}/`);
+                if (pathParts.length > 1) {
+                    storagePath = pathParts[1];
+                }
+            } catch (_) {}
+        }
+        
+        storagePath = storagePath.replace(/^\/+/, '');
+        if (!storagePath) return false;
+        
+        const { error } = await client.storage.from(bucketName).remove([storagePath]);
+        if (error) {
+            console.warn(`Supabase Storage: falha ao remover ${bucketName}/${storagePath}:`, error);
+            return false;
+        }
+        return true;
+    } catch (e) {
+        console.warn(`Erro em deleteStorageFile (${bucketName}):`, e);
+        return false;
+    }
+}
+
+/**
+ * Remove arquivos do Supabase Storage por prefixo (ex: logos anteriores com timestamp)
+ */
+export async function deleteStorageFilesByPrefix(bucketName, folderPath, prefix, exceptFileName = null) {
+    const client = getActiveSupabase();
+    if (!client) return false;
+    try {
+        const cleanFolder = folderPath.replace(/^\/+|\/+$/g, '');
+        const { data: list, error } = await client.storage.from(bucketName).list(cleanFolder);
+        if (error || !Array.isArray(list)) return false;
+        
+        const filesToDelete = list
+            .filter(f => f && f.name && f.name.startsWith(prefix) && (!exceptFileName || !f.name.includes(exceptFileName)))
+            .map(f => `${cleanFolder}/${f.name}`);
+        
+        if (filesToDelete.length > 0) {
+            await client.storage.from(bucketName).remove(filesToDelete);
+        }
+        return true;
+    } catch (e) {
+        console.warn(`Erro em deleteStorageFilesByPrefix (${bucketName}):`, e);
+        return false;
+    }
+}
+
+
 

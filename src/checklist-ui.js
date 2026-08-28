@@ -20,18 +20,28 @@ function bindChecklistEvents(root) {
     if (root.dataset.eventsBound) return;
     root.dataset.eventsBound = "true";
 
+    let changeTimeout = null;
+    function notifyChange() {
+        if (changeTimeout) clearTimeout(changeTimeout);
+        changeTimeout = setTimeout(() => {
+            root.dispatchEvent(new CustomEvent('checklist-input-change', { bubbles: true }));
+        }, 300);
+    }
+
     root.addEventListener('change', e => {
         const target = e.target;
         if (target.matches('.checklist-status-ok, .checklist-status-nok')) {
             const field = target.closest('.checklist-inspectable, .checklist-inspectable-group');
             if (field) markNokState(field, target.value === 'NOK');
         }
+        notifyChange();
     });
 
     root.addEventListener('click', e => {
         const removeBtn = e.target.closest('.checklist-remove-image');
         if (removeBtn) {
             removeBtn.parentElement.remove();
+            notifyChange();
             return;
         }
         const zone = e.target.closest('.checklist-upload-zone');
@@ -41,6 +51,7 @@ function bindChecklistEvents(root) {
     root.addEventListener('change', e => {
         if (e.target.matches('.checklist-file-input')) {
             handleFileInput(e.target);
+            notifyChange();
         }
     });
 
@@ -59,6 +70,7 @@ function bindChecklistEvents(root) {
         if (e.target.matches('textarea.checklist-observation, textarea.checklist-text-value')) {
             autoResizeTextarea(e.target);
         }
+        notifyChange();
     });
 
     // Initial auto-resize for textareas that already have content

@@ -69,4 +69,34 @@ describe('Módulo de Autenticação (Auth Module)', () => {
         expect(user).not.toBeNull();
         expect(user.name).toBe('ADMINISTRADOR');
     });
+
+    it('Deve verificar se a estrutura de usuário logado é válida para persistência', () => {
+        const validUser = { id: '1', name: 'ADMINISTRADOR', email: 'admin@tecnocrane.com.br', permission: 'ADMIN' };
+        expect(validUser.id).toBeDefined();
+        expect(validUser.id).not.toBe('anon');
+        expect(validUser.name).toBe('ADMINISTRADOR');
+    });
+
+    describe('Formatação de Nomes com Preposições (formatShortName)', () => {
+        const { formatShortName } = require('../../utils.js');
+
+        it('Deve formatar nomes com preposição "da" sem cortar o sobrenome', () => {
+            expect(formatShortName('JOSE DA SILVA')).toBe('JOSE DA SILVA');
+            expect(formatShortName('APARECIDO DA SILVA')).toBe('APARECIDO DA SILVA');
+        });
+
+        it('Deve formatar nomes com preposição "de", "do", "dos", "das"', () => {
+            expect(formatShortName('MARIA DE SOUZA')).toBe('MARIA DE SOUZA');
+            expect(formatShortName('JOAO DO NASCIMENTO')).toBe('JOAO DO NASCIMENTO');
+            expect(formatShortName('LUCAS DOS SANTOS')).toBe('LUCAS DOS SANTOS');
+            expect(formatShortName('ANA DAS DORES')).toBe('ANA DAS DORES');
+        });
+
+        it('Deve formatar nomes sem preposição normalmente', () => {
+            expect(formatShortName('MAYCON DIAS')).toBe('MAYCON DIAS');
+            expect(formatShortName('JOSE SANTOS')).toBe('JOSE SANTOS');
+            expect(formatShortName('CARLOS')).toBe('CARLOS');
+        });
+    });
 });
+

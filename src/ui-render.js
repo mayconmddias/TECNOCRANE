@@ -50,6 +50,7 @@ export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedC
             <th class="py-stack_sm px-card_padding text-label-md text-on-surface-variant uppercase tracking-wider text-left col-local">LOCALIZAÇÃO</th>
             <th class="py-stack_sm px-card_padding text-label-md text-on-surface-variant uppercase tracking-wider text-left col-data">PROX. INSPEÇÃO</th>
             <th class="py-stack_sm px-card_padding text-label-md text-on-surface-variant uppercase tracking-wider text-left col-semana">DIA SEMANA</th>
+            <th class="py-stack_sm px-card_padding text-label-md text-on-surface-variant uppercase tracking-wider text-left col-tecnico">TÉCNICO</th>
             <th class="py-stack_sm px-card_padding text-label-md text-on-surface-variant uppercase tracking-wider text-right col-acoes">AÇÕES</th>
         </tr>
     `;
@@ -107,16 +108,23 @@ export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedC
             ? event.local
             : (matchingAsset ? (matchingAsset.local || 'SETOR OPERACIONAL') : 'SETOR OPERACIONAL');
 
+        let displayTecnicos = event.tecnico || '';
+        if (!displayTecnicos && Array.isArray(event.tecnicos) && event.tecnicos.length > 0) {
+            displayTecnicos = event.tecnicos.join(' | ');
+        }
+        displayTecnicos = displayTecnicos ? displayTecnicos.toUpperCase() : '---';
+
         tr.innerHTML = `
-            <td class="py-stack_sm px-card_padding text-body-md uppercase text-on-surface col-empresa">${event.empresa}</td>
-            <td class="py-stack_sm px-card_padding font-bold text-body-md uppercase transition-all duration-200 col-equipamento text-on-surface">${event.equipamento}</td>
-            <td class="py-stack_sm px-card_padding text-body-md uppercase text-on-surface-variant col-tipo">${displayTipo}</td>
-            <td class="py-stack_sm px-card_padding text-body-md uppercase text-on-surface-variant col-local">${displayLocal}</td>
-            <td class="py-stack_sm px-card_padding text-body-md font-bold ${dateColor} col-data">
+            <td class="py-stack_sm px-card_padding text-body-md uppercase text-on-surface col-empresa truncate">${event.empresa}</td>
+            <td class="py-stack_sm px-card_padding font-bold text-body-md uppercase transition-all duration-200 col-equipamento text-on-surface whitespace-nowrap">${event.equipamento}</td>
+            <td class="py-stack_sm px-card_padding text-body-md uppercase text-on-surface-variant col-tipo truncate">${displayTipo}</td>
+            <td class="py-stack_sm px-card_padding text-body-md uppercase text-on-surface-variant col-local truncate">${displayLocal}</td>
+            <td class="py-stack_sm px-card_padding text-body-md font-bold ${dateColor} col-data whitespace-nowrap">
                 ${displayDate}
                 ${event.status === 'NAO_REALIZADO' ? '<br><span class="text-label-md text-error uppercase">NÃO REALIZADO</span>' : ''}
             </td>
-            <td class="py-stack_sm px-card_padding text-body-md text-on-surface-variant uppercase col-semana">${dayOfWeek}</td>
+            <td class="py-stack_sm px-card_padding text-body-md text-on-surface-variant uppercase col-semana whitespace-nowrap">${dayOfWeek}</td>
+            <td class="py-stack_sm px-card_padding text-body-md font-semibold text-on-surface uppercase col-tecnico whitespace-nowrap">${displayTecnicos}</td>
             <td class="py-stack_sm px-card_padding text-right col-acoes">
                 <button onclick="window.openEditModal(event, '${event.id}')" class="text-on-surface-variant hover:text-on-surface p-1 transition-all duration-200">
                     <span class="material-symbols-outlined text-headline-md text-on-surface-variant">edit</span>
