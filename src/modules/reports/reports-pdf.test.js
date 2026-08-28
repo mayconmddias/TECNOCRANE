@@ -602,4 +602,38 @@ describe('Reports PDF Module - Geração e Snapshot de Formulários Dinâmicos',
         expect(html).toContain('<td>24/08/2026</td>');
         expect(html).toContain('<td>EMISSÃO INICIAL</td>');
     });
+
+    it('Teste 18: generateReportPrintHTML renderiza Capa estritamente em português no disclaimer e cabeçalhos de revisão', () => {
+        const report = {
+            id: 'REL - 01',
+            type: 'PREVENTIVA',
+            date: '2026-08-24',
+            schema_snapshot: CHECKLIST_SCHEMA,
+            responses: {}
+        };
+
+        const html = generateReportPrintHTML(report, { name: 'EMPRESA TESTE' }, { name: 'CRANEPPRÓ' }, []);
+
+        // Disclaimer deve conter o texto em português
+        expect(html).toContain('Este documento contém informações de propriedade da CRANEPPRÓ');
+        // Disclaimer NÃO deve conter o texto em inglês
+        expect(html).not.toContain('This document is property of CRANEPPRÓ');
+        expect(html).not.toContain('strictly forbidden');
+
+        // Tabela de revisão deve conter apenas os títulos em português
+        expect(html).toContain('<td>DATA</td>');
+        expect(html).toContain('<td>DESCRIÇÃO</td>');
+        expect(html).toContain('<td>PREPARADO</td>');
+        expect(html).toContain('<td>COLABORAÇÃO</td>');
+        expect(html).toContain('<td>CONTROLADO</td>');
+        expect(html).toContain('<td>APROVADOR</td>');
+
+        // Tabela de revisão NÃO deve conter os subtítulos em inglês
+        expect(html).not.toContain('<br>DATE</td>');
+        expect(html).not.toContain('<br>DESCRIPTION</td>');
+        expect(html).not.toContain('<br>PREPARED</td>');
+        expect(html).not.toContain('<br>CO-OPERATIONS</td>');
+        expect(html).not.toContain('<br>CHECKED</td>');
+        expect(html).not.toContain('<br>APPROVED</td>');
+    });
 });

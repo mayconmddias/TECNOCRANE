@@ -1146,7 +1146,6 @@ export function generateReportPrintHTML(report, company = {}, internalCompany = 
             <div>
                 <div class="disclaimer-box">
                     <p>Este documento contém informações de propriedade da ${internalCompanyName} e só deve ser utilizado exclusivamente pelo destinatário com relação às finalidades pelas quais foi recebido. E qualquer forma de reprodução ou divulgação sem o consentimento da ${internalCompanyName} é vetada.</p>
-                    <p>This document is property of ${internalCompanyName}. It is strictly forbidden to reproduce this document, in whole or in part, and to provide to others any related information without the previous written consent by ${internalCompanyName}</p>
                 </div>
 
                 <table class="revision-table">
@@ -1155,12 +1154,12 @@ export function generateReportPrintHTML(report, company = {}, internalCompany = 
                     ${row01Html}
                     <tr class="label-row">
                         <td>REV</td>
-                        <td>DATA<br>DATE</td>
-                        <td>DESCRIÇÃO<br>DESCRIPTION</td>
-                        <td>PREPARADO<br>PREPARED</td>
-                        <td>COLABORAÇÃO<br>CO-OPERATIONS</td>
-                        <td>CONTROLADO<br>CHECKED</td>
-                        <td>APROVADOR<br>APPROVED</td>
+                        <td>DATA</td>
+                        <td>DESCRIÇÃO</td>
+                        <td>PREPARADO</td>
+                        <td>COLABORAÇÃO</td>
+                        <td>CONTROLADO</td>
+                        <td>APROVADOR</td>
                     </tr>
                 </table>
 
