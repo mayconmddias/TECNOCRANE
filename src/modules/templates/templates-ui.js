@@ -45,8 +45,8 @@ export function switchTemplatesTab(tabName) {
 
 function drawTemplatesUI(container) {
     const isInspections = activeTemplatesTab === 'inspections';
-    const templates = getTemplates();
-    const assetTemplates = getAssetTemplates();
+    const templates = [...(getTemplates() || [])].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
+    const assetTemplates = [...(getAssetTemplates() || [])].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
 
     const formatDate = (isoStr) => {
         if (!isoStr) return '-';
@@ -280,7 +280,7 @@ function renderModalEditorContent() {
     const nameInput = document.getElementById('template-name-input');
 
     if (titleEl) {
-        titleEl.innerText = draftTemplate && draftTemplate.id ? 'EDITAR MODELO' : 'CRIAR NOVO MODELO';
+        titleEl.innerText = draftTemplate && draftTemplate.id ? 'EDITAR MODELO DE CHECKLIST' : 'CRIAR MODELO DE CHECKLIST';
     }
 
     if (nameInput) {
@@ -1146,11 +1146,18 @@ async function saveAssetTemplateFromModal() {
  */
 export function populateAssetTemplateDropdown(selectEl, selectedId = null) {
     if (!selectEl) return;
-    const list = getAssetTemplates() || [];
+    const rawList = getAssetTemplates() || [];
+    
+    // Lista unificada incluindo a opção padrão para ordenação alfabética completa de A a Z
+    const defaultOption = { id: '', nome: 'PONTE ROLANTE VIGA DUPLA', isDefault: true };
+    const allOptions = [defaultOption, ...rawList.map(t => ({ id: t.id, nome: t.nome || t.tipoEquipamento || '' }))];
+    
+    allOptions.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
 
-    let html = `<option value="">PONTE ROLANTE VIGA DUPLA</option>`;
-    list.forEach(tpl => {
-        const isSel = selectedId && String(tpl.id) === String(selectedId) ? 'selected' : '';
+    let html = '';
+    allOptions.forEach(tpl => {
+        const isSel = (selectedId !== null && selectedId !== undefined && selectedId !== '' && String(tpl.id) === String(selectedId)) || 
+                      ((selectedId === null || selectedId === undefined || selectedId === '') && tpl.isDefault) ? 'selected' : '';
         html += `<option value="${tpl.id}" ${isSel}>${escapeHTML(tpl.nome.toUpperCase())}</option>`;
     });
 

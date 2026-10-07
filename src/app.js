@@ -529,7 +529,9 @@ window.updateInspecaoEquipments = function() {
     const equipSelect = document.getElementById('inspecao-equipamento');
     if (!equipSelect) return;
     const list = allAssetsList || [];
-    const filtered = list.filter(a => a && a.empresa && company && a.empresa.toLowerCase() === company.toLowerCase());
+    const filtered = list
+        .filter(a => a && a.empresa && company && a.empresa.toLowerCase() === company.toLowerCase())
+        .sort((a, b) => (a.id || '').localeCompare(b.id || '', 'pt-BR', { numeric: true, sensitivity: 'base' }));
     if (filtered.length > 0) {
         equipSelect.innerHTML = filtered.map(a =>
             `<option value="${a.id}">${a.id} - ${(a.nome || a.id).toUpperCase()}</option>`
@@ -781,7 +783,9 @@ window.closeProgModal = function() {
 window.updateProgEquipments = function() {
     const company = document.getElementById('prog-empresa').value;
     const equipSelect = document.getElementById('prog-equipamento');
-    const filtered = allAssetsList.filter(a => a.empresa && company && a.empresa.toLowerCase() === company.toLowerCase());
+    const filtered = allAssetsList
+        .filter(a => a.empresa && company && a.empresa.toLowerCase() === company.toLowerCase())
+        .sort((a, b) => (a.id || '').localeCompare(b.id || '', 'pt-BR', { numeric: true, sensitivity: 'base' }));
     equipSelect.innerHTML = filtered.map(a => `<option value="${a.id}">${a.id} - ${a.nome}</option>`).join('');
 };
 
@@ -2977,7 +2981,9 @@ window.updateEditAssetList = function() {
         return;
     }
 
-    const filtered = allAssetsList.filter(a => a.empresa && empresa && a.empresa.toLowerCase() === empresa.toLowerCase());
+    const filtered = allAssetsList
+        .filter(a => a.empresa && empresa && a.empresa.toLowerCase() === empresa.toLowerCase())
+        .sort((a, b) => (a.id || '').localeCompare(b.id || '', 'pt-BR', { numeric: true, sensitivity: 'base' }));
     if (filtered.length === 0) {
         selectAtivo.innerHTML = `<option value="">NENHUM ATIVO ENCONTRADO</option>`;
     } else {

@@ -361,10 +361,10 @@
                             <div class="px-card_padding py-stack_sm border-b border-outline bg-surface flex items-center justify-between shrink-0">
                                 <div class="flex items-center">
                                     <!-- NAVEGAÇÃO DE MÊS -->
-                                    <div id="filter-month-nav" class="flex items-center gap-stack_sm bg-surface border border-outline px-2 py-1 rounded-md">
-                                        <button onclick="window.changeFilterMonth(-1)" class="material-symbols-outlined text-[18px] text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">chevron_left</button>
-                                        <span id="filter-month-display" class="text-label-md font-bold text-on-surface w-24 text-center">MAIO/2026</span>
-                                        <button onclick="window.changeFilterMonth(1)" class="material-symbols-outlined text-[18px] text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">chevron_right</button>
+                                    <div id="filter-month-nav" class="flex items-center gap-1.5 bg-surface border border-outline px-2 py-1 rounded-md shrink-0 select-none">
+                                        <button onclick="window.changeFilterMonth(-1)" class="material-symbols-outlined text-[18px] text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer shrink-0 flex items-center justify-center">chevron_left</button>
+                                        <span id="filter-month-display" class="text-label-md font-bold text-on-surface min-w-[136px] w-36 text-center select-none whitespace-nowrap">MAIO/2026</span>
+                                        <button onclick="window.changeFilterMonth(1)" class="material-symbols-outlined text-[18px] text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer shrink-0 flex items-center justify-center">chevron_right</button>
                                     </div>
 
                                     <!-- NOME DA EMPRESA SELECIONADA + CHECKBOX DE EXIBIÇÃO DO CALENDÁRIO -->
@@ -606,8 +606,8 @@
             <div class="relative transform overflow-hidden rounded-xl bg-surface border border-outline-variant text-left shadow-2xl transition-all w-full max-w-5xl my-8">
                 <div class="p-card_padding border-b border-outline-variant flex justify-between items-center bg-surface-container">
                     <div>
-                        <h2 id="template-modal-title" class="text-headline-lg font-bold uppercase text-on-surface">CRIAR NOVO MODELO</h2>
-                        <p class="text-label-md text-on-surface-variant uppercase mt-1">CONFIGURAÇÃO DE FORMULÁRIO PERSONALIZADO</p>
+                        <h2 id="template-modal-title" class="text-headline-lg font-bold uppercase text-on-surface">CRIAR MODELO DE CHECKLIST</h2>
+                        <p class="text-label-md text-on-surface-variant uppercase mt-1">CONFIGURAÇÃO DE CHECKLIST TÉCNICO E CAMPOS PERSONALIZADOS</p>
                     </div>
                     <button onclick="window.closeTemplateModal()" class="text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
                         <span class="material-symbols-outlined text-headline-md">close</span>

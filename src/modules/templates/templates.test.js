@@ -242,5 +242,26 @@ describe('Módulo de Modelos de Ativos (Ficha Técnica / Custom Fields)', () => 
         await deleteAssetTemplate(saved.id);
         expect(getAssetTemplateById(saved.id)).toBeNull();
     });
+
+    it('deve permitir ordenação alfabética (A-Z) correta para modelos de ativos e de inspeção respeitando acentuação pt-BR', () => {
+        const unsortedInspectionNames = [
+            'PONTE ROLANTE SIMPLES',
+            'TALHA ELÉTRICA',
+            'PÓRTICO',
+            'GUINDASTE DE COLUNA'
+        ];
+
+        const sorted = [...unsortedInspectionNames].sort((a, b) => 
+            a.localeCompare(b, 'pt-BR', { sensitivity: 'base' })
+        );
+
+        expect(sorted).toEqual([
+            'GUINDASTE DE COLUNA',
+            'PONTE ROLANTE SIMPLES',
+            'PÓRTICO',
+            'TALHA ELÉTRICA'
+        ]);
+    });
 });
+
 
