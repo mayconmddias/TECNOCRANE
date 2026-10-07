@@ -17,14 +17,11 @@ export function renderCompanies(containerId, companies, selectedCompany, onSelec
         tr.onclick = () => onSelect(companyName);
 
         tr.innerHTML = `
-            <td class="py-stack_sm px-card_padding flex items-center justify-between group/row">
+            <td class="py-stack_sm px-card_padding flex items-center justify-between">
                 ${isSelected 
                     ? `<span class="text-on-primary-container text-label-md font-bold uppercase">${companyName}</span>`
                     : `<span class="text-on-surface-variant text-label-md uppercase group-hover:text-on-surface transition-all duration-200">${companyName}</span>`
                 }
-                <button onclick="event.stopPropagation(); window.openEditCompanyModal('${companyName}')" class="opacity-0 group-hover/row:opacity-100 text-on-surface-variant hover:text-on-surface p-1 transition-all duration-200">
-                    <span class="material-symbols-outlined" style="font-size:16px;">edit</span>
-                </button>
             </td>`;
 
         tbody.appendChild(tr);
@@ -34,14 +31,16 @@ export function renderCompanies(containerId, companies, selectedCompany, onSelec
 export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedCompany, isGlobalFilterActive, filterMonthOffset, searchTerm }) {
     const tbody = document.getElementById(tbodyId);
     const thead = document.getElementById(theadId);
-    const title = document.getElementById(titleId);
-    if (!tbody || !title || !thead) return;
+    const title = titleId ? document.getElementById(titleId) : null;
+    if (!tbody || !thead) return;
 
     tbody.innerHTML = '';
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    title.innerText = searchTerm.length > 0 ? `BUSCA: "${searchTerm.toUpperCase()}"` : "AGENDA DO MÊS";
+    if (title) {
+        title.innerText = searchTerm.length > 0 ? `BUSCA: "${searchTerm.toUpperCase()}"` : "AGENDA DO MÊS";
+    }
     thead.innerHTML = `
         <tr class="bg-surface-container border-b border-outline-variant sticky top-0 z-10">
             <th class="py-stack_sm px-card_padding text-label-md text-on-surface-variant uppercase tracking-wider text-left col-empresa">EMPRESA</th>

@@ -215,11 +215,11 @@ window.switchView = function(view) {
         window.openInspecaoModal();
         return;
     }
+    if (view === 'calendar') view = 'dashboard';
 
     currentView = view;
     const views = {
         dashboard: document.getElementById('dashboard-view'),
-        calendar: document.getElementById('calendar-view'),
         assets: document.getElementById('assets-view'),
         users: document.getElementById('users-view'),
         'open-orders': document.getElementById('open-orders-view'),
@@ -229,7 +229,6 @@ window.switchView = function(view) {
     
     const navs = {
         dashboard: document.getElementById('nav-dashboard'),
-        calendar: document.getElementById('nav-calendar'),
         assets: document.getElementById('nav-assets'),
         inspections: document.getElementById('nav-inspections'),
         templates: document.getElementById('nav-templates'),
@@ -244,8 +243,10 @@ window.switchView = function(view) {
     if (views[view]) views[view].classList.remove('hidden');
     if (navs[view]) navs[view].classList.add('nav-item-active');
 
-    if (view === 'dashboard') renderAssets();
-    else if (view === 'calendar') renderCalendar();
+    if (view === 'dashboard') {
+        renderAssets();
+        renderCalendar();
+    }
     else if (view === 'users') renderUsers();
     else if (view === 'open-orders') renderOpenOrders();
     else if (view === 'reports') renderReportsView();
@@ -267,8 +268,10 @@ window.switchView = function(view) {
             const dbFinalizedReports = await getDBValue('crane_reports', finalizedReports);
             updateArrayInPlace(finalizedReports, dbFinalizedReports);
 
-            if (currentView === 'dashboard') renderAssets();
-            else if (currentView === 'calendar') window.renderCalendar();
+            if (currentView === 'dashboard') {
+                renderAssets();
+                window.renderCalendar();
+            }
             else if (currentView === 'users') renderUsers();
             else if (currentView === 'open-orders') renderOpenOrders();
             else if (currentView === 'reports') renderReportsView();
@@ -340,6 +343,9 @@ window.openInspecaoModal = function() {
         });
     }
 
+    const tipoVal = document.getElementById('inspecao-tipo')?.value || 'PREVENTIVA';
+    window.onInspecaoTipoChange(tipoVal);
+
     modal.classList.remove('hidden');
     setTimeout(() => {
         if (overlay) {
@@ -353,6 +359,19 @@ window.openInspecaoModal = function() {
     }, 10);
 };
 
+window.onInspecaoTipoChange = function(tipo) {
+    const preenchimentoSelect = document.getElementById('inspecao-preenchimento');
+    if (!preenchimentoSelect) return;
+    if (tipo === 'CORRETIVA') {
+        preenchimentoSelect.value = 'ZERO';
+        preenchimentoSelect.disabled = true;
+        preenchimentoSelect.classList.add('opacity-50', 'cursor-not-allowed', 'bg-surface-container');
+    } else {
+        preenchimentoSelect.disabled = false;
+        preenchimentoSelect.classList.remove('opacity-50', 'cursor-not-allowed', 'bg-surface-container');
+    }
+};
+
 window.closeInspecaoModal = function() {
     const modal = document.getElementById('inspecao-modal');
     const panel = document.getElementById('inspecao-panel');
@@ -362,6 +381,103 @@ window.closeInspecaoModal = function() {
     overlay.classList.remove('opacity-100');
     overlay.classList.add('opacity-0');
     setTimeout(() => modal.classList.add('hidden'), 300);
+};
+
+let pendingImportContext = null;
+let pendingImportSchema = null;
+let pendingImportLastReport = null;
+
+window.openImportLastInspectionModal = function(context, schema, lastReport) {
+    pendingImportContext = context;
+    pendingImportSchema = schema;
+    pendingImportLastReport = lastReport;
+
+    const modal = document.getElementById('import-last-inspection-modal');
+    const panel = document.getElementById('import-last-inspection-panel');
+    const overlay = document.getElementById('import-last-inspection-overlay');
+
+    const chkChecklist = document.getElementById('import-chk-checklist');
+    const chkObs = document.getElementById('import-chk-obs');
+    const chkFotos = document.getElementById('import-chk-fotos');
+    if (chkChecklist) chkChecklist.checked = true;
+    if (chkObs) chkObs.checked = true;
+    if (chkFotos) chkFotos.checked = true;
+
+    modal?.classList.remove('hidden');
+    setTimeout(() => {
+        overlay?.classList.remove('opacity-0');
+        overlay?.classList.add('opacity-100');
+        panel?.classList.remove('opacity-0', 'scale-95');
+        panel?.classList.add('opacity-100', 'scale-100');
+    }, 10);
+};
+
+window.closeImportLastInspectionModal = function() {
+    const modal = document.getElementById('import-last-inspection-modal');
+    const panel = document.getElementById('import-last-inspection-panel');
+    const overlay = document.getElementById('import-last-inspection-overlay');
+    panel?.classList.remove('opacity-100', 'scale-100');
+    panel?.classList.add('opacity-0', 'scale-95');
+    overlay?.classList.remove('opacity-100');
+    overlay?.classList.add('opacity-0');
+    setTimeout(() => modal?.classList.add('hidden'), 300);
+};
+
+window.confirmImportLastInspection = function() {
+    if (!pendingImportContext || !pendingImportLastReport) {
+        window.closeImportLastInspectionModal();
+        return;
+    }
+
+    const importChecklist = document.getElementById('import-chk-checklist')?.checked ?? false;
+    const importObs = document.getElementById('import-chk-obs')?.checked ?? false;
+    const importFotos = document.getElementById('import-chk-fotos')?.checked ?? false;
+
+    const lastReport = pendingImportLastReport;
+    const savedDoc = JSON.parse(JSON.stringify(lastReport));
+    savedDoc.id = null;
+    savedDoc.status = 'DRAFT';
+    savedDoc.createdAt = new Date().toISOString();
+    savedDoc.updatedAt = new Date().toISOString();
+    savedDoc.generalImages = importFotos ? (Array.isArray(lastReport.generalImages) ? [...lastReport.generalImages] : []) : [];
+    savedDoc.generalObservation = importObs ? (lastReport.generalObservation || '') : '';
+
+    if (savedDoc.responses) {
+        Object.keys(savedDoc.responses).forEach(key => {
+            const lastResp = lastReport.responses?.[key] || {};
+            const resp = savedDoc.responses[key] || {};
+
+            // 1. Status do checklist
+            resp.status = importChecklist ? (lastResp.status ?? null) : null;
+
+            // 2. Observações
+            if (importObs) {
+                resp.observation = lastResp.observation || '';
+                resp.additionalObservations = Array.isArray(lastResp.additionalObservations)
+                    ? lastResp.additionalObservations.map(obs => ({
+                        observation: obs.observation || '',
+                        images: importFotos ? (Array.isArray(obs.images) ? [...obs.images] : []) : []
+                    }))
+                    : [];
+            } else {
+                resp.observation = '';
+                resp.additionalObservations = [];
+            }
+
+            // 3. Fotos
+            if (importFotos) {
+                resp.images = Array.isArray(lastResp.images) ? [...lastResp.images] : [];
+            } else {
+                resp.images = [];
+            }
+        });
+    }
+
+    const context = pendingImportContext;
+    const schema = pendingImportSchema;
+
+    window.closeImportLastInspectionModal();
+    window.launchInspectionWithSchema(context, schema, savedDoc);
 };
 
 window.updateInspecaoEquipments = function() {
@@ -429,16 +545,7 @@ window.startChecklist = function() {
         return;
     }
 
-    window.closeInspecaoModal();
-    window.launchInspectionWithSchema(context, customSchema);
-};
-
-window.launchInspectionWithSchema = function(context, schemaToUse) {
-    const { tipo, empresa, equipamentoId, equipamentoNome, templateId, templateName, preenchimento } = context;
-    const schemaSnapshot = JSON.parse(JSON.stringify(schemaToUse || CHECKLIST_SCHEMA));
-
-    let savedDoc = null;
-    if (preenchimento === 'ULTIMA') {
+    if (tipo === 'PREVENTIVA' && preenchimento === 'ULTIMA') {
         const matchingReports = (finalizedReports || []).filter(r => r.equipamentoId === equipamentoId || r.equipamento === equipamentoId);
         if (matchingReports.length > 0) {
             matchingReports.sort((a, b) => {
@@ -447,37 +554,21 @@ window.launchInspectionWithSchema = function(context, schemaToUse) {
                 return dateB - dateA;
             });
             const lastReport = matchingReports[0];
-            
-            savedDoc = JSON.parse(JSON.stringify(lastReport));
-            savedDoc.id = null;
-            savedDoc.status = 'DRAFT';
-            savedDoc.createdAt = new Date().toISOString();
-            savedDoc.updatedAt = new Date().toISOString();
-            savedDoc.generalImages = [];
-            
-            if (savedDoc.responses) {
-                Object.keys(savedDoc.responses).forEach(key => {
-                    const resp = savedDoc.responses[key];
-                    if (resp) {
-                        if (resp.status !== undefined) {
-                            resp.status = null;
-                        }
-                        if (resp.images) {
-                            resp.images = [];
-                        }
-                        if (resp.additionalObservations) {
-                            resp.additionalObservations = resp.additionalObservations.map(obs => ({
-                                observation: obs.observation || '',
-                                images: []
-                            }));
-                        }
-                    }
-                });
-            }
+            window.closeInspecaoModal();
+            window.openImportLastInspectionModal(context, customSchema, lastReport);
+            return;
         } else {
             window.showAlert('NENHUMA INSPEÇÃO ANTERIOR ENCONTRADA PARA ESTE ATIVO. INICIANDO DO ZERO.', 'warning');
         }
     }
+
+    window.closeInspecaoModal();
+    window.launchInspectionWithSchema(context, customSchema, null);
+};
+
+window.launchInspectionWithSchema = function(context, schemaToUse, preloadedSavedDoc = null) {
+    const { tipo, empresa, equipamentoId, equipamentoNome, templateId, templateName } = context;
+    const schemaSnapshot = JSON.parse(JSON.stringify(schemaToUse || CHECKLIST_SCHEMA));
 
     openChecklistForm({
         tipo,
@@ -489,7 +580,7 @@ window.launchInspectionWithSchema = function(context, schemaToUse) {
         schema_snapshot: schemaSnapshot,
         templateId: templateId,
         templateName: templateName
-    }, savedDoc);
+    }, preloadedSavedDoc);
 };
 
 let activeCustomSections = [];
@@ -551,21 +642,6 @@ async function openChecklistForm(context, savedDoc = null) {
         templateId: doc.templateId,
         templateName: doc.templateName
     };
-
-    // Persistência local segura para novas ordens antes de abrir o formulário
-    if (!savedDoc) {
-        if (!doc.id) {
-            doc.id = generateNextOrderId(openOrders);
-        }
-        editingOrderId = doc.id;
-
-        try {
-            saveDraftOrder(doc, openOrders);
-            syncKeyToSupabase('crane_open_orders', openOrders).catch(e => console.warn('Supabase sync background notice:', e));
-        } catch (err) {
-            console.error('Falha ao persistir rascunho inicial:', err);
-        }
-    }
 
     activeCustomSections = doc.customSections || [];
     activeCustomItems = doc.customItems || [];
@@ -1039,35 +1115,42 @@ window.deleteRecurringEvents = async function() {
 
 window.renderCalendar = function() {
     const grid = document.getElementById('calendar-grid');
-    const monthDisplay = document.getElementById('current-month-display');
-    if (!grid || !monthDisplay) return;
+    if (!grid) return;
     grid.innerHTML = '';
 
-    const year = currentViewDate.getFullYear();
-    const month = currentViewDate.getMonth();
-    monthDisplay.innerText = `${monthNames[month]}/${year}`.toUpperCase();
+    const targetDate = new Date();
+    targetDate.setMonth(targetDate.getMonth() + filterMonthOffset);
+    currentViewDate = targetDate;
+
+    const year = targetDate.getFullYear();
+    const month = targetDate.getMonth();
+
+    const monthDisplay = document.getElementById('current-month-display');
+    if (monthDisplay) {
+        monthDisplay.innerText = `${monthNames[month]}/${year}`.toUpperCase();
+    }
 
     const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const daysInPrev = new Date(year, month, 0).getDate();
 
     for (let i = firstDay; i > 0; i--) {
-        grid.innerHTML += `<div class="calendar-cell bg-zinc-50/30 opacity-40"><span class="text-[11px] font-bold text-zinc-300">${daysInPrev - i + 1}</span></div>`;
+        grid.innerHTML += `<div class="calendar-cell bg-zinc-50/30 opacity-40 flex flex-col justify-between"><span class="text-[10px] font-bold text-zinc-300">${daysInPrev - i + 1}</span></div>`;
     }
     for (let day = 1; day <= daysInMonth; day++) {
         const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
         grid.innerHTML += `
-            <div class="calendar-cell cursor-pointer hover:bg-zinc-100 transition-colors ${isToday ? 'bg-zinc-100 border-2 border-zinc-500 ring-inset z-10' : ''}" 
+            <div class="calendar-cell cursor-pointer hover:bg-zinc-100 transition-colors flex flex-col justify-start ${isToday ? 'bg-zinc-100 border-2 border-zinc-500 ring-inset z-10' : ''}" 
                  data-date="${dateStr}" 
                  onclick="window.openProgModal('${dateStr}')">
-                <span class="text-[11px] lg:text-[12px] font-bold ${isToday ? 'text-black font-black' : 'text-zinc-500'}">${String(day).padStart(2, '0')}</span>
-                <div class="mt-2 space-y-1 event-container"></div>
+                <span class="text-[10px] lg:text-[11px] font-bold ${isToday ? 'text-black font-black' : 'text-zinc-500'} leading-none">${String(day).padStart(2, '0')}</span>
+                <div class="mt-1 space-y-0.5 event-container overflow-hidden"></div>
             </div>`;
     }
     const total = grid.children.length;
     for (let i = 1; i <= (42 - total); i++) {
-        grid.innerHTML += `<div class="calendar-cell bg-zinc-50/30 opacity-40"><span class="text-[11px] font-bold text-zinc-300">${String(i).padStart(2, '0')}</span></div>`;
+        grid.innerHTML += `<div class="calendar-cell bg-zinc-50/30 opacity-40 flex flex-col justify-between"><span class="text-[10px] font-bold text-zinc-300">${String(i).padStart(2, '0')}</span></div>`;
     }
     renderEventsOnGrid();
 };
@@ -1081,14 +1164,14 @@ function renderEventsOnGrid() {
             const isNaoRealizado = event.status === 'NAO_REALIZADO';
             const colorClass = isNaoRealizado ? 'border-red-500 bg-red-50/50 text-red-700' : (event.color ? `${event.color} ${event.textColor}` : 'border-primary-container bg-primary/5 text-black');
             
-            eventEl.className = `flex items-center justify-between group border-l-2 ${colorClass} pl-2 py-0.5 pr-1 hover:brightness-95 transition-all cursor-pointer shadow-sm`;
+            eventEl.className = `flex items-center justify-between group border-l-2 ${colorClass} pl-1.5 py-0.5 pr-1 hover:brightness-95 transition-all cursor-pointer shadow-sm rounded-sm mt-0.5 text-[8px] lg:text-[9px]`;
             eventEl.onclick = (e) => { e.stopPropagation(); window.openEditModal(event.id); };
             eventEl.innerHTML = `
                 <div class="flex flex-col flex-1 overflow-hidden">
-                    <span class="text-[8px] lg:text-[9px] font-bold uppercase truncate block">${event.empresa} - ${event.equipamento}</span>
+                    <span class="text-[8px] lg:text-[9px] font-bold uppercase truncate block leading-tight">${event.empresa} - ${event.equipamento}</span>
                     ${isNaoRealizado ? '<span class="text-[7px] font-black text-red-600 uppercase tracking-tighter">NÃO REALIZADO</span>' : ''}
                 </div>
-                <span class="material-symbols-outlined text-[11px] text-zinc-400 group-hover:text-black transition-colors">edit</span>
+                <span class="material-symbols-outlined text-[10px] text-zinc-400 group-hover:text-black transition-colors shrink-0 ml-0.5">edit</span>
             `;
             container.appendChild(eventEl);
         }
@@ -1096,8 +1179,7 @@ function renderEventsOnGrid() {
 }
 
 window.changeMonth = function(delta) {
-    currentViewDate.setMonth(currentViewDate.getMonth() + delta);
-    renderCalendar();
+    window.changeFilterMonth(delta);
 };
 
 // --- CHECKLIST / INSPECTION ---
@@ -1216,6 +1298,7 @@ window.savePartialInspection = async function() {
     const docId = (editingOrderId && String(editingOrderId).startsWith('ORD-'))
         ? editingOrderId
         : generateNextOrderId(openOrders);
+    editingOrderId = docId;
 
     const loggedUser = getCurrentUser();
     const currentUserName = loggedUser?.name || document.getElementById('user-name-display')?.innerText || "MAYCON DIAS";
@@ -2088,7 +2171,10 @@ window.renderAssets = function(searchTerm = '') {
 
 window.changeFilterMonth = function(delta) {
     filterMonthOffset += delta;
+    currentViewDate = new Date();
+    currentViewDate.setMonth(currentViewDate.getMonth() + filterMonthOffset);
     renderAssets();
+    renderCalendar();
 };
 
 window.exportOperationalDashboardData = function() {
@@ -2433,6 +2519,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     renderCompanies();
     renderAssets();
+    renderCalendar();
     
     // Add masks for CNPJ and CEP
     const cnpjInput = document.getElementById('reg-empresa-cnpj');
@@ -2517,12 +2604,7 @@ function renderAtivosView() {
         return `
         <tr class="hover:bg-surface-container transition-colors duration-200 group border-b border-outline-variant/60">
             <td class="px-card_padding py-3 text-label-md font-bold uppercase text-on-surface truncate">
-                <div class="flex items-center justify-between">
-                    <span class="truncate">${a.id}</span>
-                    <button onclick="event.stopPropagation(); window.openEditAssetModal('${a.id}', '${a.empresa}')" class="opacity-0 group-hover:opacity-100 text-on-surface-variant hover:text-on-surface p-0.5 transition-all duration-200 flex items-center justify-center rounded shrink-0" title="Editar Ativo">
-                        <span class="material-symbols-outlined" style="font-size:16px;">edit</span>
-                    </button>
-                </div>
+                <span class="truncate">${a.id}</span>
             </td>
             <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(a.local || 'N/A').toUpperCase()}">${(a.local || 'N/A').toUpperCase()}</td>
             <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(a.tipo || a.nome || 'N/A').toUpperCase()}">${(a.tipo || a.nome || 'N/A').toUpperCase()}</td>
@@ -2588,6 +2670,8 @@ window.openUnifiedRegistrationModal = async function() {
             el.disabled = false;
         }
     });
+    const initialTipoEl = document.getElementById('reg-ativo-tipo');
+    if (initialTipoEl) initialTipoEl.value = 'PONTE ROLANTE VIGA DUPLA';
 
     modal.classList.remove('hidden');
     setTimeout(() => {
@@ -2641,6 +2725,8 @@ window.handleRegistrationTypeChange = function(keepFields = false) {
                 el.disabled = false;
             }
         });
+        const tipoEl = document.getElementById('reg-ativo-tipo');
+        if (tipoEl) tipoEl.value = 'PONTE ROLANTE VIGA DUPLA';
         const dynamicWrapper = document.getElementById('reg-ativo-dynamic-fields-wrapper');
         const dynamicContainer = document.getElementById('reg-ativo-dynamic-fields');
         const defaultExtendedFields = document.getElementById('reg-ativo-default-extended-fields');
@@ -2711,14 +2797,18 @@ window.handleAssetTemplateChange = function(prefilledValues = null) {
     const wrapper = document.getElementById('reg-ativo-dynamic-fields-wrapper');
     const container = document.getElementById('reg-ativo-dynamic-fields');
     const defaultExtendedFields = document.getElementById('reg-ativo-default-extended-fields');
+    const tipoInput = document.getElementById('reg-ativo-tipo');
     
     if (!wrapper || !container) return;
 
     if (!templateId) {
-        // Padrão Crane Pro: Exibe os 14 campos técnicos legados
+        // Padrão: PONTE ROLANTE VIGA DUPLA
         if (defaultExtendedFields) defaultExtendedFields.classList.remove('hidden');
         wrapper.classList.add('hidden');
         container.innerHTML = '';
+        if (tipoInput) {
+            tipoInput.value = 'PONTE ROLANTE VIGA DUPLA';
+        }
         return;
     }
 
@@ -2727,16 +2817,18 @@ window.handleAssetTemplateChange = function(prefilledValues = null) {
         if (defaultExtendedFields) defaultExtendedFields.classList.remove('hidden');
         wrapper.classList.add('hidden');
         container.innerHTML = '';
+        if (tipoInput) {
+            tipoInput.value = 'PONTE ROLANTE VIGA DUPLA';
+        }
         return;
     }
 
     // Modelo customizado selecionado: OCULTA SEMPRE os 14 campos estendidos legados do padrão Crane Pro!
     if (defaultExtendedFields) defaultExtendedFields.classList.add('hidden');
 
-    // Seta tipo default se aplicável
-    const tipoInput = document.getElementById('reg-ativo-tipo');
-    if (tipoInput && tpl.tipoEquipamento && (!tipoInput.value || tipoInput.value.trim() === '')) {
-        tipoInput.value = tpl.tipoEquipamento;
+    // Preenche automaticamente o campo Tipo com o nome/tipo do modelo selecionado
+    if (tipoInput) {
+        tipoInput.value = (tpl.nome || tpl.tipoEquipamento || '').toUpperCase();
     }
 
     const customFields = Array.isArray(tpl.customFields) ? tpl.customFields : [];

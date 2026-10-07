@@ -189,40 +189,27 @@ function drawTemplatesUI(container) {
     }
 
     container.innerHTML = `
-        <header class="flex flex-wrap justify-between items-center gap-stack_md">
-            <div>
-                <h2 class="text-display font-bold text-on-background tracking-tight uppercase">FORMULÁRIOS</h2>
-                <p class="text-body-md text-on-surface-variant mt-1">Crie formulários de Inspeção e Cadastro de ativos personalizados.</p>
+        <!-- Navegação por Abas (Inspeções vs Ativos) e Botão '+' -->
+        <div class="flex border-b border-outline-variant items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+                <button type="button" onclick="window.switchTemplatesTab('inspections')"
+                    class="px-5 py-3 font-bold uppercase text-label-lg transition-all flex items-center gap-2 border-b-2 cursor-pointer ${isInspections ? 'border-primary text-primary bg-primary/5 rounded-t-xl' : 'border-transparent text-on-surface-variant hover:text-on-surface'}">
+                    <span class="material-symbols-outlined text-[20px]">assignment</span>
+                    MODELOS DE INSPEÇÃO (CHECKLISTS)
+                    <span class="bg-surface-container-high px-2 py-0.5 rounded-full text-label-sm font-bold">${templates.length}</span>
+                </button>
+                <button type="button" onclick="window.switchTemplatesTab('assets')"
+                    class="px-5 py-3 font-bold uppercase text-label-lg transition-all flex items-center gap-2 border-b-2 cursor-pointer ${!isInspections ? 'border-primary text-primary bg-primary/5 rounded-t-xl' : 'border-transparent text-on-surface-variant hover:text-on-surface'}">
+                    <span class="material-symbols-outlined text-[20px]">precision_manufacturing</span>
+                    MODELOS DE ATIVOS (EQUIPAMENTOS)
+                    <span class="bg-surface-container-high px-2 py-0.5 rounded-full text-label-sm font-bold">${assetTemplates.length}</span>
+                </button>
+                <button type="button" onclick="${isInspections ? 'window.openTemplateModal(event)' : 'window.openAssetTemplateModal(event)'}"
+                    class="p-2 text-on-surface hover:bg-surface-container-high rounded-xl font-bold flex items-center justify-center ml-2 transition-colors cursor-pointer"
+                    title="${isInspections ? 'Novo Modelo de Inspeção' : 'Novo Modelo de Ativo'}">
+                    <span class="material-symbols-outlined text-[22px]">add</span>
+                </button>
             </div>
-            <div>
-                ${isInspections ? `
-                    <button onclick="window.openTemplateModal(event)" class="bg-primary hover:brightness-110 text-on-primary font-bold px-container_gutter py-stack_sm uppercase flex items-center gap-stack_sm shadow-lg transition-all duration-200 rounded-xl cursor-pointer">
-                        <span class="material-symbols-outlined text-headline-md">add</span>
-                        INSPEÇÃO
-                    </button>
-                ` : `
-                    <button onclick="window.openAssetTemplateModal(event)" class="bg-primary hover:brightness-110 text-on-primary font-bold px-container_gutter py-stack_sm uppercase flex items-center gap-stack_sm shadow-lg transition-all duration-200 rounded-xl cursor-pointer">
-                        <span class="material-symbols-outlined text-headline-md">add</span>
-                        ATIVO
-                    </button>
-                `}
-            </div>
-        </header>
-
-        <!-- Navegação por Abas (Inspeções vs Ativos) -->
-        <div class="flex border-b border-outline-variant gap-2 mt-4">
-            <button type="button" onclick="window.switchTemplatesTab('inspections')"
-                class="px-5 py-3 font-bold uppercase text-label-lg transition-all flex items-center gap-2 border-b-2 cursor-pointer ${isInspections ? 'border-primary text-primary bg-primary/5 rounded-t-xl' : 'border-transparent text-on-surface-variant hover:text-on-surface'}">
-                <span class="material-symbols-outlined text-[20px]">assignment</span>
-                MODELOS DE INSPEÇÃO (CHECKLISTS)
-                <span class="bg-surface-container-high px-2 py-0.5 rounded-full text-label-sm font-bold">${templates.length}</span>
-            </button>
-            <button type="button" onclick="window.switchTemplatesTab('assets')"
-                class="px-5 py-3 font-bold uppercase text-label-lg transition-all flex items-center gap-2 border-b-2 cursor-pointer ${!isInspections ? 'border-primary text-primary bg-primary/5 rounded-t-xl' : 'border-transparent text-on-surface-variant hover:text-on-surface'}">
-                <span class="material-symbols-outlined text-[20px]">precision_manufacturing</span>
-                MODELOS DE ATIVOS (EQUIPAMENTOS)
-                <span class="bg-surface-container-high px-2 py-0.5 rounded-full text-label-sm font-bold">${assetTemplates.length}</span>
-            </button>
         </div>
 
         <div class="bg-surface border border-outline shadow-md rounded-xl overflow-hidden mt-stack_md">
@@ -1183,7 +1170,7 @@ export function populateAssetTemplateDropdown(selectEl, selectedId = null) {
     if (!selectEl) return;
     const list = getAssetTemplates() || [];
 
-    let html = `<option value="">PADRÃO CRANE PRO (21 CARACTERÍSTICAS)</option>`;
+    let html = `<option value="">PONTE ROLANTE VIGA DUPLA</option>`;
     list.forEach(tpl => {
         const isSel = selectedId && String(tpl.id) === String(selectedId) ? 'selected' : '';
         html += `<option value="${tpl.id}" ${isSel}>${escapeHTML(tpl.nome.toUpperCase())}</option>`;
