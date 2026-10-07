@@ -94,12 +94,6 @@ function drawTemplatesUI(container) {
                 </td>
                 <td class="px-card_padding py-stack_md">
                     <div class="flex items-center justify-end gap-2">
-                        <button onclick="window.useTemplateAction(event, '${t.id}')"
-                            class="bg-primary hover:brightness-110 text-on-primary text-label-md font-bold py-1.5 px-3 rounded-xl flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                            title="Usar modelo para iniciar inspeção">
-                            <span class="material-symbols-outlined text-[16px]">play_arrow</span>
-                            USAR MODELO
-                        </button>
                         <button onclick="window.editTemplateAction(event, '${t.id}')"
                             class="border border-outline bg-surface-container-low hover:bg-surface-container text-on-surface text-label-md font-bold py-1.5 px-3 rounded-xl flex items-center gap-1 transition-all cursor-pointer"
                             title="Editar estrutura do modelo">
@@ -159,12 +153,6 @@ function drawTemplatesUI(container) {
                 </td>
                 <td class="px-card_padding py-stack_md">
                     <div class="flex items-center justify-end gap-2">
-                        <button onclick="window.useAssetTemplateAction(event, '${a.id}')"
-                            class="bg-primary hover:brightness-110 text-on-primary text-label-md font-bold py-1.5 px-3 rounded-xl flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                            title="Usar modelo para cadastrar novo ativo">
-                            <span class="material-symbols-outlined text-[16px]">play_arrow</span>
-                            USAR MODELO
-                        </button>
                         <button onclick="window.editAssetTemplateAction(event, '${a.id}')"
                             class="border border-outline bg-surface-container-low hover:bg-surface-container text-on-surface text-label-md font-bold py-1.5 px-3 rounded-xl flex items-center gap-1 transition-all cursor-pointer"
                             title="Editar modelo de ativo">
