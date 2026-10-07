@@ -207,6 +207,49 @@ function renderCompanies() {
 window.renderCompanies = renderCompanies;
 
 
+// --- TOGGLE VISIBILIDADE DO CALENDÁRIO OPERACIONAL ---
+window.toggleCalendarVisibility = function(isVisible) {
+    const calendarSection = document.getElementById('calendar-card-section');
+    const assetsCardSection = document.getElementById('operational-assets-card-section');
+    const checkbox = document.getElementById('toggle-calendar-checkbox');
+
+    if (checkbox && checkbox.checked !== isVisible) {
+        checkbox.checked = isVisible;
+    }
+
+    if (calendarSection) {
+        if (isVisible) {
+            calendarSection.classList.remove('hidden');
+        } else {
+            calendarSection.classList.add('hidden');
+        }
+    }
+
+    if (assetsCardSection) {
+        if (isVisible) {
+            assetsCardSection.classList.remove('max-h-[calc(100vh-140px)]');
+            assetsCardSection.classList.add('max-h-[calc(100vh-420px)]');
+        } else {
+            assetsCardSection.classList.remove('max-h-[calc(100vh-420px)]');
+            assetsCardSection.classList.add('max-h-[calc(100vh-140px)]');
+        }
+    }
+
+    try {
+        localStorage.setItem('crane_show_operational_calendar', isVisible ? 'true' : 'false');
+    } catch (e) {}
+};
+
+window.initCalendarVisibility = function() {
+    try {
+        const saved = localStorage.getItem('crane_show_operational_calendar');
+        const isVisible = saved === null ? true : saved === 'true';
+        window.toggleCalendarVisibility(isVisible);
+    } catch (e) {
+        window.toggleCalendarVisibility(true);
+    }
+};
+
 // --- VIEW NAVIGATION ---
 
 window.switchView = function(view) {
@@ -246,6 +289,7 @@ window.switchView = function(view) {
     if (view === 'dashboard') {
         renderAssets();
         renderCalendar();
+        window.initCalendarVisibility();
     }
     else if (view === 'users') renderUsers();
     else if (view === 'open-orders') renderOpenOrders();
@@ -2520,6 +2564,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderCompanies();
     renderAssets();
     renderCalendar();
+    window.initCalendarVisibility();
     
     // Add masks for CNPJ and CEP
     const cnpjInput = document.getElementById('reg-empresa-cnpj');

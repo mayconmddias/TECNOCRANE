@@ -357,7 +357,7 @@
                 <div id="dashboard-view" class="flex flex-col min-h-[calc(100vh-80px)] justify-between space-y-stack_md">
                     <div class="flex-1 flex flex-col justify-between gap-stack_md">
                         <!-- CARD DE ATIVOS (CRESCE ATÉ O LIMITE DO CALENDÁRIO) -->
-                        <section class="bg-surface border border-outline flex flex-col rounded-xl shadow-sm overflow-hidden max-h-[calc(100vh-420px)]">
+                        <section id="operational-assets-card-section" class="bg-surface border border-outline flex flex-col rounded-xl shadow-sm overflow-hidden max-h-[calc(100vh-420px)] transition-all duration-300">
                             <div class="px-card_padding py-stack_sm border-b border-outline bg-surface flex items-center justify-between shrink-0">
                                 <div class="flex items-center">
                                     <!-- NAVEGAÇÃO DE MÊS -->
@@ -367,8 +367,14 @@
                                         <button onclick="window.changeFilterMonth(1)" class="material-symbols-outlined text-[18px] text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">chevron_right</button>
                                     </div>
 
-                                    <!-- NOME DA EMPRESA SELECIONADA -->
-                                    <h3 id="selected-company-name-container" class="text-label-md font-bold uppercase text-on-surface tracking-widest ml-stack_lg pl-stack_lg border-l border-outline">DADOS DE ATIVOS</h3>
+                                    <!-- NOME DA EMPRESA SELECIONADA + CHECKBOX DE EXIBIÇÃO DO CALENDÁRIO -->
+                                    <div class="flex items-center gap-2.5 ml-stack_lg pl-stack_lg border-l border-outline">
+                                        <h3 id="selected-company-name-container" class="text-label-md font-bold uppercase text-on-surface tracking-widest">DADOS DE ATIVOS</h3>
+                                        <label class="flex items-center cursor-pointer select-none" title="Exibir / Ocultar Calendário">
+                                            <input type="checkbox" id="toggle-calendar-checkbox" checked onchange="window.toggleCalendarVisibility(this.checked)"
+                                                class="w-4 h-4 rounded border-outline text-primary focus:ring-primary accent-primary cursor-pointer">
+                                        </label>
+                                    </div>
                                 </div>
                                 <div class="flex items-center gap-stack_md">
                                     <button onclick="window.exportOperationalDashboardData()" class="bg-surface border border-outline text-on-surface-variant font-medium py-1.5 px-3 rounded-xl flex items-center gap-1.5 hover:bg-surface-container transition-colors text-label-md cursor-pointer">
@@ -390,7 +396,7 @@
                         </section>
 
                         <!-- CARD DO CALENDÁRIO COMPACTO (FIXADO NA BASE DA TELA) -->
-                        <section class="bg-surface border border-outline flex flex-col rounded-xl shadow-sm overflow-hidden mt-auto shrink-0">
+                        <section id="calendar-card-section" class="bg-surface border border-outline flex flex-col rounded-xl shadow-sm overflow-hidden mt-auto shrink-0 transition-all duration-300">
                             <div class="grid grid-cols-7 bg-surface-container text-on-surface-variant border-b border-outline-variant">
                                 <div class="py-1.5 px-1 text-center text-label-sm uppercase font-bold border-r border-outline-variant">DOM</div>
                                 <div class="py-1.5 px-1 text-center text-label-sm uppercase font-bold border-r border-outline-variant">SEG</div>

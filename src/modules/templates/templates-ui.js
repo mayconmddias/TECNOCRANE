@@ -869,26 +869,19 @@ if (typeof window !== 'undefined') {
 // ============================================================================
 
 export const DEFAULT_ASSET_FIELDS_CATALOG = [
-    { label: 'CAPACIDADE DE PESO PRINCIPAL', type: 'number' },
+    { label: 'ALIMENTAÇÃO DO EQUIPAMENTO', type: 'text' },
     { label: 'DIÂMETRO DO CABO DE AÇO PRINCIPAL', type: 'text' },
     { label: 'CAPACIDADE DE PESO AUXILIAR', type: 'number' },
     { label: 'DIÂMETRO DO CABO DE AÇO AUXILIAR', type: 'text' },
     { label: 'ALTURA DE ELEVAÇÃO', type: 'number' },
-    { label: 'VÃO DA PONTE ROLANTE', type: 'number' },
     { label: 'TENSÃO DE ALIMENTAÇÃO', type: 'text' },
     { label: 'TENSÃO DE COMANDO', type: 'text' },
-    { label: 'ALIMENTAÇÃO DO EQUIPAMENTO', type: 'text' },
     { label: 'MOTOR ELEVAÇÃO PRINCIPAL (VEL. ALTA)', type: 'text' },
     { label: 'MOTOR ELEVAÇÃO PRINCIPAL (VEL. BAIXA)', type: 'text' },
     { label: 'MOTOR ELEVAÇÃO AUXILIAR (VEL. ALTA)', type: 'text' },
     { label: 'MOTOR ELEVAÇÃO AUXILIAR (VEL. BAIXA)', type: 'text' },
     { label: 'MOTOR DIREÇÃO CARRO', type: 'text' },
-    { label: 'MOTOR TRANSLAÇÃO PONTE', type: 'text' },
-    { label: 'TIPO DE FREIO', type: 'text' },
-    { label: 'MODELO DO INVERSOR', type: 'text' },
-    { label: 'ANO DE FABRICAÇÃO', type: 'number' },
-    { label: 'DATA DA ÚLTIMA MANUTENÇÃO', type: 'date' },
-    { label: 'REGIME DE TRABALHO (CLASSIFICAÇÃO FEM)', type: 'text' }
+    { label: 'MOTOR TRANSLAÇÃO PONTE', type: 'text' }
 ];
 
 // ============================================================================
@@ -948,11 +941,8 @@ function createEmptyAssetTemplateDraft() {
     return {
         id: null,
         nome: '',
-        tipoEquipamento: 'PONTE ROLANTE',
-        customFields: [
-            { id: '', label: 'TIPO DE FREIO', type: 'text' },
-            { id: '', label: 'MODELO DO INVERSOR', type: 'text' }
-        ]
+        tipoEquipamento: 'PONTE ROLANTE VIGA DUPLA',
+        customFields: []
     };
 }
 
