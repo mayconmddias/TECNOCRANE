@@ -10,7 +10,9 @@ import {
     resolveReportSchema,
     getChecklistPrintHTML,
     generateReportPrintHTML,
-    formatRevisionUserName
+    formatRevisionUserName,
+    openReportPDFPreviewModal,
+    closeReportPDFPreview
 } from './reports-pdf.js';
 import { CHECKLIST_SCHEMA } from '../../checklist-schema.js';
 import { createInspectionDocument } from '../../checklist-state.js';
@@ -636,4 +638,146 @@ describe('Reports PDF Module - Geração e Snapshot de Formulários Dinâmicos',
         expect(html).not.toContain('<br>CHECKED</td>');
         expect(html).not.toContain('<br>APPROVED</td>');
     });
+
+    it('Teste 19: openReportPDFPreviewModal cria modal com suporte a escala e aciona AndroidPrinter no APK', () => {
+        const elements = {};
+        const fakeModal = {
+            id: 'crane-pdf-preview-modal',
+            remove: vi.fn(),
+            innerHTML: '',
+            style: {}
+        };
+        const fakeIframe = {
+            id: 'crane-print-preview-iframe',
+            style: {},
+            contentWindow: {
+                document: {
+                    open: vi.fn(),
+                    write: vi.fn(),
+                    close: vi.fn()
+                },
+                focus: vi.fn(),
+                print: vi.fn()
+            },
+            contentDocument: {
+                documentElement: {
+                    cloneNode: () => ({
+                        querySelectorAll: () => [],
+                        innerHTML: '<div>CONTEUDO_RENDERIZADO</div>'
+                    })
+                },
+                body: { scrollHeight: 1200 }
+            }
+        };
+        const fakeShareBtn = { id: 'crane-pdf-action-share', onclick: null };
+        const fakeZoomBtn = { id: 'crane-pdf-toggle-zoom', onclick: null };
+        const fakeViewport = { id: 'crane-pdf-preview-viewport', clientWidth: 380, classList: { add: vi.fn(), remove: vi.fn() } };
+        const fakeScaler = { id: 'crane-pdf-scaler', style: {} };
+
+        elements['crane-pdf-preview-modal'] = fakeModal;
+        elements['crane-print-preview-iframe'] = fakeIframe;
+        elements['crane-pdf-action-share'] = fakeShareBtn;
+        elements['crane-pdf-toggle-zoom'] = fakeZoomBtn;
+        elements['crane-pdf-preview-viewport'] = fakeViewport;
+        elements['crane-pdf-scaler'] = fakeScaler;
+
+        global.document = {
+            getElementById: (id) => elements[id] || null,
+            createElement: (tag) => {
+                if (tag === 'div') return fakeModal;
+                return {};
+            },
+            body: {
+                appendChild: (el) => { elements[el.id] = el; }
+            }
+        };
+
+        global.window = global.window || {
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn()
+        };
+        const printHtml = '<html><body>TESTE LAUDO</body></html>';
+        const mockAndroidPrinter = {
+            sharePdf: vi.fn(),
+            printHtml: vi.fn()
+        };
+        global.window.AndroidPrinter = mockAndroidPrinter;
+
+        openReportPDFPreviewModal('REL-TESTE-99', printHtml);
+
+        expect(fakeModal.innerHTML).toContain('crane-pdf-preview-viewport');
+        expect(fakeModal.innerHTML).toContain('crane-pdf-scaler');
+        expect(fakeModal.innerHTML).toContain('crane-pdf-action-share');
+        expect(fakeModal.innerHTML).toContain('COMPARTILHAR PDF');
+        expect(fakeModal.innerHTML).toContain('crane-pdf-toggle-zoom');
+
+        // Dispara o clique no botão de compartilhamento
+        expect(fakeShareBtn.onclick).toBeDefined();
+        fakeShareBtn.onclick();
+
+        // Deve invocar a interface nativa de compartilhamento do Android
+        expect(mockAndroidPrinter.sharePdf).toHaveBeenCalled();
+        const callArgs = mockAndroidPrinter.sharePdf.mock.calls[0];
+        expect(callArgs[0]).toContain('CONTEUDO_RENDERIZADO');
+        expect(callArgs[1]).toBe('Relatorio_REL-TESTE-99');
+
+        // Testar fechamento
+        closeReportPDFPreview();
+        expect(fakeModal.remove).toHaveBeenCalled();
+
+        delete global.window.AndroidPrinter;
+    });
+
+    it('Teste 20: Capa do Relatório deve exibir rigorosamente os 6 campos essenciais em ESPECIFICAÇÕES DO EQUIPAMENTO sem inflar com custom fields', () => {
+        const report = {
+            id: 'REL-0001',
+            type: 'PREVENTIVA',
+            empresa: 'DJT FOCUS',
+            equipamentoId: '#EQP-0001',
+            equipamentoNome: 'PONTE ROLANTE VIGA DUPLA',
+            responses: {}
+        };
+
+        const asset = {
+            id: '#EQP-0001',
+            nome: 'PONTE ROLANTE VIGA DUPLA',
+            tipo: 'PONTE ROLANTE VIGA DUPLA',
+            local: 'ARMAZÉM A',
+            fabricante: 'TECNOCRANE',
+            capacidade: '32 TON',
+            vao: '19.730 MTS',
+            custom_fields: {
+                cf_1_alimentacao: '380V',
+                cf_10_mot_elev: '15CV',
+                cf_18_num_serie: '998877'
+            }
+        };
+
+        const company = {
+            name: 'DJT FOCUS',
+            cnpj: '13.118.935/0001-01'
+        };
+
+        const html = generateReportPrintHTML(report, company, null, [], asset);
+
+        // Valida que os 6 campos oficiais da capa estão presentes
+        expect(html).toContain('ID EQUIPAMENTO');
+        expect(html).toContain('#EQP-0001');
+        expect(html).toContain('TIPO/NOME');
+        expect(html).toContain('PONTE ROLANTE VIGA DUPLA');
+        expect(html).toContain('LOCALIZAÇÃO');
+        expect(html).toContain('ARMAZÉM A');
+        expect(html).toContain('FABRICANTE');
+        expect(html).toContain('TECNOCRANE');
+        expect(html).toContain('CAPAC. PRINCIPAL');
+        expect(html).toContain('32 TON');
+        expect(html).toContain('VÃO PONTE');
+        expect(html).toContain('19.730 MTS');
+
+        // Valida que os campos customizados extras NÃO são injetados na capa
+        expect(html).not.toContain('ALIMENTAÇÃO DO EQUIPAMENTO');
+        expect(html).not.toContain('MOTOR ELEVAÇÃO PRINCIPAL');
+        expect(html).not.toContain('NÚMERO DE SÉRIE');
+    });
 });
+

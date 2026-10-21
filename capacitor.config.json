@@ -1,0 +1,25 @@
+{
+  "appId": "com.tecnocrane.cranepro",
+  "appName": "CRANE PRO",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0,
+      "launchAutoHide": true,
+      "backgroundColor": "#000000",
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP"
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#000000"
+    },
+    "Keyboard": {
+      "resize": "body"
+    }
+  }
+}

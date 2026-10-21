@@ -2,14 +2,130 @@
 
 import { dbFetchAll, dbUpsert, dbDelete, isSupabaseConfigured } from '../../supabase.js';
 import { getDBValue, setDBValue } from '../../data.js';
+import { CHECKLIST_SCHEMA } from '../../checklist-schema.js';
+
+export const SYSTEM_INSPECTION_TEMPLATE_ID = 'tpl_default_ponte_viga_dupla';
+export const SYSTEM_ASSET_TEMPLATE_ID = 'asstpl_default_ponte_viga_dupla';
+
+/**
+ * Constrói os 10 itens padrão da Ponte Rolante Viga Dupla baseados no CHECKLIST_SCHEMA
+ */
+export function buildDefaultInspectionItems(schema = CHECKLIST_SCHEMA) {
+    if (!Array.isArray(schema)) return [];
+    return schema.map((mainSec, idx) => {
+        const sectionNum = idx + 1;
+        const mainTitleRaw = (mainSec.title || `ITEM ${sectionNum}`).replace(/<[^>]*>/g, ' ').trim();
+        const cleanTitle = mainTitleRaw.replace(/^(\d+(?:\.\d+)*\s*[-–.]*\s*)/, '').trim();
+        const nome = `${sectionNum}. ${cleanTitle.toUpperCase()}`;
+
+        let specialType = null;
+        if (sectionNum === 5 || sectionNum === 6) {
+            specialType = 'cableComposite';
+        }
+
+        const checklists = [];
+
+        function walk(nodes) {
+            (nodes || []).forEach(n => {
+                if (n.fieldType === 'inspectable') {
+                    const label = (n.label || '').replace(/<[^>]*>/g, ' ').trim();
+                    if (label) {
+                        checklists.push({
+                            id: `def_chk_${n.id || checklists.length + 1}`,
+                            descricao: label.toUpperCase(),
+                            ordem: checklists.length + 1
+                        });
+                    }
+                } else if (n.children && Array.isArray(n.children)) {
+                    walk(n.children);
+                }
+            });
+        }
+
+        walk(mainSec.children || []);
+
+        if (checklists.length === 0) {
+            checklists.push({
+                id: `def_chk_${sectionNum}_1`,
+                descricao: 'VERIFICAÇÃO OPERACIONAL E CONFORMIDADE GERAL',
+                ordem: 1
+            });
+        }
+
+        return {
+            id: `def_item_${sectionNum}`,
+            nome: nome,
+            specialType: specialType,
+            extraObservations: 0,
+            ordem: sectionNum,
+            checklists: checklists
+        };
+    });
+}
+
+export const SYSTEM_INSPECTION_TEMPLATE = {
+    id: SYSTEM_INSPECTION_TEMPLATE_ID,
+    nome: 'Formulario modelo Inspeção',
+    isSystemDefault: true,
+    createdBy: 'Sistema',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    items: buildDefaultInspectionItems(CHECKLIST_SCHEMA)
+};
+
+export const SYSTEM_ASSET_FIELDS = [
+    { id: 'cf_1_alimentacao', label: 'ALIMENTAÇÃO DO EQUIPAMENTO', type: 'text' },
+    { id: 'cf_2_cap_principal', label: 'CAPACIDADE DE PESO PRINCIPAL', type: 'number' },
+    { id: 'cf_3_cabo_principal', label: 'DIÂMETRO DO CABO DE AÇO PRINCIPAL', type: 'text' },
+    { id: 'cf_4_cap_auxiliar', label: 'CAPACIDADE DE PESO AUXILIAR', type: 'number' },
+    { id: 'cf_5_cabo_auxiliar', label: 'DIÂMETRO DO CABO DE AÇO AUXILIAR', type: 'text' },
+    { id: 'cf_6_altura_elevacao', label: 'ALTURA DE ELEVAÇÃO', type: 'number' },
+    { id: 'cf_7_vao_ponte', label: 'VÃO DA PONTE', type: 'text' },
+    { id: 'cf_8_tensao_alim', label: 'TENSÃO DE ALIMENTAÇÃO', type: 'text' },
+    { id: 'cf_9_tensao_cmd', label: 'TENSÃO DE COMANDO', type: 'text' },
+    { id: 'cf_10_mot_elev_prin_alta', label: 'MOTOR ELEVAÇÃO PRINCIPAL (VEL. ALTA)', type: 'text' },
+    { id: 'cf_11_mot_elev_prin_baixa', label: 'MOTOR ELEVAÇÃO PRINCIPAL (VEL. BAIXA)', type: 'text' },
+    { id: 'cf_12_mot_elev_aux_alta', label: 'MOTOR ELEVAÇÃO AUXILIAR (VEL. ALTA)', type: 'text' },
+    { id: 'cf_13_mot_elev_aux_baixa', label: 'MOTOR ELEVAÇÃO AUXILIAR (VEL. BAIXA)', type: 'text' },
+    { id: 'cf_14_mot_dir_carro', label: 'MOTOR DIREÇÃO CARRO', type: 'text' },
+    { id: 'cf_15_mot_trans_ponte', label: 'MOTOR TRANSLAÇÃO PONTE', type: 'text' },
+    { id: 'cf_16_local_setor', label: 'LOCAL / SETOR', type: 'text' },
+    { id: 'cf_17_fabricante', label: 'FABRICANTE', type: 'text' },
+    { id: 'cf_18_num_serie', label: 'NÚMERO DE SÉRIE', type: 'text' },
+    { id: 'cf_19_ano_fab', label: 'ANO DE FABRICAÇÃO', type: 'text' },
+    { id: 'cf_20_grupo_trab', label: 'CLASSIFICAÇÃO / GRUPO DE TRABALHO', type: 'text' },
+    { id: 'cf_21_vel_elevacao', label: 'VELOCIDADE DE ELEVAÇÃO', type: 'text' }
+];
+
+export const SYSTEM_ASSET_TEMPLATE = {
+    id: SYSTEM_ASSET_TEMPLATE_ID,
+    nome: 'Formulário modelo Ativo',
+    descricao: 'Modelo padrão para cadastro e especificações técnicas de Ponte Rolante Viga Dupla',
+    tipoEquipamento: 'PONTE ROLANTE VIGA DUPLA',
+    isSystemDefault: true,
+    createdBy: 'Sistema',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    customFields: SYSTEM_ASSET_FIELDS
+};
 
 let templatesList = [];
 
 /**
- * Retorna a lista atual de modelos em memória
+ * Retorna a lista atual de modelos em memória (sempre incluindo o modelo padrão do sistema)
  */
 export function getTemplates() {
-    return templatesList;
+    const listWithoutSystem = templatesList.filter(t => String(t.id) !== SYSTEM_INSPECTION_TEMPLATE_ID);
+    return [SYSTEM_INSPECTION_TEMPLATE, ...listWithoutSystem];
+}
+
+/**
+ * Retorna apenas os modelos de inspeção criados por usuários (exclui o modelo padrão do sistema)
+ */
+export function getUserTemplates() {
+    return (templatesList || []).filter(t => 
+        String(t.id) !== SYSTEM_INSPECTION_TEMPLATE_ID && !t.isSystemDefault
+    );
 }
 
 /**
@@ -17,6 +133,9 @@ export function getTemplates() {
  */
 export function getTemplateById(id) {
     if (!id) return null;
+    if (String(id) === SYSTEM_INSPECTION_TEMPLATE_ID) {
+        return SYSTEM_INSPECTION_TEMPLATE;
+    }
     return templatesList.find(t => String(t.id) === String(id)) || null;
 }
 
@@ -103,9 +222,9 @@ export function validateTemplate(templateData) {
         return { valid: false, error: 'Informe o nome do modelo.' };
     }
 
-    const items = templateData.items || [];
-    if (!Array.isArray(items) || items.length === 0) {
-        return { valid: false, error: 'O modelo deve conter pelo menos 1 item.' };
+    const items = templateData.items;
+    if (!Array.isArray(items)) {
+        return { valid: false, error: 'Lista de itens inválida.' };
     }
 
     for (let i = 0; i < items.length; i++) {
@@ -133,6 +252,10 @@ export function validateTemplate(templateData) {
  * Salva ou atualiza um modelo (LocalDB + Supabase)
  */
 export async function saveTemplate(templateData, currentUser = 'Usuário') {
+    if (templateData && (String(templateData.id) === SYSTEM_INSPECTION_TEMPLATE_ID || templateData.isSystemDefault)) {
+        throw new Error('O Formulario modelo Inspeção padrão do sistema não pode ser alterado.');
+    }
+
     const validation = validateTemplate(templateData);
     if (!validation.valid) {
         throw new Error(validation.error);
@@ -283,6 +406,10 @@ export async function duplicateTemplate(id, currentUser = 'Usuário') {
  */
 export async function deleteTemplate(id) {
     if (!id) return false;
+    if (String(id) === SYSTEM_INSPECTION_TEMPLATE_ID) {
+        console.warn("CRANE PRO: O Formulario modelo Inspeção padrão do sistema não pode ser excluído.");
+        return false;
+    }
 
     // Remove localmente
     templatesList = templatesList.filter(t => String(t.id) !== String(id));
@@ -467,10 +594,20 @@ export function convertTemplateToChecklistSchema(template) {
 let assetTemplatesList = [];
 
 /**
- * Retorna a lista atual de modelos de ativos em memória
+ * Retorna a lista atual de modelos de ativos em memória (sempre incluindo o modelo padrão)
  */
 export function getAssetTemplates() {
-    return assetTemplatesList;
+    const listWithoutSystem = assetTemplatesList.filter(t => String(t.id) !== SYSTEM_ASSET_TEMPLATE_ID);
+    return [SYSTEM_ASSET_TEMPLATE, ...listWithoutSystem];
+}
+
+/**
+ * Retorna apenas os modelos de ativos criados por usuários (exclui o modelo padrão do sistema)
+ */
+export function getUserAssetTemplates() {
+    return (assetTemplatesList || []).filter(t => 
+        String(t.id) !== SYSTEM_ASSET_TEMPLATE_ID && !t.isSystemDefault
+    );
 }
 
 /**
@@ -478,20 +615,14 @@ export function getAssetTemplates() {
  */
 export function getAssetTemplateById(id) {
     if (!id) return null;
+    if (String(id) === SYSTEM_ASSET_TEMPLATE_ID) {
+        return SYSTEM_ASSET_TEMPLATE;
+    }
     return assetTemplatesList.find(t => String(t.id) === String(id)) || null;
 }
 
 export const DEFAULT_ASSET_TEMPLATES = [
-    {
-        id: 'asstpl_talha_manual',
-        nome: 'TALHA MANUAL',
-        descricao: 'Ficha técnica padrão para talhas manuais',
-        tipoEquipamento: 'TALHA MANUAL',
-        createdBy: 'Sistema',
-        createdAt: '2026-08-19T00:00:00.000Z',
-        updatedAt: '2026-08-19T00:00:00.000Z',
-        customFields: []
-    }
+    SYSTEM_ASSET_TEMPLATE
 ];
 
 /**
@@ -523,7 +654,7 @@ export async function loadAssetTemplates() {
                     id: t.id,
                     nome: t.nome,
                     descricao: t.descricao || '',
-                    tipoEquipamento: t.tipo_equipamento || t.tipoEquipamento || 'PONTE ROLANTE',
+                    tipoEquipamento: t.tipo_equipamento || t.tipoEquipamento || 'PONTE ROLANTE VIGA DUPLA',
                     createdBy: t.created_by || 'Sistema',
                     createdAt: t.created_at || new Date().toISOString(),
                     updatedAt: t.updated_at || new Date().toISOString(),
@@ -540,7 +671,7 @@ export async function loadAssetTemplates() {
     try {
         localStorage.setItem('crane_asset_templates', JSON.stringify(assetTemplatesList));
     } catch (_) {}
-    return assetTemplatesList;
+    return getAssetTemplates();
 }
 
 /**
@@ -575,6 +706,10 @@ export function validateAssetTemplate(templateData) {
  * Salva ou atualiza um modelo de ativo
  */
 export async function saveAssetTemplate(templateData, currentUser = 'Usuário') {
+    if (templateData && (String(templateData.id) === SYSTEM_ASSET_TEMPLATE_ID || templateData.isSystemDefault)) {
+        throw new Error('O Formulário modelo Ativo padrão do sistema não pode ser alterado.');
+    }
+
     const validation = validateAssetTemplate(templateData);
     if (!validation.valid) {
         throw new Error(validation.error);
@@ -593,7 +728,7 @@ export async function saveAssetTemplate(templateData, currentUser = 'Usuário') 
         id: id,
         nome: templateData.nome.trim().toUpperCase(),
         descricao: (templateData.descricao || '').trim(),
-        tipoEquipamento: (templateData.tipoEquipamento || 'PONTE ROLANTE').trim().toUpperCase(),
+        tipoEquipamento: (templateData.tipoEquipamento || 'PONTE ROLANTE VIGA DUPLA').trim().toUpperCase(),
         createdBy: templateData.createdBy || currentUser,
         createdAt: templateData.createdAt || now,
         updatedAt: now,
@@ -601,6 +736,8 @@ export async function saveAssetTemplate(templateData, currentUser = 'Usuário') 
     };
 
     const existingIdx = assetTemplatesList.findIndex(t => String(t.id) === String(id));
+    const oldNome = existingIdx >= 0 ? assetTemplatesList[existingIdx].nome : null;
+
     if (existingIdx >= 0) {
         assetTemplatesList[existingIdx] = record;
     } else {
@@ -629,11 +766,42 @@ export async function saveAssetTemplate(templateData, currentUser = 'Usuário') 
         }
     }
 
+    // SINCRONIZAÇÃO OBRIGATÓRIA 1:1 COM MODELOS DE INSPEÇÃO (CHECKLIST)
+    try {
+        // 1. Se for alteração do nome do ativo, renomeia em cascata o modelo de inspeção correspondente
+        if (oldNome && oldNome.trim().toUpperCase() !== record.nome.trim().toUpperCase()) {
+            const linkedTemplate = templatesList.find(t =>
+                t.nome && t.nome.trim().toUpperCase() === oldNome.trim().toUpperCase() &&
+                String(t.id) !== SYSTEM_INSPECTION_TEMPLATE_ID
+            );
+            if (linkedTemplate) {
+                linkedTemplate.nome = record.nome;
+                await saveTemplate(linkedTemplate, currentUser);
+            }
+        }
+
+        // 2. Garante que exista um formulário de inspeção com exatamente o mesmo nome, gerado LIMPO (items: [])
+        const existsChecklist = templatesList.find(t =>
+            t.nome && t.nome.trim().toUpperCase() === record.nome.trim().toUpperCase()
+        );
+        if (!existsChecklist) {
+            const initialChecklist = {
+                nome: record.nome,
+                createdBy: record.createdBy || currentUser,
+                createdAt: record.createdAt || now,
+                items: [] // O formulário de inspeção vinculado deve vir LIMPO, conforme instrução do usuário!
+            };
+            await saveTemplate(initialChecklist, currentUser);
+        }
+    } catch (syncErr) {
+        console.warn('CRANE ASSET TEMPLATES: Erro ao sincronizar modelo de inspeção correspondente:', syncErr);
+    }
+
     return record;
 }
 
 /**
- * Duplica um modelo de ativo existente
+ * Duplica um modelo de ativo existente mantendo vinculo 1:1 com o checklist correspondente limpo
  */
 export async function duplicateAssetTemplate(templateId, currentUser = 'Usuário') {
     const original = getAssetTemplateById(templateId);
@@ -642,20 +810,28 @@ export async function duplicateAssetTemplate(templateId, currentUser = 'Usuário
     }
 
     const clonedData = {
-        nome: `${original.nome} (Cópia)`,
+        nome: `${original.nome} (CÓPIA)`,
         descricao: original.descricao || '',
-        tipoEquipamento: original.tipoEquipamento || 'PONTE ROLANTE',
+        tipoEquipamento: original.tipoEquipamento || 'PONTE ROLANTE VIGA DUPLA',
         customFields: JSON.parse(JSON.stringify(original.customFields || []))
     };
 
-    return await saveAssetTemplate(clonedData, currentUser);
+    const newAsset = await saveAssetTemplate(clonedData, currentUser);
+    return newAsset;
 }
 
 /**
- * Exclui um modelo de ativo
+ * Exclui um modelo de ativo e o respectivo formulário de inspeção vinculado em cascata
  */
 export async function deleteAssetTemplate(templateId) {
-    if (!templateId) return;
+    if (!templateId) return false;
+    if (String(templateId) === SYSTEM_ASSET_TEMPLATE_ID) {
+        console.warn("CRANE PRO: O Formulário modelo Ativo padrão do sistema não pode ser excluído.");
+        return false;
+    }
+
+    const assetToDelete = getAssetTemplateById(templateId);
+    const assetNome = assetToDelete ? assetToDelete.nome : null;
 
     assetTemplatesList = assetTemplatesList.filter(t => String(t.id) !== String(templateId));
     await setDBValue('crane_asset_templates', assetTemplatesList);
@@ -670,5 +846,22 @@ export async function deleteAssetTemplate(templateId) {
             console.warn("CRANE ASSET TEMPLATES: Erro ao excluir no Supabase (excluído localmente):", e);
         }
     }
+
+    // Exclusão em cascata 1:1 do modelo de inspeção vinculado de mesmo nome
+    if (assetNome) {
+        try {
+            const linkedTemplate = templatesList.find(t =>
+                t.nome && t.nome.trim().toUpperCase() === assetNome.trim().toUpperCase() &&
+                String(t.id) !== SYSTEM_INSPECTION_TEMPLATE_ID
+            );
+            if (linkedTemplate) {
+                await deleteTemplate(linkedTemplate.id);
+            }
+        } catch (cascadeErr) {
+            console.warn('CRANE ASSET TEMPLATES: Erro na exclusão em cascata do formulário de inspeção vinculado:', cascadeErr);
+        }
+    }
+
+    return true;
 }
 

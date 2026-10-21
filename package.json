@@ -5,13 +5,23 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "cap:build": "npm run build && npx cap sync",
+    "cap:sync": "npx cap sync",
+    "cap:open": "npx cap open android"
   },
   "devDependencies": {
     "vite": "^5.0.0",
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/cli": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/keyboard": "^8.0.6",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4",
     "@supabase/supabase-js": "^2.110.3"
   }
 }

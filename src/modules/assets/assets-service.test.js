@@ -70,7 +70,8 @@ describe('Assets Service Unit Tests', () => {
                 empresa: 'AUTOKINITON',
                 tipo: 'PONTE ROLANTE',
                 fabricante: 'DEMAG',
-                capacidade: '10t'
+                capacidade: '10t',
+                foto: 'data:image/png;base64,sample'
             };
             const tpl = {
                 id: 'tpl_123',
@@ -83,6 +84,7 @@ describe('Assets Service Unit Tests', () => {
 
             expect(payload.id).toBe('#EQP-0004');
             expect(payload.empresa).toBe('AUTOKINITON');
+            expect(payload.foto).toBe('data:image/png;base64,sample');
             expect(payload.template_id).toBe('tpl_123');
             expect(payload.template_name).toBe('MODELO PONTE');
             expect(payload.schema_snapshot).toEqual({ sections: [{ title: 'Geral' }] });

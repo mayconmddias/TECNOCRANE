@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CHECKLIST_SCHEMA, walkChecklistFields, createEmptyResponses } from './checklist-schema.js';
 import { renderNode } from './checklist-render.js';
-import { createInspectionDocument } from './checklist-state.js';
+import { createInspectionDocument, mergeLegacyReport, applyFormData } from './checklist-state.js';
 
 describe('Checklist Schema e Renderização Unificada', () => {
     it('deve ter seções 5.6 e 6.6 com título limpo (sem texto fixo NBR ISO 4309)', () => {
@@ -144,5 +144,71 @@ describe('Checklist Schema e Renderização Unificada', () => {
         expect(doc.revisions).toEqual(revData);
         expect(doc.revisions.rev01.prepared).toBe('usr_1');
         expect(doc.revisions.rev02.date).toBe('2026-08-30');
+    });
+
+    it('deve renderizar itens inspectables com status name único e data-field-id para garantir isolamento entre toggles', () => {
+        const testSection = {
+            id: 'sec_teste',
+            title: 'Seção Teste',
+            level: 1,
+            children: [
+                { id: 'item_alinhamento', label: 'Alinhamento', fieldType: 'inspectable' },
+                { id: 'item_nivelamento', label: 'Nivelamento', fieldType: 'inspectable' },
+                { label: 'Item Sem Id', fieldType: 'inspectable' }
+            ]
+        };
+
+        const html = renderNode(testSection);
+        expect(html).toContain('name="status-item_alinhamento"');
+        expect(html).toContain('name="status-item_nivelamento"');
+        expect(html).toContain('name="status-sec_teste_chk_3"');
+        expect(html).toContain('data-field-id="item_alinhamento"');
+        expect(html).toContain('data-field-id="item_nivelamento"');
+        expect(html).toContain('data-field-id="sec_teste_chk_3"');
+        expect(html).toContain('w-4.5 h-4.5');
+        expect(html).not.toContain('checklist-status-ok border-outline text-green-600 focus:ring-green-600 bg-surface-container-low');
+    });
+
+    it('deve restaurar status OK e NOK com applyFormData mesmo quando responses for JSON string serializada', () => {
+        const mockRadio1 = { name: 'status-item_1', value: 'OK', checked: false, closest: () => null };
+        const mockRadio2 = { name: 'status-item_2', value: 'NOK', checked: false, closest: () => null };
+
+        const rootEl = {
+            querySelector: (sel) => {
+                if (sel.includes('item_1') && sel.includes('OK')) return mockRadio1;
+                if (sel.includes('item_2') && sel.includes('NOK')) return mockRadio2;
+                return null;
+            },
+            querySelectorAll: () => [mockRadio1, mockRadio2]
+        };
+
+        const stringResponses = JSON.stringify({
+            'item_1': { status: 'OK' },
+            'item_2': { status: 'NOK' }
+        });
+
+        applyFormData(rootEl, { responses: stringResponses });
+
+        expect(mockRadio1.checked).toBe(true);
+        expect(mockRadio2.checked).toBe(true);
+    });
+
+    it('mergeLegacyReport deve converter responses e schema em strings JSON para objetos reais', () => {
+        const serializedReport = {
+            id: 'ORD-001',
+            status: 'DRAFT',
+            responses: JSON.stringify({
+                '1.alinhamento': { status: 'OK' }
+            }),
+            schema_snapshot: JSON.stringify([
+                { id: '1', title: '1 Sistema', children: [] }
+            ])
+        };
+
+        const merged = mergeLegacyReport(serializedReport);
+        expect(typeof merged.responses).toBe('object');
+        expect(merged.responses['1.alinhamento'].status).toBe('OK');
+        expect(Array.isArray(merged.schema)).toBe(true);
+        expect(merged.schema[0].id).toBe('1');
     });
 });

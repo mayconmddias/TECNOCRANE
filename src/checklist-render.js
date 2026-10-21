@@ -4,38 +4,41 @@ import { CHECKLIST_SCHEMA } from './checklist-schema.js';
 import { escapeHTML } from './utils.js';
 import { usersList } from './data.js';
 
-const INPUT_CLASS = 'w-full bg-surface-container-low border border-outline py-2 px-4 text-body-md uppercase text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all duration-200';
-const TEXTAREA_CLASS = `${INPUT_CLASS} min-h-[80px]`;
+const INPUT_CLASS = 'w-full bg-white border border-[#c7c7c7] py-2 px-3.5 text-[13px] rounded-lg uppercase text-[#1f1f1f] focus:ring-2 focus:ring-[#fa520f] focus:border-[#fa520f] transition-all duration-200';
+const TEXTAREA_CLASS = `${INPUT_CLASS} min-h-[76px]`;
 const UPLOAD_ZONE = `
-    <div class="border-2 border-dashed border-outline-variant p-card_padding text-center cursor-pointer hover:bg-surface-container transition-all duration-200 checklist-upload-zone">
-        <span class="material-symbols-outlined text-on-surface-variant text-headline-md">add_a_photo</span>
-        <p class="text-label-md text-on-surface-variant uppercase">Anexar fotos</p>
+    <div class="border-2 border-dashed border-[#e6d5a8] p-4 text-center cursor-pointer hover:bg-[#fff8e0] rounded-lg transition-all duration-200 checklist-upload-zone">
+        <span class="material-symbols-outlined text-[#fa520f] text-[24px]">add_a_photo</span>
+        <p class="text-[11px] font-semibold text-[#4a4a4a] uppercase tracking-wider mt-1">Anexar fotos</p>
         <input type="file" accept="image/*" multiple class="hidden checklist-file-input">
     </div>`;
 
 function renderInspectable(field) {
-    const labelEscaped = escapeHTML(field.label);
+    const fieldId = (field && field.id && String(field.id).trim()) || 'chk_inspectable_item';
+    const labelEscaped = escapeHTML((field && (field.label || field.descricao)) || '');
     return `
-    <div class="checklist-field checklist-inspectable border border-outline-variant bg-surface p-card_padding space-y-stack_md transition-all duration-200" data-field-id="${field.id}" data-field-type="inspectable">
-        <div class="flex flex-wrap items-center justify-between gap-stack_md">
-            <span class="text-body-lg font-bold uppercase text-on-surface">${labelEscaped}</span>
-            <div class="flex items-center gap-stack_lg">
-                <label class="flex items-center gap-stack_sm cursor-pointer group">
-                    <input type="radio" name="status-${field.id}" value="OK" class="checklist-status-ok border-outline text-green-600 focus:ring-green-600 bg-surface-container-low transition-all duration-200">
-                    <span class="text-label-md uppercase text-on-surface group-hover:text-green-600 transition-all duration-200">OK</span>
-                </label>
-                <label class="flex items-center gap-stack_sm cursor-pointer group">
-                    <input type="radio" name="status-${field.id}" value="NOK" class="checklist-status-nok border-outline text-error focus:ring-error bg-surface-container-low transition-all duration-200">
-                    <span class="text-label-md uppercase text-on-surface group-hover:text-error transition-all duration-200">NOK</span>
-                </label>
-                <button type="button" class="checklist-upload-zone flex items-center justify-center p-1 text-on-surface-variant hover:text-green-600 transition-all duration-200 cursor-pointer ml-stack_sm" title="Anexar Fotos">
-                    <span class="material-symbols-outlined text-[20px]">add_a_photo</span>
+    <div class="checklist-field checklist-inspectable border border-[#e6d5a8] bg-white p-3.5 rounded-lg space-y-2.5 transition-all duration-200" data-field-id="${fieldId}" data-field-type="inspectable">
+        <div class="flex items-center justify-between gap-2">
+            <span class="text-[12px] font-bold uppercase text-[#1f1f1f] leading-snug flex-1">${labelEscaped}</span>
+            <div class="flex items-center gap-2 shrink-0">
+                <div class="flex flex-col gap-1 shrink-0">
+                    <label class="flex items-center gap-1.5 cursor-pointer group py-0.5 px-1 rounded-md">
+                        <input type="radio" name="status-${fieldId}" value="OK" class="checklist-status-ok border-[#c7c7c7] text-green-600 focus:ring-green-600 transition-all duration-200 w-4 h-4">
+                        <span class="text-[11px] font-bold uppercase text-[#1f1f1f] group-hover:text-green-600 transition-all duration-200">OK</span>
+                    </label>
+                    <label class="flex items-center gap-1.5 cursor-pointer group py-0.5 px-1 rounded-md">
+                        <input type="radio" name="status-${fieldId}" value="NOK" class="checklist-status-nok border-[#c7c7c7] text-red-600 focus:ring-red-600 transition-all duration-200 w-4 h-4">
+                        <span class="text-[11px] font-bold uppercase text-[#1f1f1f] group-hover:text-red-600 transition-all duration-200">NOK</span>
+                    </label>
+                </div>
+                <button type="button" class="checklist-upload-zone flex items-center justify-center p-1.5 text-[#6a6a6a] hover:text-[#fa520f] transition-all duration-200 cursor-pointer ml-1 rounded-md hover:bg-[#fff8e0]" title="Anexar Fotos">
+                    <span class="material-symbols-outlined text-[18px]">add_a_photo</span>
                     <input type="file" accept="image/*" multiple class="hidden checklist-file-input">
                 </button>
             </div>
         </div>
         <textarea class="${TEXTAREA_CLASS} checklist-observation" placeholder="OBSERVAÇÃO" rows="2"></textarea>
-        <div class="image-preview-container flex gap-stack_sm flex-wrap mt-stack_sm"></div>
+        <div class="image-preview-container flex gap-2 flex-wrap mt-2"></div>
     </div>`;
 }
 
@@ -78,10 +81,10 @@ function renderTextField(field) {
 
 function renderSectionHeader(node, displayNum) {
     const levelClass = node.level === 1
-        ? 'text-headline-lg text-on-background font-bold'
+        ? 'text-[15px] text-on-surface font-extrabold'
         : node.level === 2
-            ? 'text-headline-md text-on-surface font-bold'
-            : 'text-body-lg font-bold text-on-surface-variant';
+            ? 'text-[14px] text-on-surface font-bold'
+            : 'text-[13px] font-semibold text-on-surface-variant';
     const padding = node.level === 1 ? '' : node.level === 2 ? 'pl-container_gutter' : 'pl-[64px]';
     
     let titleHtml = escapeHTML(node.title);
@@ -91,7 +94,7 @@ function renderSectionHeader(node, displayNum) {
         if (match && match[1]) {
             const numPart = match[1];
             const textPart = match[2];
-            titleHtml = `<span class="font-bold text-primary mr-2">${numPart}</span>${escapeHTML(textPart)}`;
+            titleHtml = `<span class="font-bold text-primary mr-1.5">${numPart}</span>${escapeHTML(textPart)}`;
         }
     }
     
@@ -99,34 +102,32 @@ function renderSectionHeader(node, displayNum) {
     const plusBtn = isGroup 
         ? `<div class="relative shrink-0">
             <button type="button" onclick="window.toggleSectionMenu(event, '${node.id}')" class="text-on-surface hover:text-primary transition-colors duration-200 flex items-center justify-center p-1 rounded-full shrink-0" title="Opções de Adição">
-                <span class="material-symbols-outlined text-[28px] font-bold">add</span>
+                <span class="material-symbols-outlined text-[24px] font-bold">add</span>
             </button>
            </div>`
         : '';
     
     return `
-    <div class="${padding} pt-stack_lg pb-stack_sm border-b border-outline-variant flex justify-between items-center gap-stack_md">
-        <h3 class="${levelClass} uppercase tracking-tight flex-1">${titleHtml}</h3>
+    <div class="${padding} pt-3.5 pb-2 border-b border-outline-variant flex justify-between items-center gap-2">
+        <h3 class="${levelClass} uppercase tracking-tight flex-1 leading-snug">${titleHtml}</h3>
         ${plusBtn}
     </div>`;
 }
 
 export function renderCustomChecklistItemRow(item, sectionId) {
-    const labelEscaped = escapeHTML(item.label);
+    const itemId = (item && item.id && String(item.id).trim()) || `cust_${sectionId}_${Date.now()}`;
+    const labelEscaped = escapeHTML(item.label || item.descricao || '');
     return `
-    <div class="flex items-center justify-between border-b border-outline-variant/30 py-3 last:border-b-0" data-custom-item-id="${item.id}">
-        <span class="text-body-md font-bold uppercase text-on-surface">${labelEscaped}</span>
-        <div class="flex items-center gap-stack_lg">
-            <button type="button" onclick="window.removeCustomChecklistItem('${item.id}', '${sectionId}')" class="text-error hover:opacity-80 p-1 flex items-center justify-center cursor-pointer transition-all shrink-0" title="Excluir Item de Checklist">
-                <span class="material-symbols-outlined text-[22px]">delete</span>
-            </button>
-            <label class="flex items-center gap-stack_sm cursor-pointer group">
-                <input type="radio" name="status-${item.id}" value="OK" class="checklist-status-ok border-outline text-green-600 focus:ring-green-600 bg-surface-container-low transition-all duration-200">
-                <span class="text-label-md uppercase text-on-surface group-hover:text-green-600 transition-all duration-200">OK</span>
+    <div class="flex items-center justify-between border-b border-outline-variant/30 py-2.5 last:border-b-0 gap-2" data-custom-item-id="${itemId}" data-field-id="${itemId}" data-section-id="${sectionId}">
+        <span class="text-[12px] font-bold uppercase text-on-surface leading-snug flex-1">${labelEscaped}</span>
+        <div class="flex flex-col gap-1 shrink-0 ml-2">
+            <label class="flex items-center gap-1.5 cursor-pointer group py-0.5 px-1 rounded-lg">
+                <input type="radio" name="status-${itemId}" value="OK" class="checklist-status-ok border-outline text-green-600 focus:ring-green-600 transition-all duration-200 w-4.5 h-4.5">
+                <span class="text-[11px] font-extrabold uppercase text-on-surface group-hover:text-green-600 transition-all duration-200">OK</span>
             </label>
-            <label class="flex items-center gap-stack_sm cursor-pointer group">
-                <input type="radio" name="status-${item.id}" value="NOK" class="checklist-status-nok border-outline text-error focus:ring-error bg-surface-container-low transition-all duration-200">
-                <span class="text-label-md uppercase text-on-surface group-hover:text-error transition-all duration-200">NOK</span>
+            <label class="flex items-center gap-1.5 cursor-pointer group py-0.5 px-1 rounded-lg">
+                <input type="radio" name="status-${itemId}" value="NOK" class="checklist-status-nok border-outline text-error focus:ring-error transition-all duration-200 w-4.5 h-4.5">
+                <span class="text-[11px] font-extrabold uppercase text-on-surface group-hover:text-error transition-all duration-200">NOK</span>
             </label>
         </div>
     </div>`;
@@ -137,12 +138,7 @@ export function renderObservationBlock(blockData = null, isRemovable = true, isC
     const images = blockData ? blockData.images || [] : [];
     
     let deleteBtn = '';
-    if (isRemovable) {
-        deleteBtn = `
-        <button type="button" onclick="this.closest('.checklist-obs-block').remove()" class="flex items-center justify-center p-3 border border-outline bg-surface-container-low text-error hover:bg-error/10 transition-all duration-200 cursor-pointer rounded-xl h-[48px] w-[48px] shrink-0" title="Remover Bloco">
-            <span class="material-symbols-outlined text-[22px]">delete</span>
-        </button>`;
-    } else if (isCustomGroup) {
+    if (isCustomGroup) {
         deleteBtn = `
         <button type="button" onclick="window.removeCustomSection('${customGroupId}')" class="flex items-center justify-center p-3 border border-outline bg-surface-container-low text-error hover:bg-error/10 transition-all duration-200 cursor-pointer rounded-xl h-[48px] w-[48px] shrink-0" title="Excluir Item Adicional">
             <span class="material-symbols-outlined text-[22px]">delete</span>
@@ -170,21 +166,25 @@ export function renderObservationBlock(blockData = null, isRemovable = true, isC
 }
 
 function renderInspectableGroup(node, doc = null) {
-    const itemsHtml = node.children.map(child => `
-        <div class="flex items-center justify-between border-b border-outline-variant/30 py-3 last:border-b-0">
-            <span class="text-body-md font-bold uppercase text-on-surface">${escapeHTML(child.label)}</span>
-            <div class="flex items-center gap-stack_lg">
-                <label class="flex items-center gap-stack_sm cursor-pointer group">
-                    <input type="radio" name="status-${child.id}" value="OK" class="checklist-status-ok border-outline text-green-600 focus:ring-green-600 bg-surface-container-low transition-all duration-200">
-                    <span class="text-label-md uppercase text-on-surface group-hover:text-green-600 transition-all duration-200">OK</span>
+    const inspectables = (node.children || []).filter(c => c.fieldType === 'inspectable' || (!c.fieldType && c.label));
+    const itemsHtml = inspectables.map((child, idx) => {
+        const childId = (child && child.id && String(child.id).trim()) || `${node.id || 'sec'}_chk_${idx + 1}`;
+        return `
+        <div class="flex items-center justify-between border-b border-outline-variant/30 py-2.5 last:border-b-0 gap-2" data-field-id="${childId}" data-section-id="${node.id || ''}">
+            <span class="text-[12px] font-bold uppercase text-on-surface leading-snug flex-1">${escapeHTML(child.label || child.descricao || '')}</span>
+            <div class="flex flex-col gap-1 shrink-0 ml-2">
+                <label class="flex items-center gap-1.5 cursor-pointer group py-0.5 px-1 rounded-lg">
+                    <input type="radio" name="status-${childId}" value="OK" class="checklist-status-ok border-outline text-green-600 focus:ring-green-600 transition-all duration-200 w-4.5 h-4.5">
+                    <span class="text-[11px] font-extrabold uppercase text-on-surface group-hover:text-green-600 transition-all duration-200">OK</span>
                 </label>
-                <label class="flex items-center gap-stack_sm cursor-pointer group">
-                    <input type="radio" name="status-${child.id}" value="NOK" class="checklist-status-nok border-outline text-error focus:ring-error bg-surface-container-low transition-all duration-200">
-                    <span class="text-label-md uppercase text-on-surface group-hover:text-error transition-all duration-200">NOK</span>
+                <label class="flex items-center gap-1.5 cursor-pointer group py-0.5 px-1 rounded-lg">
+                    <input type="radio" name="status-${childId}" value="NOK" class="checklist-status-nok border-outline text-error focus:ring-error transition-all duration-200 w-4.5 h-4.5">
+                    <span class="text-[11px] font-extrabold uppercase text-on-surface group-hover:text-error transition-all duration-200">NOK</span>
                 </label>
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     const customItemsList = (doc && doc.customItems)
         ? doc.customItems.filter(ci => ci.sectionId === node.id)
@@ -192,7 +192,7 @@ function renderInspectableGroup(node, doc = null) {
 
     const customItemsHtml = customItemsList.map(ci => renderCustomChecklistItemRow(ci, node.id)).join('');
 
-    const isCustom = node.id.startsWith('custom_');
+    const isCustom = node.id && String(node.id).startsWith('custom_');
 
     return `
     <div class="checklist-field checklist-inspectable-group border border-outline-variant bg-surface p-card_padding space-y-stack_md transition-all duration-200" data-section-id="${node.id}">
@@ -210,21 +210,24 @@ function renderInspectableGroup(node, doc = null) {
 
 function renderCableCompositeGroup(node, doc = null) {
     const inspectables = (node.children || []).filter(c => c.fieldType === 'inspectable');
-    const itemsHtml = inspectables.map(child => `
-        <div class="flex items-center justify-between border-b border-outline-variant/30 py-3 last:border-b-0">
-            <span class="text-body-md font-bold uppercase text-on-surface">${escapeHTML(child.label)}</span>
-            <div class="flex items-center gap-stack_lg">
-                <label class="flex items-center gap-stack_sm cursor-pointer group">
-                    <input type="radio" name="status-${child.id}" value="OK" class="checklist-status-ok border-outline text-green-600 focus:ring-green-600 bg-surface-container-low transition-all duration-200">
-                    <span class="text-label-md uppercase text-on-surface group-hover:text-green-600 transition-all duration-200">OK</span>
+    const itemsHtml = inspectables.map((child, idx) => {
+        const childId = (child && child.id && String(child.id).trim()) || `${node.id || 'sec'}_chk_${idx + 1}`;
+        return `
+        <div class="flex items-center justify-between border-b border-outline-variant/30 py-2.5 last:border-b-0 gap-2" data-field-id="${childId}" data-section-id="${node.id || ''}">
+            <span class="text-[12px] font-bold uppercase text-on-surface leading-snug flex-1">${escapeHTML(child.label || child.descricao || '')}</span>
+            <div class="flex flex-col gap-1 shrink-0 ml-2">
+                <label class="flex items-center gap-1.5 cursor-pointer group py-0.5 px-1 rounded-lg">
+                    <input type="radio" name="status-${childId}" value="OK" class="checklist-status-ok border-outline text-green-600 focus:ring-green-600 transition-all duration-200 w-4.5 h-4.5">
+                    <span class="text-[11px] font-extrabold uppercase text-on-surface group-hover:text-green-600 transition-all duration-200">OK</span>
                 </label>
-                <label class="flex items-center gap-stack_sm cursor-pointer group">
-                    <input type="radio" name="status-${child.id}" value="NOK" class="checklist-status-nok border-outline text-error focus:ring-error bg-surface-container-low transition-all duration-200">
-                    <span class="text-label-md uppercase text-on-surface group-hover:text-error transition-all duration-200">NOK</span>
+                <label class="flex items-center gap-1.5 cursor-pointer group py-0.5 px-1 rounded-lg">
+                    <input type="radio" name="status-${childId}" value="NOK" class="checklist-status-nok border-outline text-error focus:ring-error transition-all duration-200 w-4.5 h-4.5">
+                    <span class="text-[11px] font-extrabold uppercase text-on-surface group-hover:text-error transition-all duration-200">NOK</span>
                 </label>
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     const customItemsList = (doc && doc.customItems)
         ? doc.customItems.filter(ci => ci.sectionId === node.id)
@@ -244,21 +247,24 @@ function renderCableCompositeGroup(node, doc = null) {
 
 function renderHookCompositeGroup(node, doc = null) {
     const inspectables = (node.children || []).filter(c => c.fieldType === 'inspectable');
-    const itemsHtml = inspectables.map(child => `
-        <div class="flex items-center justify-between border-b border-outline-variant/30 py-3 last:border-b-0">
-            <span class="text-body-md font-bold uppercase text-on-surface">${escapeHTML(child.label)}</span>
-            <div class="flex items-center gap-stack_lg">
-                <label class="flex items-center gap-stack_sm cursor-pointer group">
-                    <input type="radio" name="status-${child.id}" value="OK" class="checklist-status-ok border-outline text-green-600 focus:ring-green-600 bg-surface-container-low transition-all duration-200">
-                    <span class="text-label-md uppercase text-on-surface group-hover:text-green-600 transition-all duration-200">OK</span>
+    const itemsHtml = inspectables.map((child, idx) => {
+        const childId = (child && child.id && String(child.id).trim()) || `${node.id || 'sec'}_chk_${idx + 1}`;
+        return `
+        <div class="flex items-center justify-between border-b border-outline-variant/30 py-2.5 last:border-b-0 gap-2" data-field-id="${childId}" data-section-id="${node.id || ''}">
+            <span class="text-[12px] font-bold uppercase text-on-surface leading-snug flex-1">${escapeHTML(child.label || child.descricao || '')}</span>
+            <div class="flex flex-col gap-1 shrink-0 ml-2">
+                <label class="flex items-center gap-1.5 cursor-pointer group py-0.5 px-1 rounded-lg">
+                    <input type="radio" name="status-${childId}" value="OK" class="checklist-status-ok border-outline text-green-600 focus:ring-green-600 transition-all duration-200 w-4.5 h-4.5">
+                    <span class="text-[11px] font-extrabold uppercase text-on-surface group-hover:text-green-600 transition-all duration-200">OK</span>
                 </label>
-                <label class="flex items-center gap-stack_sm cursor-pointer group">
-                    <input type="radio" name="status-${child.id}" value="NOK" class="checklist-status-nok border-outline text-error focus:ring-error bg-surface-container-low transition-all duration-200">
-                    <span class="text-label-md uppercase text-on-surface group-hover:text-error transition-all duration-200">NOK</span>
+                <label class="flex items-center gap-1.5 cursor-pointer group py-0.5 px-1 rounded-lg">
+                    <input type="radio" name="status-${childId}" value="NOK" class="checklist-status-nok border-outline text-error focus:ring-error transition-all duration-200 w-4.5 h-4.5">
+                    <span class="text-[11px] font-extrabold uppercase text-on-surface group-hover:text-error transition-all duration-200">NOK</span>
                 </label>
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     const customItemsList = (doc && doc.customItems)
         ? doc.customItems.filter(ci => ci.sectionId === node.id)
@@ -278,11 +284,11 @@ function renderHookCompositeGroup(node, doc = null) {
 
 function renderCableInspectionTable(node) {
     const prefix = node.id;
-    const thStyle = 'border border-outline-variant p-2 text-center text-label-md font-bold uppercase bg-transparent text-on-surface align-middle';
-    const subThStyle = 'border border-outline-variant p-2 text-center text-[10px] font-bold uppercase bg-transparent text-on-surface-variant leading-tight align-middle';
-    const scaleThStyle = 'border border-outline-variant p-1 text-center text-[9px] font-medium uppercase bg-transparent text-on-surface-variant leading-normal align-middle';
-    const cellStyle = 'border border-outline-variant p-0 text-center bg-transparent';
-    const inputStyle = 'w-full bg-transparent text-center border-0 py-2 px-1 text-body-md uppercase text-on-surface focus:bg-surface-container-low focus:ring-2 focus:ring-primary outline-none checklist-text-value';
+    const thStyle = 'border border-outline-variant p-2.5 text-center text-[11px] font-extrabold uppercase bg-surface-container-low text-on-surface align-middle';
+    const subThStyle = 'border border-outline-variant p-2 text-center text-[10px] font-bold uppercase bg-surface-container-low/60 text-on-surface-variant leading-tight align-middle';
+    const scaleThStyle = 'border border-outline-variant p-2 text-center text-[9px] font-semibold uppercase bg-surface-container-low/40 text-on-surface-variant leading-tight align-middle';
+    const cellStyle = 'border border-outline-variant p-0 text-center bg-surface';
+    const inputStyle = 'w-full bg-transparent text-center border-0 py-2.5 px-2 text-[12px] font-bold uppercase text-on-surface focus:bg-primary/5 focus:ring-2 focus:ring-primary outline-none checklist-text-value';
 
     // Campo de Observações renderizado separadamente abaixo da tabela (sem label)
     const obsField = (node.children || []).find(c => c.id === `${prefix}.observacoes`);
@@ -303,87 +309,91 @@ function renderCableInspectionTable(node) {
         </div>` : '';
 
     return `
-    <div class="checklist-field checklist-cable-table-block space-y-stack_md overflow-x-auto" data-section-id="${prefix}">
-        <table class="w-full border-collapse border border-outline-variant text-[11px] table-fixed">
-            <thead>
-                <tr>
-                    <th rowspan="2" class="${thStyle} w-[10%]">Arames Rompidos</th>
-                    <th colspan="4" class="${thStyle} w-[42%]">Redução do Diâmetro</th>
-                    <th class="${thStyle} w-[14%]">Corrosão</th>
-                    <th class="${thStyle} w-[16%]">Deformação ou Danos</th>
-                    <th class="${thStyle} w-[18%]">Grau Acumulativo de Deterioração (e outras observações)</th>
-                </tr>
-                <tr>
-                    <th class="${subThStyle} w-[8%]">Bitola do Cabo</th>
-                    <th class="${subThStyle} w-[14%]">Diâmetro conforme catálogo de referência (Cimaf/similar)</th>
-                    <th class="${subThStyle} w-[10%]">Diâmetro valor medido</th>
-                    <th class="${subThStyle} w-[10%]">Redução do diâmetro em porcentagem (7% máximo conforme norma)</th>
-                    <th class="${scaleThStyle}">
-                        GRAU<br>
-                        1 = ok<br>
-                        2 = leve<br>
-                        3 = médio<br>
-                        4 = alto<br>
-                        5 = Substituição
-                    </th>
-                    <th class="${scaleThStyle}">
-                        GRAU<br>
-                        1 = ok<br>
-                        2 = leve<br>
-                        3 = médio<br>
-                        4 = alto<br>
-                        5 = Substituição
-                    </th>
-                    <th class="${scaleThStyle}">
-                        GRAU<br>
-                        1 = ok<br>
-                        2 = leve<br>
-                        3 = médio<br>
-                        4 = alto<br>
-                        5 = Substituição
-                    </th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td class="${cellStyle}" data-field-id="${prefix}.arames" data-field-type="text">
-                        <input type="text" class="${inputStyle}" placeholder="NÃO">
-                    </td>
-                    <td class="${cellStyle}" data-field-id="${prefix}.bitola" data-field-type="text">
-                        <input type="text" class="${inputStyle}" placeholder="3/4&quot;">
-                    </td>
-                    <td class="${cellStyle}" data-field-id="${prefix}.diametro" data-field-type="text">
-                        <input type="text" class="${inputStyle}" placeholder="19MM">
-                    </td>
-                    <td class="${cellStyle}" data-field-id="${prefix}.diametro_medido" data-field-type="text">
-                        <input type="text" class="${inputStyle}" placeholder="19MM">
-                    </td>
-                    <td class="${cellStyle}" data-field-id="${prefix}.reducao" data-field-type="text">
-                        <input type="text" class="${inputStyle}" placeholder="NÃO">
-                    </td>
-                    <td class="${cellStyle}" data-field-id="${prefix}.corrosao" data-field-type="text">
-                        <input type="text" class="${inputStyle}" placeholder="1">
-                    </td>
-                    <td class="${cellStyle}" data-field-id="${prefix}.danos" data-field-type="text">
-                        <input type="text" class="${inputStyle}" placeholder="1">
-                    </td>
-                    <td class="${cellStyle}" data-field-id="${prefix}.deterioracao" data-field-type="text">
-                        <input type="text" class="${inputStyle}" placeholder="1">
-                    </td>
-                </tr>
-            </tbody>
-        </table>
-        <div class="pt-2">
-            ${obsHtml}
+    <div class="checklist-field checklist-cable-table-block space-y-3" data-section-id="${prefix}">
+        <div class="flex items-center gap-1.5 text-[11px] font-bold text-primary uppercase mb-1">
+            <span class="material-symbols-outlined text-[16px] animate-pulse">swipe</span>
+            <span>Deslize para os lados para preencher todas as colunas</span>
         </div>
+        <div class="overflow-x-auto rounded-xl border border-outline-variant bg-surface custom-scrollbar pb-1">
+            <table class="min-w-[960px] w-full border-collapse text-[11px]">
+                <thead>
+                    <tr>
+                        <th rowspan="2" class="${thStyle} w-[110px] min-w-[110px]">Arames Rompidos</th>
+                        <th colspan="4" class="${thStyle}">Redução do Diâmetro</th>
+                        <th class="${thStyle} w-[115px] min-w-[115px]">Corrosão</th>
+                        <th class="${thStyle} w-[125px] min-w-[125px]">Deformação ou Danos</th>
+                        <th class="${thStyle} w-[155px] min-w-[155px]">Grau Acumulativo de Deterioração (e outras observações)</th>
+                    </tr>
+                    <tr>
+                        <th class="${subThStyle} w-[95px] min-w-[95px]">Bitola do Cabo</th>
+                        <th class="${subThStyle} w-[170px] min-w-[170px]">Diâmetro conforme catálogo de referência (Cimaf/similar)</th>
+                        <th class="${subThStyle} w-[115px] min-w-[115px]">Diâmetro valor medido</th>
+                        <th class="${subThStyle} w-[145px] min-w-[145px]">Redução do diâmetro em porcentagem (7% máximo conforme norma)</th>
+                        <th class="${scaleThStyle} w-[115px] min-w-[115px]">
+                            GRAU<br>
+                            1 = ok<br>
+                            2 = leve<br>
+                            3 = médio<br>
+                            4 = alto<br>
+                            5 = Substituição
+                        </th>
+                        <th class="${scaleThStyle} w-[125px] min-w-[125px]">
+                            GRAU<br>
+                            1 = ok<br>
+                            2 = leve<br>
+                            3 = médio<br>
+                            4 = alto<br>
+                            5 = Substituição
+                        </th>
+                        <th class="${scaleThStyle} w-[155px] min-w-[155px]">
+                            GRAU<br>
+                            1 = ok<br>
+                            2 = leve<br>
+                            3 = médio<br>
+                            4 = alto<br>
+                            5 = Substituição
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="${cellStyle}" data-field-id="${prefix}.arames" data-field-type="text">
+                            <input type="text" class="${inputStyle}" placeholder="NÃO">
+                        </td>
+                        <td class="${cellStyle}" data-field-id="${prefix}.bitola" data-field-type="text">
+                            <input type="text" class="${inputStyle}" placeholder="3/4&quot;">
+                        </td>
+                        <td class="${cellStyle}" data-field-id="${prefix}.diametro" data-field-type="text">
+                            <input type="text" class="${inputStyle}" placeholder="19MM">
+                        </td>
+                        <td class="${cellStyle}" data-field-id="${prefix}.diametro_medido" data-field-type="text">
+                            <input type="text" class="${inputStyle}" placeholder="19MM">
+                        </td>
+                        <td class="${cellStyle}" data-field-id="${prefix}.reducao" data-field-type="text">
+                            <input type="text" class="${inputStyle}" placeholder="NÃO">
+                        </td>
+                        <td class="${cellStyle}" data-field-id="${prefix}.corrosao" data-field-type="text">
+                            <input type="text" class="${inputStyle}" placeholder="1">
+                        </td>
+                        <td class="${cellStyle}" data-field-id="${prefix}.danos" data-field-type="text">
+                            <input type="text" class="${inputStyle}" placeholder="1">
+                        </td>
+                        <td class="${cellStyle}" data-field-id="${prefix}.deterioracao" data-field-type="text">
+                            <input type="text" class="${inputStyle}" placeholder="1">
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        ${obsHtml ? `<div class="pt-1">${obsHtml}</div>` : ''}
     </div>`;
 }
 
 function renderHookInspectionTable(node) {
     const prefix = node.id;
-    const thStyle = 'border border-outline-variant p-2 text-center text-label-md font-bold uppercase bg-transparent text-on-surface align-middle';
-    const cellStyle = 'border border-outline-variant p-0 text-center bg-transparent';
-    const inputStyle = 'w-full bg-transparent text-center border-0 py-2 px-1 text-body-md uppercase text-on-surface focus:bg-surface-container-low focus:ring-2 focus:ring-primary outline-none checklist-text-value';
+    const thStyle = 'border border-outline-variant p-2.5 text-center text-[11px] font-extrabold uppercase bg-surface-container-low text-on-surface align-middle min-w-[130px]';
+    const cellStyle = 'border border-outline-variant p-0 text-center bg-surface';
+    const inputStyle = 'w-full bg-transparent text-center border-0 py-2.5 px-2 text-[12px] font-bold uppercase text-on-surface focus:bg-primary/5 focus:ring-2 focus:ring-primary outline-none checklist-text-value';
 
     // Separa os campos de texto (tabela) do campo de observações e campos inspectables
     const fields = (node.children || []).filter(c => (c.fieldType === 'text') && c.id !== `${prefix}.observacoes`);
@@ -405,7 +415,7 @@ function renderHookInspectionTable(node) {
         </div>` : '';
 
     const headersHtml = fields.map(field =>
-        `<th class="${thStyle}">${field.label}</th>`
+        `<th class="${thStyle}">${escapeHTML(field.label)}</th>`
     ).join('');
 
     const cellsHtml = fields.map(field =>
@@ -415,18 +425,22 @@ function renderHookInspectionTable(node) {
     ).join('');
 
     return `
-    <div class="checklist-field checklist-hook-table-block space-y-stack_md overflow-x-auto" data-section-id="${prefix}">
-        <table class="w-full border-collapse border border-outline-variant text-[11px] table-fixed">
-            <thead>
-                <tr>${headersHtml}</tr>
-            </thead>
-            <tbody>
-                <tr>${cellsHtml}</tr>
-            </tbody>
-        </table>
-        <div class="pt-2">
-            ${obsHtml}
+    <div class="checklist-field checklist-hook-table-block space-y-3" data-section-id="${prefix}">
+        <div class="flex items-center gap-1.5 text-[11px] font-bold text-primary uppercase mb-1">
+            <span class="material-symbols-outlined text-[16px] animate-pulse">swipe</span>
+            <span>Deslize para os lados para preencher todas as colunas</span>
         </div>
+        <div class="overflow-x-auto rounded-xl border border-outline-variant bg-surface custom-scrollbar pb-1">
+            <table class="min-w-[670px] w-full border-collapse text-[11px]">
+                <thead>
+                    <tr>${headersHtml}</tr>
+                </thead>
+                <tbody>
+                    <tr>${cellsHtml}</tr>
+                </tbody>
+            </table>
+        </div>
+        ${obsHtml ? `<div class="pt-1">${obsHtml}</div>` : ''}
     </div>`;
 }
 
@@ -567,36 +581,72 @@ export function renderRevisionsBlock(revisions = null, providedUsersList = null)
         <div class="flex items-center justify-between border-b border-outline-variant/30 pb-3">
             <div class="flex items-center gap-2">
                 <span class="material-symbols-outlined text-[#EAB308] text-[24px]">history_edu</span>
-                <span class="text-body-md font-bold uppercase text-on-surface">CONTROLE DE REVISÕES DO RELATÓRIO (CAPA DO LAUDO)</span>
+                <span class="text-body-md font-bold uppercase text-on-surface">CONTROLE DE REVISÕES (CAPA DO LAUDO)</span>
             </div>
-            <span class="text-label-sm uppercase font-bold text-on-surface-variant bg-surface-container px-3 py-1 rounded-lg">Governança Técnica</span>
         </div>
 
-        <!-- REV 01 (EMISSÃO INICIAL) -->
+        <!-- REV 00 (EMISSÃO INICIAL) -->
+        <div class="bg-surface-container-lowest border border-outline-variant/50 p-4 rounded-xl space-y-3">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="bg-primary text-on-primary font-black px-2.5 py-1 text-xs rounded-lg uppercase">REV 00</span>
+                    <span class="text-label-md font-bold text-on-surface uppercase">EMISSÃO INICIAL</span>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                <div>
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">PREPARADO</label>
+                    ${renderSelect('checklist-rev01-prepared', rev01.prepared)}
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">COLABORAÇÃO</label>
+                    ${renderSelect('checklist-rev01-collaboration', rev01.collaboration)}
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">CONTROLADO</label>
+                    ${renderSelect('checklist-rev01-checked', rev01.checked)}
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">APROVADOR</label>
+                    ${renderSelect('checklist-rev01-approved', rev01.approved)}
+                </div>
+            </div>
+        </div>
+
+        <!-- REV 01 (REVISÃO 01 - OPCIONAL) -->
         <div class="bg-surface-container-lowest border border-outline-variant/50 p-4 rounded-xl space-y-3">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
                     <span class="bg-primary text-on-primary font-black px-2.5 py-1 text-xs rounded-lg uppercase">REV 01</span>
-                    <span class="text-label-md font-bold text-on-surface uppercase">EMISSÃO INICIAL (AUTOMÁTICA)</span>
+                    <span class="text-label-md font-bold text-on-surface uppercase">REVISÃO 01 (OPCIONAL)</span>
                 </div>
-                <span class="text-xs text-on-surface-variant font-medium">Data do Laudo</span>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">DATA DA REVISÃO 01</label>
+                    <input type="date" id="checklist-rev02-date" value="${rev02.date || ''}" class="w-full bg-surface-container-low border border-outline py-2 px-3 text-body-sm font-bold text-on-surface rounded-xl focus:ring-2 focus:ring-primary focus:border-primary outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">DESCRIÇÃO DA REVISÃO 01</label>
+                    <input type="text" id="checklist-rev02-description" value="${rev02.description || 'REVISÃO'}" placeholder="REVISÃO" class="w-full bg-surface-container-low border border-outline py-2 px-3 text-body-sm font-bold uppercase text-on-surface rounded-xl focus:ring-2 focus:ring-primary focus:border-primary outline-none">
+                </div>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
                 <div>
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">PREPARADO (PREPARED)</label>
-                    ${renderSelect('checklist-rev01-prepared', rev01.prepared)}
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">PREPARADO</label>
+                    ${renderSelect('checklist-rev02-prepared', rev02.prepared)}
                 </div>
                 <div>
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">COLABORAÇÃO (CO-OPERATIONS)</label>
-                    ${renderSelect('checklist-rev01-collaboration', rev01.collaboration)}
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">COLABORAÇÃO</label>
+                    ${renderSelect('checklist-rev02-collaboration', rev02.collaboration)}
                 </div>
                 <div>
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">CONTROLADO (CHECKED)</label>
-                    ${renderSelect('checklist-rev01-checked', rev01.checked)}
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">CONTROLADO</label>
+                    ${renderSelect('checklist-rev02-checked', rev02.checked)}
                 </div>
                 <div>
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">APROVADOR (APPROVED)</label>
-                    ${renderSelect('checklist-rev01-approved', rev01.approved)}
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">APROVADOR</label>
+                    ${renderSelect('checklist-rev02-approved', rev02.approved)}
                 </div>
             </div>
         </div>
@@ -605,75 +655,35 @@ export function renderRevisionsBlock(revisions = null, providedUsersList = null)
         <div class="bg-surface-container-lowest border border-outline-variant/50 p-4 rounded-xl space-y-3">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
-                    <span class="bg-secondary-container text-on-secondary-container font-black px-2.5 py-1 text-xs rounded-lg uppercase">REV 02</span>
+                    <span class="bg-primary text-on-primary font-black px-2.5 py-1 text-xs rounded-lg uppercase">REV 02</span>
                     <span class="text-label-md font-bold text-on-surface uppercase">REVISÃO 02 (OPCIONAL)</span>
                 </div>
-                <span class="text-xs text-on-surface-variant font-medium">Deixe vazio caso não haja revisão</span>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                     <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">DATA DA REVISÃO 02</label>
-                    <input type="date" id="checklist-rev02-date" value="${rev02.date || ''}" class="w-full bg-surface-container-low border border-outline py-2 px-3 text-body-sm font-bold text-on-surface rounded-xl focus:ring-2 focus:ring-primary focus:border-primary outline-none">
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">DESCRIÇÃO DA REVISÃO 02</label>
-                    <input type="text" id="checklist-rev02-description" value="${rev02.description || 'REVISÃO'}" placeholder="REVISÃO" class="w-full bg-surface-container-low border border-outline py-2 px-3 text-body-sm font-bold uppercase text-on-surface rounded-xl focus:ring-2 focus:ring-primary focus:border-primary outline-none">
-                </div>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
-                <div>
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">PREPARADO (PREPARED)</label>
-                    ${renderSelect('checklist-rev02-prepared', rev02.prepared)}
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">COLABORAÇÃO (CO-OPERATIONS)</label>
-                    ${renderSelect('checklist-rev02-collaboration', rev02.collaboration)}
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">CONTROLADO (CHECKED)</label>
-                    ${renderSelect('checklist-rev02-checked', rev02.checked)}
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">APROVADOR (APPROVED)</label>
-                    ${renderSelect('checklist-rev02-approved', rev02.approved)}
-                </div>
-            </div>
-        </div>
-
-        <!-- REV 03 (REVISÃO 03 - OPCIONAL) -->
-        <div class="bg-surface-container-lowest border border-outline-variant/50 p-4 rounded-xl space-y-3">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                    <span class="bg-secondary-container text-on-secondary-container font-black px-2.5 py-1 text-xs rounded-lg uppercase">REV 03</span>
-                    <span class="text-label-md font-bold text-on-surface uppercase">REVISÃO 03 (OPCIONAL)</span>
-                </div>
-                <span class="text-xs text-on-surface-variant font-medium">Deixe vazio caso não haja revisão</span>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">DATA DA REVISÃO 03</label>
                     <input type="date" id="checklist-rev03-date" value="${rev03.date || ''}" class="w-full bg-surface-container-low border border-outline py-2 px-3 text-body-sm font-bold text-on-surface rounded-xl focus:ring-2 focus:ring-primary focus:border-primary outline-none">
                 </div>
                 <div>
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">DESCRIÇÃO DA REVISÃO 03</label>
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">DESCRIÇÃO DA REVISÃO 02</label>
                     <input type="text" id="checklist-rev03-description" value="${rev03.description || 'REVISÃO'}" placeholder="REVISÃO" class="w-full bg-surface-container-low border border-outline py-2 px-3 text-body-sm font-bold uppercase text-on-surface rounded-xl focus:ring-2 focus:ring-primary focus:border-primary outline-none">
                 </div>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
                 <div>
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">PREPARADO (PREPARED)</label>
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">PREPARADO</label>
                     ${renderSelect('checklist-rev03-prepared', rev03.prepared)}
                 </div>
                 <div>
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">COLABORAÇÃO (CO-OPERATIONS)</label>
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">COLABORAÇÃO</label>
                     ${renderSelect('checklist-rev03-collaboration', rev03.collaboration)}
                 </div>
                 <div>
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">CONTROLADO (CHECKED)</label>
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">CONTROLADO</label>
                     ${renderSelect('checklist-rev03-checked', rev03.checked)}
                 </div>
                 <div>
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">APROVADOR (APPROVED)</label>
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase mb-1">APROVADOR</label>
                     ${renderSelect('checklist-rev03-approved', rev03.approved)}
                 </div>
             </div>

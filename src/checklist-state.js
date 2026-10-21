@@ -183,7 +183,11 @@ export function collectFormData(rootEl, schemaContext = null) {
 
 export function applyFormData(rootEl, data) {
     if (!data) return;
-    const responses = data.responses || {};
+    let responses = data.responses;
+    if (typeof responses === 'string') {
+        try { responses = JSON.parse(responses); } catch (e) { responses = {}; }
+    }
+    if (!responses || typeof responses !== 'object') responses = {};
     const restoredGroups = new Set();
 
     Object.entries(responses).forEach(([id, val]) => {
@@ -191,9 +195,30 @@ export function applyFormData(rootEl, data) {
 
         // 1. Tenta restaurar status de rádio
         if (val.status !== undefined && val.status !== null) {
-            let radio = rootEl.querySelector(`input[name="status-${id}"][value="${val.status}"]`);
+            let radio = null;
+
+            // Busca 1: Seletor direto padrão
+            try {
+                radio = rootEl.querySelector(`input[name="status-${id}"][value="${val.status}"]`);
+            } catch (e) {}
+
+            // Busca 2: Seletor com escape CSS
             if (!radio) {
-                // Fallback para IDs legados
+                try {
+                    radio = rootEl.querySelector(`input[name="status-${CSS.escape(id)}"][value="${CSS.escape(val.status)}"]`);
+                } catch (e) {}
+            }
+
+            // Busca 3: Pela linha do item com data-field-id
+            if (!radio) {
+                try {
+                    const row = rootEl.querySelector(`[data-field-id="${id}"]`) || rootEl.querySelector(`[data-field-id="${CSS.escape(id)}"]`);
+                    if (row) radio = row.querySelector(`input[value="${CSS.escape(val.status)}"]`);
+                } catch (e) {}
+            }
+
+            // Busca 4: Fallback para IDs legados
+            if (!radio) {
                 const fallbackId = id
                     .replace(/^7\.6\.1\./, '7.7.')
                     .replace(/^7\.6\.2\./, '7.7.')
@@ -203,7 +228,23 @@ export function applyFormData(rootEl, data) {
                     .replace(/^8\.7\.2\./, '8.7.')
                     .replace(/^5\.7\.1\./, '5.7.')
                     .replace(/^6\.7\.1\./, '6.7.');
-                radio = rootEl.querySelector(`input[name="status-${fallbackId}"][value="${val.status}"]`);
+                try {
+                    radio = rootEl.querySelector(`input[name="status-${fallbackId}"][value="${val.status}"]`) ||
+                            rootEl.querySelector(`[data-field-id="${fallbackId}"] input[value="${val.status}"]`);
+                } catch (e) {}
+            }
+
+            // Busca 5: Iteração direta nos inputs de rádio
+            if (!radio) {
+                const targetName = `status-${id}`;
+                const allRadios = rootEl.querySelectorAll('input[type="radio"]');
+                for (let i = 0; i < allRadios.length; i++) {
+                    const r = allRadios[i];
+                    if (r.name === targetName && r.value === val.status) {
+                        radio = r;
+                        break;
+                    }
+                }
             }
 
             if (radio) {
@@ -340,12 +381,19 @@ export function applyFormData(rootEl, data) {
     }
 
     // Auto-resize all textareas after restoring saved data
-    requestAnimationFrame(() => {
+    const resizeAll = () => {
         rootEl.querySelectorAll('textarea.checklist-observation, textarea.checklist-text-value, textarea').forEach(ta => {
-            ta.style.height = 'auto';
-            ta.style.height = ta.scrollHeight + 'px';
+            ta.style.setProperty('height', 'auto', 'important');
+            const h = ta.scrollHeight;
+            if (h > 0) {
+                ta.style.setProperty('height', `${Math.max(h, 48)}px`, 'important');
+            }
         });
-    });
+    };
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(resizeAll);
+    }
+    setTimeout(resizeAll, 120);
 }
 
 export function validateBeforeSend(rootEl) {
@@ -414,19 +462,51 @@ export function countInspectableFields() {
 
 export function mergeLegacyReport(report) {
     if (!report) return createInspectionDocument({});
-    const resolvedSchema = report.schema_snapshot || report.schema || (report.responses && report.responses.__meta && report.responses.__meta.schema) || null;
-    const schemaSnapshot = resolvedSchema ? JSON.parse(JSON.stringify(resolvedSchema)) : null;
+
+    // Parse seguro para strings serializadas
+    let responses = report.responses;
+    if (typeof responses === 'string') {
+        try { responses = JSON.parse(responses); } catch (e) { responses = null; }
+    }
+
+    let rawSchema = report.schema_snapshot || report.schema || (responses && responses.__meta && responses.__meta.schema) || null;
+    let schemaSnapshot = null;
+    if (typeof rawSchema === 'string') {
+        try { schemaSnapshot = JSON.parse(rawSchema); } catch (e) { schemaSnapshot = null; }
+    } else if (rawSchema) {
+        try { schemaSnapshot = JSON.parse(JSON.stringify(rawSchema)); } catch (e) { schemaSnapshot = null; }
+    }
+
+    let customSections = report.customSections;
+    if (typeof customSections === 'string') {
+        try { customSections = JSON.parse(customSections); } catch (e) { customSections = []; }
+    }
+
+    let customItems = report.customItems;
+    if (typeof customItems === 'string') {
+        try { customItems = JSON.parse(customItems); } catch (e) { customItems = []; }
+    }
+
+    let responsaveis = report.responsaveis;
+    if (typeof responsaveis === 'string') {
+        try { responsaveis = JSON.parse(responsaveis); } catch (e) { responsaveis = []; }
+    }
+
+    let revisions = report.revisions || (responses && responses.__meta && responses.__meta.revisions) || null;
+    if (typeof revisions === 'string') {
+        try { revisions = JSON.parse(revisions); } catch (e) { revisions = null; }
+    }
 
     return {
         ...report,
         schema: schemaSnapshot,
         schema_snapshot: schemaSnapshot,
-        templateId: report.templateId || (report.responses && report.responses.__meta && report.responses.__meta.templateId) || null,
-        templateName: report.templateName || (report.responses && report.responses.__meta && report.responses.__meta.templateName) || null,
-        responses: (report.responses && Object.keys(report.responses).length > 0) ? report.responses : createEmptyResponses(schemaSnapshot),
-        customSections: report.customSections || [],
-        customItems: report.customItems || [],
-        responsaveis: report.responsaveis || [],
-        revisions: report.revisions || (report.responses && report.responses.__meta && report.responses.__meta.revisions) || null,
+        templateId: report.templateId || (responses && responses.__meta && responses.__meta.templateId) || null,
+        templateName: report.templateName || (responses && responses.__meta && responses.__meta.templateName) || null,
+        responses: (responses && typeof responses === 'object' && Object.keys(responses).length > 0) ? responses : createEmptyResponses(schemaSnapshot),
+        customSections: customSections || [],
+        customItems: customItems || [],
+        responsaveis: responsaveis || [],
+        revisions: revisions,
     };
 }

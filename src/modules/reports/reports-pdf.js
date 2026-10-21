@@ -21,7 +21,7 @@ export function showPrintLoadingOverlay() {
             left: 0;
             width: 100vw;
             height: 100vh;
-            background: rgba(15, 23, 42, 0.85);
+            background: rgba(0, 0, 0, 0.88);
             backdrop-filter: blur(6px);
             z-index: 999999;
             display: flex;
@@ -32,10 +32,10 @@ export function showPrintLoadingOverlay() {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         `;
         overlay.innerHTML = `
-            <div style="background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 28px 40px; text-align: center; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
-                <div style="width: 48px; height: 48px; border: 4px solid #334155; border-top-color: #facc15; border-radius: 50%; animation: craneSpin 0.8s linear infinite; margin: 0 auto 16px auto;"></div>
-                <div style="font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: #f8fafc;">Carregando Impressão</div>
-                <div style="font-size: 12px; color: #94a3b8; margin-top: 6px;">Preparando mídias e diagramação A4...</div>
+            <div style="background: #121214; border: 1px solid #27272a; border-radius: 12px; padding: 28px 40px; text-align: center; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
+                <div style="width: 48px; height: 48px; border: 4px solid #27272a; border-top-color: #facc15; border-radius: 50%; animation: craneSpin 0.8s linear infinite; margin: 0 auto 16px auto;"></div>
+                <div style="font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: #f4f4f5;">Carregando Impressão</div>
+                <div style="font-size: 12px; color: #a1a1aa; margin-top: 6px;">Preparando mídias e diagramação A4...</div>
             </div>
             <style>
                 @keyframes craneSpin {
@@ -824,6 +824,10 @@ export function generateReportPrintHTML(report, company = {}, internalCompany = 
             line-height: 1.4;
             font-size: 11px;
             padding: 20px;
+            width: 210mm;
+            min-width: 210mm;
+            box-sizing: border-box;
+            margin: 0 auto;
         }
 
         /* Layout do Cabeçalho Principal */
@@ -1082,6 +1086,8 @@ export function generateReportPrintHTML(report, company = {}, internalCompany = 
                 margin: 0;
                 padding: 0;
                 background: none;
+                width: 100% !important;
+                min-width: 0 !important;
             }
             * {
                 -webkit-print-color-adjust: exact !important;
@@ -1196,61 +1202,36 @@ export function generateReportPrintHTML(report, company = {}, internalCompany = 
                         <h3>ESPECIFICAÇÕES DO EQUIPAMENTO</h3>
                         <div class="meta-subgrid">
                             ${(() => {
-                                let html = `
+                                const customFieldsMap = asset.custom_fields || asset.customFields || {};
+                                const capacVal = asset.capacidade || customFieldsMap['cf_2_cap_principal'] || customFieldsMap['cf_2_capacidade_de_peso_principal'] || customFieldsMap['capacidade'] || '---';
+                                const vaoVal = asset.vao || customFieldsMap['cf_7_vao_ponte'] || customFieldsMap['cf_7_v_o_da_ponte'] || customFieldsMap['vao'] || '---';
+
+                                return `
                                     <div class="meta-subitem">
-                                        <strong>ID Equipamento</strong>
+                                        <strong>ID EQUIPAMENTO</strong>
                                         <span>${report.equipamentoId || asset.id || '---'}</span>
                                     </div>
                                     <div class="meta-subitem">
-                                        <strong>Tipo/Nome</strong>
+                                        <strong>TIPO/NOME</strong>
                                         <span>${report.equipamentoNome || report.equipamento || asset.tipo || asset.nome || '---'}</span>
                                     </div>
                                     <div class="meta-subitem">
-                                        <strong>Localização</strong>
+                                        <strong>LOCALIZAÇÃO</strong>
                                         <span>${asset.local || '---'}</span>
                                     </div>
                                     <div class="meta-subitem">
-                                        <strong>Fabricante</strong>
+                                        <strong>FABRICANTE</strong>
                                         <span>${asset.fabricante || '---'}</span>
                                     </div>
                                     <div class="meta-subitem">
-                                        <strong>Capacidade de Peso</strong>
-                                        <span>${asset.capacidade || '---'}</span>
+                                        <strong>CAPAC. PRINCIPAL</strong>
+                                        <span>${capacVal}</span>
                                     </div>
                                     <div class="meta-subitem">
-                                        <strong>Vão</strong>
-                                        <span>${asset.vao || '---'}</span>
+                                        <strong>VÃO PONTE</strong>
+                                        <span>${vaoVal}</span>
                                     </div>
                                 `;
-
-                                const customFieldsMap = asset.custom_fields || asset.customFields || {};
-                                const schemaSnapshot = asset.schema_snapshot || asset.schemaSnapshot || null;
-                                const schemaFields = (schemaSnapshot && (schemaSnapshot.customFields || schemaSnapshot.custom_fields)) || [];
-
-                                if (Array.isArray(schemaFields) && schemaFields.length > 0) {
-                                    schemaFields.forEach(f => {
-                                        const fId = f.id || `cf_${(f.label || '').toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
-                                        const val = customFieldsMap[fId] !== undefined ? customFieldsMap[fId] : (customFieldsMap[f.label] || '---');
-                                        html += `
-                                            <div class="meta-subitem">
-                                                <strong>${f.label || 'Campo'}</strong>
-                                                <span>${val || '---'}</span>
-                                            </div>
-                                        `;
-                                    });
-                                } else if (customFieldsMap && typeof customFieldsMap === 'object' && Object.keys(customFieldsMap).length > 0) {
-                                    Object.entries(customFieldsMap).forEach(([k, v]) => {
-                                        const label = k.startsWith('cf_') ? k.replace(/^cf_\d+_/, '').replace(/_/g, ' ').toUpperCase() : k.toUpperCase();
-                                        html += `
-                                            <div class="meta-subitem">
-                                                <strong>${label}</strong>
-                                                <span>${v || '---'}</span>
-                                            </div>
-                                        `;
-                                    });
-                                }
-
-                                return html;
                             })()}
                         </div>
                     </div>
@@ -1540,10 +1521,20 @@ export function generateReportPrintHTML(report, company = {}, internalCompany = 
                     if (window.parent && typeof window.parent.hidePrintLoadingOverlay === 'function') {
                         window.parent.hidePrintLoadingOverlay();
                     }
-                    setTimeout(() => {
-                        window.focus();
-                        window.print();
-                    }, 150);
+                    if (window.parent && typeof window.parent.onReportPreviewReady === 'function') {
+                        try { window.parent.onReportPreviewReady(); } catch(e){}
+                    }
+                    const isParentMobile = window.parent && (
+                        /Android|iPhone|iPad|iPod/i.test(window.parent.navigator?.userAgent || '') ||
+                        (window.parent.innerWidth && window.parent.innerWidth <= 768) ||
+                        (window.parent.Capacitor && typeof window.parent.Capacitor.isNativePlatform === 'function' && window.parent.Capacitor.isNativePlatform())
+                    );
+                    if (!isParentMobile) {
+                        setTimeout(() => {
+                            window.focus();
+                            window.print();
+                        }, 150);
+                    }
                 };
                 finishAndPrint();
             }
@@ -1551,6 +1542,194 @@ export function generateReportPrintHTML(report, company = {}, internalCompany = 
     </script>
 </body>
 </html>`;
+}
+
+/**
+ * Exibe modal de visualização e impressão de PDF em alta fidelidade no Mobile / APK
+ */
+export function openReportPDFPreviewModal(reportId, printHtml) {
+    if (typeof document === 'undefined') return;
+
+    let modal = document.getElementById('crane-pdf-preview-modal');
+    if (modal) modal.remove();
+
+    if (window._cranePdfResizeHandler) {
+        window.removeEventListener('resize', window._cranePdfResizeHandler);
+        window.removeEventListener('orientationchange', window._cranePdfResizeHandler);
+        window._cranePdfResizeHandler = null;
+    }
+
+    window._cranePdfZoomMode = 'fit';
+
+    modal = document.createElement('div');
+    modal.id = 'crane-pdf-preview-modal';
+    modal.className = 'fixed inset-0 z-[850] bg-black/95 flex flex-col font-sans select-none';
+    modal.innerHTML = `
+        <header class="bg-[#18181b] border-b border-[#27272a] px-3 md:px-5 py-2.5 flex items-center justify-between gap-2 text-white shrink-0 shadow-xl z-10">
+            <div class="flex items-center gap-2 min-w-0">
+                <span class="material-symbols-outlined text-[#EAB308] text-[22px]">picture_as_pdf</span>
+                <span class="font-bold text-xs md:text-sm uppercase tracking-wider truncate">RELATÓRIO: ${escapeHTML(String(reportId))}</span>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+                <button type="button" id="crane-pdf-toggle-zoom" class="bg-[#27272a] hover:bg-[#3f3f46] active:scale-95 text-white font-bold px-2.5 py-1.5 rounded-xl text-xs flex items-center gap-1 transition-all cursor-pointer border border-[#3f3f46]" title="Alternar Zoom da Folha">
+                    <span class="material-symbols-outlined text-[16px]" id="crane-pdf-zoom-icon">zoom_in</span>
+                    <span id="crane-pdf-zoom-label">100%</span>
+                </button>
+                <button type="button" id="crane-pdf-action-share" class="bg-primary hover:brightness-110 active:scale-95 text-on-primary font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 shadow-md uppercase transition-all cursor-pointer" title="Compartilhar Relatório PDF via WhatsApp ou outros aplicativos">
+                    <span class="material-symbols-outlined text-[18px]">share</span>
+                    <span>COMPARTILHAR PDF</span>
+                </button>
+                <button type="button" onclick="window.closeReportPDFPreview()" class="bg-[#27272a] hover:bg-[#3f3f46] active:scale-95 text-white font-bold p-1.5 rounded-xl text-xs flex items-center justify-center transition-all cursor-pointer" title="Fechar Visualização">
+                    <span class="material-symbols-outlined text-[20px]">close</span>
+                </button>
+            </div>
+        </header>
+        <div id="crane-pdf-preview-viewport" class="flex-1 w-full h-full bg-[#27272a] overflow-y-auto overflow-x-hidden relative flex flex-col items-center py-2 px-1">
+            <div id="crane-pdf-scaler" style="width: 794px; transform-origin: top center; transition: transform 0.15s ease;">
+                <iframe id="crane-print-preview-iframe" style="width: 794px; min-width: 794px; min-height: 1123px; border: 0; background: white; box-shadow: 0 8px 30px rgba(0,0,0,0.6); display: block; border-radius: 4px;" title="Visualização do Relatório A4"></iframe>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const viewport = document.getElementById('crane-pdf-preview-viewport');
+    const scaler = document.getElementById('crane-pdf-scaler');
+    const iframe = document.getElementById('crane-print-preview-iframe');
+    const zoomBtn = document.getElementById('crane-pdf-toggle-zoom');
+    const zoomIcon = document.getElementById('crane-pdf-zoom-icon');
+    const zoomLabel = document.getElementById('crane-pdf-zoom-label');
+
+    const updateScale = () => {
+        if (!viewport || !scaler || !iframe) return;
+
+        try {
+            const doc = iframe.contentDocument || iframe.contentWindow?.document;
+            if (doc && doc.body) {
+                const bodyH = doc.body.scrollHeight || 0;
+                const docH = doc.documentElement ? doc.documentElement.scrollHeight : 0;
+                const fullH = Math.max(bodyH, docH, 1123);
+                iframe.style.height = (fullH + 20) + 'px';
+            }
+        } catch (e) {
+            // Documento inacessível por restrição de ambiente
+        }
+
+        const availableWidth = viewport.clientWidth - 12;
+        const baseWidth = 794;
+
+        if (window._cranePdfZoomMode === '100') {
+            scaler.style.transform = 'none';
+            scaler.style.height = (iframe.offsetHeight || 1123) + 'px';
+            scaler.style.marginBottom = '40px';
+            viewport.classList.add('overflow-x-auto');
+            viewport.classList.remove('overflow-x-hidden');
+            if (zoomIcon) zoomIcon.textContent = 'fit_screen';
+            if (zoomLabel) zoomLabel.textContent = 'AJUSTAR';
+            return;
+        }
+
+        viewport.classList.remove('overflow-x-auto');
+        viewport.classList.add('overflow-x-hidden');
+        if (zoomIcon) zoomIcon.textContent = 'zoom_in';
+        if (zoomLabel) zoomLabel.textContent = '100%';
+
+        if (availableWidth < baseWidth) {
+            const scale = Math.max(0.25, availableWidth / baseWidth);
+            scaler.style.transform = `scale(${scale})`;
+            scaler.style.height = ((iframe.offsetHeight || 1123) * scale) + 'px';
+            scaler.style.marginBottom = '24px';
+        } else {
+            scaler.style.transform = 'none';
+            scaler.style.height = (iframe.offsetHeight || 1123) + 'px';
+            scaler.style.marginBottom = '40px';
+        }
+    };
+
+    window._cranePdfResizeHandler = () => {
+        updateScale();
+    };
+    window.addEventListener('resize', window._cranePdfResizeHandler);
+    window.addEventListener('orientationchange', () => setTimeout(updateScale, 150));
+
+    window.onReportPreviewReady = () => {
+        updateScale();
+    };
+
+    if (zoomBtn) {
+        zoomBtn.onclick = () => {
+            window._cranePdfZoomMode = (window._cranePdfZoomMode === '100') ? 'fit' : '100';
+            updateScale();
+        };
+    }
+
+    if (iframe && iframe.contentWindow) {
+        const printDoc = iframe.contentWindow.document;
+        printDoc.open();
+        printDoc.write(printHtml);
+        printDoc.close();
+
+        setTimeout(updateScale, 200);
+        setTimeout(updateScale, 600);
+        setTimeout(updateScale, 1500);
+    }
+
+    const shareBtn = document.getElementById('crane-pdf-action-share') || document.getElementById('crane-pdf-action-print');
+    if (shareBtn) {
+        shareBtn.onclick = () => {
+            try {
+                // 1. Android APK nativo (MainActivity com AndroidPrinter)
+                const androidPrinter = window.AndroidPrinter || (window.parent && window.parent.AndroidPrinter);
+                if (androidPrinter) {
+                    let htmlToPrint = printHtml;
+                    try {
+                        const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+                        if (iframeDoc && iframeDoc.documentElement) {
+                            const clonedDoc = iframeDoc.documentElement.cloneNode(true);
+                            const scripts = clonedDoc.querySelectorAll('script');
+                            scripts.forEach(s => s.remove());
+                            htmlToPrint = '<!DOCTYPE html>\n<html>' + clonedDoc.innerHTML + '</html>';
+                        }
+                    } catch (e) {
+                        console.warn('Fallback para printHtml original:', e);
+                    }
+                    if (typeof androidPrinter.sharePdf === 'function') {
+                        androidPrinter.sharePdf(htmlToPrint, `Relatorio_${reportId}`);
+                    } else if (typeof androidPrinter.printHtml === 'function') {
+                        androidPrinter.printHtml(htmlToPrint, `Relatorio_${reportId}`);
+                    }
+                    return;
+                }
+
+                // 2. Fallback Web / Desktop
+                if (iframe && iframe.contentWindow) {
+                    iframe.contentWindow.focus();
+                    iframe.contentWindow.print();
+                }
+            } catch (err) {
+                console.error('Erro ao acionar compartilhamento:', err);
+            }
+        };
+    }
+}
+
+/**
+ * Fecha o modal de visualização de PDF
+ */
+export function closeReportPDFPreview() {
+    if (typeof document === 'undefined') return;
+    const modal = document.getElementById('crane-pdf-preview-modal');
+    if (modal) modal.remove();
+    if (window._cranePdfResizeHandler) {
+        window.removeEventListener('resize', window._cranePdfResizeHandler);
+        window.removeEventListener('orientationchange', window._cranePdfResizeHandler);
+        window._cranePdfResizeHandler = null;
+    }
+}
+
+if (typeof window !== 'undefined') {
+    window.closeReportPDFPreview = closeReportPDFPreview;
+    window.hidePrintLoadingOverlay = hidePrintLoadingOverlay;
 }
 
 /**
@@ -1611,6 +1790,19 @@ export async function printReportPDF(reportId, options = {}) {
 
     if (typeof document === 'undefined') return true;
 
+    const isMobile = (typeof window !== 'undefined' && (
+        /Android|iPhone|iPad|iPod/i.test(navigator?.userAgent || '') ||
+        window.innerWidth <= 768 ||
+        (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform())
+    ));
+
+    const printHtml = generateReportPrintHTML(report, company, internalCompany, usersList, asset);
+
+    if (isMobile) {
+        openReportPDFPreviewModal(report.id || reportId, printHtml);
+        return true;
+    }
+
     let printFrame = document.getElementById('crane-print-iframe');
     if (printFrame) {
         printFrame.remove();
@@ -1627,7 +1819,6 @@ export async function printReportPDF(reportId, options = {}) {
     printFrame.style.pointerEvents = 'none';
     document.body.appendChild(printFrame);
 
-    const printHtml = generateReportPrintHTML(report, company, internalCompany, usersList, asset);
     const printWindow = printFrame.contentWindow;
     printWindow.document.open();
     printWindow.document.write(printHtml);

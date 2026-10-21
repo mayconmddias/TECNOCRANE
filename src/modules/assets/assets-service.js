@@ -134,6 +134,7 @@ export function prepareAssetPayload(baseAsset = {}, template = null, customField
         motorelevauxiliarbaixa: baseAsset.motorelevauxiliarbaixa || baseAsset.motorElevAuxiliarBaixa || '',
         motordirecaocarro: baseAsset.motordirecaocarro || baseAsset.motorDirecaoCarro || '',
         motortranslacaoponte: baseAsset.motortranslacaoponte || baseAsset.motorTranslacaoPonte || '',
+        foto: baseAsset.foto || baseAsset.photo || baseAsset.imagemUrl || '',
         
         // 7 Colunas Dinâmicas
         template_id: template ? template.id : (baseAsset.template_id || null),

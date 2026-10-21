@@ -6,3 +6,10 @@ dist
 .gemini
 .agents
 .cursorrules
+references/
+.idea/
+*.apk
+CRANE PRO APK/
+*.mjs
+android/
+mockup-*.jpg

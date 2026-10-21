@@ -44,19 +44,19 @@ export function getDBValue(key, defaultValue) {
             const request = store.get(tenantKey);
             request.onsuccess = () => {
                 const res = request.result;
-                if (res !== undefined && res !== null && (!Array.isArray(res) || res.length > 0 || defaultValue === undefined)) {
+                if (res !== undefined && res !== null) {
                     resolve(res);
                 } else {
                     const reqFallback = store.get(key);
                     reqFallback.onsuccess = () => {
                         const fallbackRes = reqFallback.result;
-                        if (fallbackRes !== undefined && fallbackRes !== null && (!Array.isArray(fallbackRes) || fallbackRes.length > 0)) {
+                        if (fallbackRes !== undefined && fallbackRes !== null) {
                             resolve(fallbackRes);
                         } else {
-                            resolve(res !== undefined ? res : defaultValue);
+                            resolve(defaultValue);
                         }
                     };
-                    reqFallback.onerror = () => resolve(res !== undefined ? res : defaultValue);
+                    reqFallback.onerror = () => resolve(defaultValue);
                 }
             };
             request.onerror = () => {
@@ -113,7 +113,7 @@ export function getStoredData(key, defaultValue) {
     }
 }
 
-export function setStoredData(key, data) {
+export function setStoredData(key, data, syncCloud = true) {
     const tenantKey = getTenantKey(key);
     if (typeof localStorage !== 'undefined') {
         if (!HEAVY_KEYS.has(key) && !HEAVY_KEYS.has(tenantKey)) {
@@ -135,8 +135,8 @@ export function setStoredData(key, data) {
         console.error(`Erro ao gravar ${tenantKey} no IndexedDB:`, err);
     });
 
-    // Sincroniza em segundo plano se o Supabase estiver configurado
-    if (isSupabaseConfigured) {
+    // Sincroniza em segundo plano se o Supabase estiver configurado e syncCloud for true
+    if (isSupabaseConfigured && syncCloud) {
         syncKeyToSupabase(key, data).catch(err => {
             console.error(`SUPABASE: Erro ao sincronizar ${key}:`, err);
         });
@@ -247,7 +247,19 @@ export async function syncKeyToSupabase(key, data) {
             try { localStorage.setItem(tenantKey, JSON.stringify(data)); } catch (e) {}
             await setDBValue(tenantKey, data);
         } else if (key === 'crane_all_assets') {
-            const baseRows = data.map(a => ({
+            await Promise.all(data.map(async a => {
+                let fotoUrl = a.foto || a.photo || a.imagemUrl || '';
+                const assetId = a.id || String(Date.now());
+                if (typeof fotoUrl === 'string' && fotoUrl.startsWith('data:')) {
+                    const uniqueFileName = `asset_${String(assetId).replace(/\W+/g, '_')}_${Date.now()}`;
+                    fotoUrl = await uploadBase64ToStorage('crane-app-media', 'assets', fotoUrl, uniqueFileName);
+                    a.foto = fotoUrl;
+                }
+            }));
+
+            const photoVal = (a) => a.foto || a.photo || a.imagemUrl || '';
+
+            const baseRowsWithFoto = data.map(a => ({
                 id: a.id,
                 empresa: a.empresa || '',
                 nome: a.nome || '',
@@ -268,32 +280,50 @@ export async function syncKeyToSupabase(key, data) {
                 motorelevauxiliaralta: a.motorElevAuxiliarAlta || a.motorelevauxiliaralta || '',
                 motorelevauxiliarbaixa: a.motorElevAuxiliarBaixa || a.motorelevauxiliarbaixa || '',
                 motordirecaocarro: a.motorDirecaoCarro || a.motordirecaocarro || '',
-                motortranslacaoponte: a.motorTranslacaoPonte || a.motortranslacaoponte || ''
+                motortranslacaoponte: a.motorTranslacaoPonte || a.motortranslacaoponte || '',
+                foto: photoVal(a)
             }));
 
-            const fullRows = data.map((a, i) => ({
-                ...baseRows[i],
+            const baseRowsWithoutFoto = baseRowsWithFoto.map(({ foto, ...rest }) => rest);
+
+            const fullRowsWithFoto = data.map((a, i) => ({
+                ...baseRowsWithFoto[i],
                 template_id: a.template_id || null,
                 template_name: a.template_name || null,
                 schema_snapshot: a.schema_snapshot || null,
-                custom_fields: a.custom_fields || {},
+                custom_fields: { ...(a.custom_fields || {}), foto: photoVal(a) },
                 is_provisional: !!a.is_provisional,
                 provisional_id: a.provisional_id || null,
                 sync_status: a.sync_status || 'synced'
             }));
 
+            const fullRowsWithoutFoto = fullRowsWithFoto.map(({ foto, ...rest }) => rest);
+
             try {
-                // Tenta enviar com as 7 colunas dinâmicas (se o banco já tiver o DDL V5 aplicado)
-                await dbUpsert('all_assets', fullRows);
-            } catch (err) {
-                console.warn('CRANE ASSETS: Falha ao persistir colunas dinâmicas em all_assets (fallback para colunas base):', err);
-                // Fallback automático para as 21 colunas base para garantir gravação mesmo sem migration no Supabase
-                await dbUpsert('all_assets', baseRows);
+                // Tenta enviar com foto e colunas dinâmicas
+                await dbUpsert('all_assets', fullRowsWithFoto);
+            } catch (err1) {
+                console.warn('CRANE ASSETS: Tentando enviar sem coluna física foto:', err1);
+                try {
+                    // Fallback para fullRows com foto dentro de custom_fields
+                    await dbUpsert('all_assets', fullRowsWithoutFoto);
+                } catch (err2) {
+                    console.warn('CRANE ASSETS: Fallback para colunas base com foto:', err2);
+                    try {
+                        await dbUpsert('all_assets', baseRowsWithFoto);
+                    } catch (err3) {
+                        await dbUpsert('all_assets', baseRowsWithoutFoto);
+                    }
+                }
             }
+            const tenantKey = getTenantKey('crane_all_assets');
+            try { localStorage.setItem(tenantKey, JSON.stringify(data)); } catch (e) {}
+            await setDBValue(tenantKey, data);
         } else if (key === 'crane_users') {
             const dbUsers = await dbFetchAll('users');
             const rows = await Promise.all(data.map(async u => {
                 let sigUrl = u.signature || u.assinatura || '';
+                let avatarUrl = u.avatar || u.foto || '';
                 const userId = u.id || (u.email ? String(u.email).replace(/\W+/g, '_') : String(u.name).replace(/\W+/g, '_'));
                 const oldUser = Array.isArray(dbUsers) ? dbUsers.find(ou => (ou.id && u.id && String(ou.id) === String(u.id)) || (ou.email && u.email && ou.email.trim().toLowerCase() === u.email.trim().toLowerCase())) : null;
 
@@ -307,6 +337,18 @@ export async function syncKeyToSupabase(key, data) {
                 } else if (!sigUrl && oldUser && oldUser.signature && typeof oldUser.signature === 'string' && oldUser.signature.startsWith('http')) {
                     await deleteStorageFile('crane-app-media', oldUser.signature);
                 }
+
+                if (typeof avatarUrl === 'string' && avatarUrl.startsWith('data:')) {
+                    if (oldUser && (oldUser.avatar || oldUser.foto) && typeof (oldUser.avatar || oldUser.foto) === 'string' && (oldUser.avatar || oldUser.foto).startsWith('http')) {
+                        await deleteStorageFile('crane-app-media', oldUser.avatar || oldUser.foto);
+                    }
+                    const uniqueFileName = `avatar_${userId}_${Date.now()}`;
+                    avatarUrl = await uploadBase64ToStorage('crane-app-media', 'avatars', avatarUrl, uniqueFileName);
+                    u.avatar = avatarUrl;
+                } else if (!avatarUrl && oldUser && (oldUser.avatar || oldUser.foto) && typeof (oldUser.avatar || oldUser.foto) === 'string' && (oldUser.avatar || oldUser.foto).startsWith('http')) {
+                    await deleteStorageFile('crane-app-media', oldUser.avatar || oldUser.foto);
+                }
+
                 return {
                     id: u.id,
                     name: u.name,
@@ -315,6 +357,7 @@ export async function syncKeyToSupabase(key, data) {
                     permission: u.permission,
                     cargo: u.cargo || u.role || '',
                     signature: sigUrl,
+                    avatar: avatarUrl,
                     tenant_code: u.tenant_code || getTenantCode() || '001'
                 };
             }));
@@ -551,8 +594,17 @@ export async function deleteUserFromCloud(userId) {
 }
 
 export async function deleteEventFromCloud(eventId) {
-    if (!isSupabaseConfigured) return;
-    return dbDelete('scheduled_inspections', 'id', String(eventId));
+    if (!isSupabaseConfigured || !eventId) return;
+    const cleanId = String(eventId).trim();
+    const deletePromises = [dbDelete('scheduled_inspections', 'id', cleanId)];
+    // Se for formato equip-data (ex: #EQP-0001-2026-10-15), também garante remoção de eventual registro legado gravado apenas com o ID do equipamento
+    if (cleanId.includes('-20')) {
+        const legacyEquipId = cleanId.substring(0, cleanId.lastIndexOf('-20'));
+        if (legacyEquipId) {
+            deletePromises.push(dbDelete('scheduled_inspections', 'id', legacyEquipId).catch(() => {}));
+        }
+    }
+    return Promise.all(deletePromises);
 }
 
 export async function deleteOrderFromCloud(orderId) {
@@ -575,13 +627,18 @@ export async function syncAllFromSupabase() {
 
         // 1. Companies
         let dbCompanies = await dbFetchAll('companies');
-        if (Array.isArray(dbCompanies) && dbCompanies.length > 0) {
+        if (Array.isArray(dbCompanies)) {
             const normalized = normalizeCompanies(dbCompanies).sort((a, b) => a.name.localeCompare(b.name));
+            // Preserva empresas locais criadas offline que ainda não constem no Supabase
+            (companies || []).forEach(localComp => {
+                const localName = (typeof localComp === 'string' ? localComp : localComp.name || '').trim().toLowerCase();
+                if (localName && !normalized.some(nc => (nc.name || '').trim().toLowerCase() === localName)) {
+                    normalized.push(localComp);
+                }
+            });
+            normalized.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
             updateArrayInPlace(companies, normalized);
-            setStoredData('crane_companies', companies);
-        } else if (Array.isArray(dbCompanies) && dbCompanies.length === 0) {
-            updateArrayInPlace(companies, []);
-            setStoredData('crane_companies', []);
+            setStoredData('crane_companies', companies, false);
         }
 
         const validCompanyNames = new Set((companies || []).map(c => (typeof c === 'string' ? c : c.name).toLowerCase().trim()));
@@ -619,6 +676,7 @@ export async function syncAllFromSupabase() {
                     motorElevAuxiliarBaixa: a.motorelevauxiliarbaixa || a.motorElevAuxiliarBaixa || (localAsset ? localAsset.motorElevAuxiliarBaixa : ''),
                     motorDirecaoCarro: a.motordirecaocarro || a.motorDirecaoCarro || (localAsset ? localAsset.motorDirecaoCarro : ''),
                     motorTranslacaoPonte: a.motortranslacaoponte || a.motorTranslacaoPonte || (localAsset ? localAsset.motorTranslacaoPonte : ''),
+                    foto: a.foto || (a.custom_fields && a.custom_fields.foto) || (localAsset ? (localAsset.foto || localAsset.photo || localAsset.imagemUrl) : ''),
                     template_id: a.template_id || (localAsset ? localAsset.template_id : null),
                     template_name: a.template_name || (localAsset ? localAsset.template_name : null),
                     schema_snapshot: a.schema_snapshot || (localAsset ? localAsset.schema_snapshot : null),
@@ -637,7 +695,8 @@ export async function syncAllFromSupabase() {
             });
 
             updateArrayInPlace(allAssetsList, merged);
-            localStorage.setItem('crane_all_assets', JSON.stringify(allAssetsList));
+            const tenantKeyAssets = getTenantKey('crane_all_assets');
+            try { localStorage.setItem(tenantKeyAssets, JSON.stringify(allAssetsList)); } catch (e) {}
             await setDBValue('crane_all_assets', allAssetsList);
         }
 
@@ -706,8 +765,15 @@ export async function syncAllFromSupabase() {
                     tecnico: e.tecnico || ''
                 });
             }
+            // Preserva agendamentos locais criados offline
+            const handledEventIds = new Set(mappedEvents.map(ev => String(ev.id)));
+            (eventsList || []).forEach(localEv => {
+                if (localEv && localEv.id && !handledEventIds.has(String(localEv.id))) {
+                    mappedEvents.push(localEv);
+                }
+            });
             updateArrayInPlace(eventsList, mappedEvents);
-            setStoredData('crane_events', eventsList);
+            setStoredData('crane_events', eventsList, false);
             // Limpa chave legada crane_assets se presente
             try { localStorage.removeItem('crane_assets'); } catch (e) {}
         }
@@ -752,6 +818,13 @@ export async function syncAllFromSupabase() {
                     revisions: parseIfNeeded(o.revisions) || meta.revisions || (localMatch ? localMatch.revisions : null)
                 };
             });
+            // Preserva ordens de serviço locais criadas offline
+            const handledOrderIds = new Set(mappedOrders.map(o => String(o.id)));
+            (localOpenOrders || []).forEach(localOrder => {
+                if (localOrder && localOrder.id && !handledOrderIds.has(String(localOrder.id))) {
+                    mappedOrders.push(localOrder);
+                }
+            });
             updateArrayInPlace(openOrders, mappedOrders);
             await setDBValue('crane_open_orders', mappedOrders);
             try { localStorage.removeItem('crane_open_orders'); } catch (e) {}
@@ -790,7 +863,13 @@ export async function syncAllFromSupabase() {
                     revisions: parseIfNeeded(r.revisions) || meta.revisions || (localMatch ? localMatch.revisions : null)
                 };
             });
-
+            // Preserva relatórios finalizados locais criados offline
+            const handledReportIds = new Set(mappedReports.map(r => String(r.id)));
+            (localReports || []).forEach(localRep => {
+                if (localRep && localRep.id && !handledReportIds.has(String(localRep.id))) {
+                    mappedReports.push(localRep);
+                }
+            });
             updateArrayInPlace(finalizedReports, mappedReports);
             await setDBValue('crane_reports', mappedReports);
             try { localStorage.removeItem('crane_reports'); } catch (e) {}
@@ -979,8 +1058,28 @@ export function purgeOrphanLocalData() {
     }
 }
 
+export const DB_SCHEMA_VERSION = 2;
+
+export async function checkAndApplySchemaVersion() {
+    try {
+        if (typeof localStorage === 'undefined') return;
+        const storedVersion = Number(localStorage.getItem('crane_db_schema_version') || 0);
+        if (storedVersion < DB_SCHEMA_VERSION) {
+            console.log(`CRANE PRO: Atualizando versão de dados local de ${storedVersion} para ${DB_SCHEMA_VERSION}...`);
+            // Limpa chaves de ativos locais obsoletos para forçar sincronização fresca da nuvem
+            ['crane_all_assets', '001_crane_all_assets', 'crane_assets'].forEach(k => {
+                try { localStorage.removeItem(k); } catch (e) {}
+            });
+            localStorage.setItem('crane_db_schema_version', String(DB_SCHEMA_VERSION));
+        }
+    } catch (e) {
+        console.warn('CRANE PRO: Falha ao verificar versão de schema:', e);
+    }
+}
+
 // Carrega todos os dados do banco de dados IndexedDB para a memória de forma assíncrona
 export async function loadAllDataFromDB() {
+    await checkAndApplySchemaVersion();
     await initializeIndexedDB();
 
     // 1. Carrega imediatamente do IndexedDB local (Instantâneo / Sem bloqueio)
@@ -1037,9 +1136,9 @@ export async function loadAllDataFromDB() {
 // Lista de Usuários Global (Carregada puramente do Banco de Dados / Cache Local)
 export let eventsList = getStoredData('crane_events', []);
 
-export function setEventsList(newList) {
+export function setEventsList(newList, syncCloud = true) {
     eventsList = newList;
-    setStoredData('crane_events', eventsList);
+    setStoredData('crane_events', eventsList, syncCloud);
 }
 
 export let usersList = getStoredData('crane_users', []);

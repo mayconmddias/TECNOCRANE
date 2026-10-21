@@ -24,6 +24,9 @@ export function restoreUserSession() {
             const nameEl = document.getElementById('user-name-display');
             if (roleEl) roleEl.innerText = user.permission || 'TECNICO';
             if (nameEl) nameEl.innerText = user.name || 'USUÁRIO';
+            if (typeof window.updateMobileUserInfo === 'function') {
+                window.updateMobileUserInfo(user);
+            }
 
             if (typeof window.reloadAppDataAndUI === 'function') {
                 window.reloadAppDataAndUI();
@@ -248,11 +251,14 @@ window.handleLogin = async function() {
         document.getElementById('login-view').classList.add('hidden');
         document.getElementById('main-app').classList.remove('hidden');
         
-        // Atualiza perfil na sidebar
+        // Atualiza perfil na sidebar e no mobile
         const roleEl = document.getElementById('user-role-display');
         const nameEl = document.getElementById('user-name-display');
         if (roleEl) roleEl.innerText = foundUser.permission || 'TECNICO';
         if (nameEl) nameEl.innerText = foundUser.name || 'USUÁRIO';
+        if (typeof window.updateMobileUserInfo === 'function') {
+            window.updateMobileUserInfo(foundUser);
+        }
         
         // Dispara sincronização e renderização completa dos dados atualizados da nuvem
         if (typeof window.reloadAppDataAndUI === 'function') {

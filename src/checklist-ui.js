@@ -62,23 +62,35 @@ function bindChecklistEvents(root) {
 
     // Auto-resize textareas on input
     function autoResizeTextarea(textarea) {
-        textarea.style.height = 'auto';
-        textarea.style.height = textarea.scrollHeight + 'px';
+        if (!textarea) return;
+        textarea.style.setProperty('height', 'auto', 'important');
+        const scrollH = textarea.scrollHeight;
+        if (scrollH > 0) {
+            textarea.style.setProperty('height', `${Math.max(scrollH, 48)}px`, 'important');
+        }
     }
 
     root.addEventListener('input', e => {
-        if (e.target.matches('textarea.checklist-observation, textarea.checklist-text-value')) {
+        if (e.target.matches('textarea.checklist-observation, textarea.checklist-text-value, textarea')) {
             autoResizeTextarea(e.target);
         }
         notifyChange();
     });
 
-    // Initial auto-resize for textareas that already have content
-    requestAnimationFrame(() => {
-        root.querySelectorAll('textarea.checklist-observation, textarea.checklist-text-value').forEach(ta => {
-            if (ta.value) autoResizeTextarea(ta);
-        });
+    root.addEventListener('focusin', e => {
+        if (e.target.matches('textarea.checklist-observation, textarea.checklist-text-value, textarea')) {
+            autoResizeTextarea(e.target);
+        }
     });
+
+    // Initial auto-resize for textareas that already have content
+    const runInitialResize = () => {
+        root.querySelectorAll('textarea.checklist-observation, textarea.checklist-text-value, textarea').forEach(ta => {
+            autoResizeTextarea(ta);
+        });
+    };
+    requestAnimationFrame(runInitialResize);
+    setTimeout(runInitialResize, 100);
 }
 
 function compressImage(file, maxWidth = 800, maxHeight = 800, quality = 0.7) {

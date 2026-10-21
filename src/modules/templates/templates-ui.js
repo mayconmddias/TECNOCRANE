@@ -12,13 +12,64 @@ import {
     saveAssetTemplate,
     duplicateAssetTemplate,
     deleteAssetTemplate,
-    loadAssetTemplates
+    loadAssetTemplates,
+    SYSTEM_INSPECTION_TEMPLATE_ID,
+    SYSTEM_ASSET_TEMPLATE_ID,
+    SYSTEM_INSPECTION_TEMPLATE,
+    SYSTEM_ASSET_TEMPLATE
 } from './templates-module.js';
 import { CHECKLIST_SCHEMA } from '../../checklist-schema.js';
 
+/**
+ * Função utilitária global robusta para auto-expansão dinâmica de textareas.
+ * Resolve definitivamente os problemas de textos empurrados para cima (scrollTop > 0)
+ * e linhas cortadas na parte inferior (subpixel / descenders / margem de respiro).
+ */
+export function autoResizeTextarea(el) {
+    if (!el || typeof el.getBoundingClientRect !== 'function') return;
+
+    // Garante propriedades estruturais essenciais
+    el.style.boxSizing = 'border-box';
+    el.style.resize = 'none';
+
+    // Salva a altura mínima definida (inline style, dataset ou classe)
+    const minHeight = parseFloat(el.dataset.minHeight) || 
+                      (el.classList.contains('field-label') ? 42 : 
+                       (el.id && el.id.startsWith('item-nome')) ? 38 : 
+                       (el.id && el.id.startsWith('chk-desc')) ? 34 : 36);
+
+    // Reseta temporariamente para 'auto' para permitir que o scrollHeight
+    // reflita com 100% de fidelidade o número real de linhas (1, 2, 3, 4, 5+)
+    // sem colapsar a zero e sem travar o motor de layout do WebView
+    el.style.height = 'auto';
+
+    // scrollHeight inclui conteúdo interno e padding (top + bottom)
+    const scrollH = el.scrollHeight;
+
+    // Calcula bordas reais da caixa
+    const computed = (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') ? window.getComputedStyle(el) : null;
+    const borderTop = computed ? (parseFloat(computed.borderTopWidth) || 0) : 1;
+    const borderBottom = computed ? (parseFloat(computed.borderBottomWidth) || 0) : 1;
+    const totalBorder = borderTop + borderBottom;
+
+    // Margem de respiro generosa (+8px) para garantir que:
+    // 1. A 3ª, 4ª e linhas seguintes fiquem 100% visíveis, sem encostar na borda inferior
+    // 2. A caixa física seja maior que o texto, eliminando rolagem interna forçada
+    const targetHeight = Math.max(minHeight, Math.ceil(scrollH + totalBorder + 8));
+
+    el.style.height = targetHeight + 'px';
+    el.style.overflowY = 'hidden';
+
+    // Garante que o texto fique perfeitamente posicionado do topo para baixo
+    el.scrollTop = 0;
+}
+if (typeof window !== 'undefined') {
+    window.autoResizeTextarea = autoResizeTextarea;
+}
+
 let draftTemplate = null;
 let draftAssetTemplate = null;
-let activeTemplatesTab = 'inspections'; // 'inspections' | 'assets'
+let activeTemplatesTab = 'assets'; // 'assets' | 'inspections'
 
 /**
  * Renderiza a visão principal do módulo MEUS MODELOS
@@ -45,177 +96,184 @@ export function switchTemplatesTab(tabName) {
 
 function drawTemplatesUI(container) {
     const isInspections = activeTemplatesTab === 'inspections';
-    const templates = [...(getTemplates() || [])].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
-    const assetTemplates = [...(getAssetTemplates() || [])].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
 
-    const formatDate = (isoStr) => {
+    // Garante que o modelo padrão fique sempre no topo e os do usuário em seguida ordenados de A a Z
+    const allTemplates = getTemplates() || [];
+    const systemTpl = allTemplates.find(t => String(t.id) === SYSTEM_INSPECTION_TEMPLATE_ID) || SYSTEM_INSPECTION_TEMPLATE;
+    const userTemplates = allTemplates
+        .filter(t => String(t.id) !== SYSTEM_INSPECTION_TEMPLATE_ID)
+        .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
+    const templates = [systemTpl, ...userTemplates];
+
+    const allAssetTemplates = getAssetTemplates() || [];
+    const systemAssetTpl = allAssetTemplates.find(a => String(a.id) === SYSTEM_ASSET_TEMPLATE_ID) || SYSTEM_ASSET_TEMPLATE;
+    const userAssetTemplates = allAssetTemplates
+        .filter(a => String(a.id) !== SYSTEM_ASSET_TEMPLATE_ID)
+        .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
+    const assetTemplates = [systemAssetTpl, ...userAssetTemplates];
+
+    const formatDateOnly = (isoStr) => {
         if (!isoStr) return '-';
         try {
             const d = new Date(isoStr);
-            return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+            return d.toLocaleDateString('pt-BR');
         } catch (e) {
             return isoStr;
         }
     };
 
-    // Tab 1: Inspeções
-    let inspectionsTableRowsHtml = '';
+    // Tab 1: Cards de Inspeção
+    let inspectionsCardsHtml = '';
     if (templates.length === 0) {
-        inspectionsTableRowsHtml = `
-            <tr>
-                <td colspan="5" class="px-card_padding py-12 text-center text-on-surface-variant">
-                    <span class="material-symbols-outlined text-[48px] text-on-surface-variant/40 mb-2 block">format_list_bulleted_add</span>
-                    <p class="text-body-lg font-bold uppercase">Nenhum modelo de inspeção cadastrado</p>
-                    <p class="text-body-md text-on-surface-variant mt-1">Clique em "+ INSPEÇÃO" para cadastrar seu primeiro checklist personalizado.</p>
-                </td>
-            </tr>`;
+        inspectionsCardsHtml = `
+            <div class="col-span-full bg-white border border-[#e6d5a8] rounded-2xl p-10 text-center text-[#6a6a6a] shadow-sm">
+                <span class="material-symbols-outlined text-[48px] text-primary/60 mb-2 block">format_list_bulleted_add</span>
+                <p class="text-body-lg font-bold uppercase text-[#1f1f1f]">Nenhum formulário de inspeção cadastrado</p>
+                <p class="text-body-md text-[#6a6a6a] mt-1">Crie um novo modelo de ativo para gerar automaticamente o formulário de inspeção vinculado.</p>
+            </div>`;
     } else {
-        inspectionsTableRowsHtml = templates.map(t => {
-            const itemCount = (t.items || []).length;
-            const totalVerifications = (t.items || []).reduce((acc, item) => acc + (item.checklists || []).length, 0);
+        inspectionsCardsHtml = templates.map(t => {
+            const isSystem = t.isSystemDefault || String(t.id) === SYSTEM_INSPECTION_TEMPLATE_ID;
+            const criador = isSystem ? 'Sistema (Crane Pro)' : (t.createdBy || 'Usuário');
+            const dataCriacao = formatDateOnly(t.createdAt);
+            const itemsCount = (t.items || []).length;
 
             return `
-            <tr class="hover:bg-surface-container/50 transition-colors border-b border-outline-variant/60">
-                <td class="px-card_padding py-stack_md font-bold text-on-surface uppercase text-body-md">
-                    <div class="flex items-center gap-stack_sm">
-                        <span class="material-symbols-outlined text-primary text-[22px]">assignment</span>
-                        <span>${escapeHTML(t.nome)}</span>
+            <div class="bg-white border ${isSystem ? 'border-amber-300 shadow-amber-50/50' : 'border-[#e6d5a8]'} text-[#1f1f1f] rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-4">
+                <div class="space-y-2">
+                    <div>
+                        <div class="text-body-lg font-bold text-[#1f1f1f] uppercase leading-snug">
+                            <span class="text-[#6a6a6a] font-medium">Inspeção:</span> ${escapeHTML(t.nome)}
+                        </div>
                     </div>
-                </td>
-                <td class="px-card_padding py-stack_md text-on-surface-variant text-body-md">
-                    <span class="font-semibold text-on-surface">${itemCount}</span> ${itemCount === 1 ? 'item' : 'itens'}
-                    <span class="text-label-md text-on-surface-variant/70">(${totalVerifications} verificações)</span>
-                </td>
-                <td class="px-card_padding py-stack_md text-on-surface-variant text-body-md">
-                    ${formatDate(t.createdAt)}
-                </td>
-                <td class="px-card_padding py-stack_md text-on-surface-variant text-body-md">
-                    ${formatDate(t.updatedAt || t.createdAt)}
-                </td>
-                <td class="px-card_padding py-stack_md">
-                    <div class="flex items-center justify-end gap-2">
+                    <div class="text-[12px] text-[#6a6a6a] space-y-0.5 pt-1 border-t border-[#e6d5a8]/60">
+                        <div><span class="font-semibold text-[#1f1f1f]">Criado:</span> ${dataCriacao}</div>
+                        <div><span class="font-semibold text-[#1f1f1f]">Responsável:</span> ${escapeHTML(criador)}</div>
+                        <div><span class="font-semibold text-[#1f1f1f]">Itens:</span> ${itemsCount} seção(ões)</div>
+                    </div>
+                </div>
+                <div class="pt-3 border-t border-[#e6d5a8]/60 flex items-center justify-between gap-2">
+                    ${isSystem ? `
+                        <button onclick="window.viewTemplateAction(event, '${t.id}')"
+                            class="w-full border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-label-sm font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                            title="Visualizar modelo padrão">
+                            <span class="material-symbols-outlined text-[18px]">visibility</span>
+                            VISUALIZAR
+                        </button>
+                    ` : `
                         <button onclick="window.editTemplateAction(event, '${t.id}')"
-                            class="border border-outline bg-surface-container-low hover:bg-surface-container text-on-surface text-label-md font-bold py-1.5 px-3 rounded-xl flex items-center gap-1 transition-all cursor-pointer"
-                            title="Editar estrutura do modelo">
-                            <span class="material-symbols-outlined text-[16px]">edit</span>
+                            class="w-full border border-[#e6d5a8] bg-[#fff8e0] hover:bg-[#fff0c2] text-[#1f1f1f] text-label-sm font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                            title="Editar estrutura da inspeção">
+                            <span class="material-symbols-outlined text-[18px]">edit</span>
                             EDITAR
                         </button>
-                        <button onclick="window.duplicateTemplateAction(event, '${t.id}')"
-                            class="border border-outline bg-surface-container-low hover:bg-surface-container text-on-surface-variant hover:text-on-surface text-label-md font-bold py-1.5 px-3 rounded-xl flex items-center gap-1 transition-all cursor-pointer"
-                            title="Duplicar modelo">
-                            <span class="material-symbols-outlined text-[16px]">content_copy</span>
-                            DUPLICAR
-                        </button>
-                        <button onclick="window.deleteTemplateAction(event, '${t.id}')"
-                            class="border border-outline bg-surface-container-low hover:bg-error/10 hover:border-error text-error text-label-md font-bold p-1.5 rounded-xl flex items-center justify-center transition-all cursor-pointer"
-                            title="Excluir modelo">
-                            <span class="material-symbols-outlined text-[18px]">delete</span>
-                        </button>
-                    </div>
-                </td>
-            </tr>`;
+                    `}
+                </div>
+            </div>`;
         }).join('');
     }
 
-    // Tab 2: Ativos
-    let assetTableRowsHtml = '';
+    // Tab 2: Cards de Ativos
+    let assetCardsHtml = '';
     if (assetTemplates.length === 0) {
-        assetTableRowsHtml = `
-            <tr>
-                <td colspan="5" class="px-card_padding py-12 text-center text-on-surface-variant">
-                    <span class="material-symbols-outlined text-[48px] text-on-surface-variant/40 mb-2 block">assignment</span>
-                    <p class="text-body-lg font-bold uppercase">Nenhum modelo de ativo cadastrado</p>
-                    <p class="text-body-md text-on-surface-variant mt-1">Clique em "+ ATIVO" para configurar modelos com ficha técnica e especificações personalizadas.</p>
-                </td>
-            </tr>`;
+        assetCardsHtml = `
+            <div class="col-span-full bg-white border border-[#e6d5a8] rounded-2xl p-10 text-center text-[#6a6a6a] shadow-sm">
+                <span class="material-symbols-outlined text-[48px] text-primary/60 mb-2 block">precision_manufacturing</span>
+                <p class="text-body-lg font-bold uppercase text-[#1f1f1f]">Nenhum modelo de ativo cadastrado</p>
+                <p class="text-body-md text-[#6a6a6a] mt-1">Clique no botão "+" acima para cadastrar o primeiro modelo de ativo.</p>
+            </div>`;
     } else {
-        assetTableRowsHtml = assetTemplates.map(a => {
-            const fieldCount = (a.customFields || []).length;
-            const tipo = a.tipoEquipamento ? a.tipoEquipamento.toUpperCase() : 'GERAL';
+        assetCardsHtml = assetTemplates.map(a => {
+            const isSystem = a.isSystemDefault || String(a.id) === SYSTEM_ASSET_TEMPLATE_ID;
+            const criador = isSystem ? 'Sistema (Crane Pro)' : (a.createdBy || 'Usuário');
+            const dataCriacao = formatDateOnly(a.createdAt);
 
             return `
-            <tr class="hover:bg-surface-container/50 transition-colors border-b border-outline-variant/60">
-                <td class="px-card_padding py-stack_md font-bold text-on-surface uppercase text-body-md">
-                    <div class="flex items-center gap-stack_sm">
-                        <span class="material-symbols-outlined text-primary text-[22px]">assignment</span>
-                        <span>${escapeHTML(a.nome)}</span>
+            <div class="bg-white border ${isSystem ? 'border-amber-300 shadow-amber-50/50' : 'border-[#e6d5a8]'} text-[#1f1f1f] rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-4">
+                <div class="space-y-2">
+                    <div>
+                        <div class="text-body-lg font-bold text-[#1f1f1f] uppercase leading-snug">
+                            <span class="text-[#6a6a6a] font-medium">Ativo:</span> ${escapeHTML(a.nome)}
+                        </div>
                     </div>
-                </td>
-                <td class="px-card_padding py-stack_md text-on-surface-variant text-body-md">
-                    <span class="font-semibold text-on-surface">${fieldCount}</span> ${fieldCount === 1 ? 'campo' : 'campos'}
-                    <span class="text-label-md text-on-surface-variant/70">(${escapeHTML(tipo)})</span>
-                </td>
-                <td class="px-card_padding py-stack_md text-on-surface-variant text-body-md">
-                    ${formatDate(a.createdAt)}
-                </td>
-                <td class="px-card_padding py-stack_md text-on-surface-variant text-body-md">
-                    ${formatDate(a.updatedAt || a.createdAt)}
-                </td>
-                <td class="px-card_padding py-stack_md">
-                    <div class="flex items-center justify-end gap-2">
-                        <button onclick="window.editAssetTemplateAction(event, '${a.id}')"
-                            class="border border-outline bg-surface-container-low hover:bg-surface-container text-on-surface text-label-md font-bold py-1.5 px-3 rounded-xl flex items-center gap-1 transition-all cursor-pointer"
-                            title="Editar modelo de ativo">
-                            <span class="material-symbols-outlined text-[16px]">edit</span>
-                            EDITAR
-                        </button>
-                        <button onclick="window.duplicateAssetTemplateAction(event, '${a.id}')"
-                            class="border border-outline bg-surface-container-low hover:bg-surface-container text-on-surface-variant hover:text-on-surface text-label-md font-bold py-1.5 px-3 rounded-xl flex items-center gap-1 transition-all cursor-pointer"
-                            title="Duplicar modelo de ativo">
-                            <span class="material-symbols-outlined text-[16px]">content_copy</span>
-                            DUPLICAR
-                        </button>
+                    <div class="text-[12px] text-[#6a6a6a] space-y-0.5 pt-1 border-t border-[#e6d5a8]/60">
+                        <div><span class="font-semibold text-[#1f1f1f]">Criado:</span> ${dataCriacao}</div>
+                        <div><span class="font-semibold text-[#1f1f1f]">Responsável:</span> ${escapeHTML(criador)}</div>
+                    </div>
+                </div>
+                <div class="pt-3 border-t border-[#e6d5a8]/60 flex items-center justify-between gap-2">
+                    ${isSystem ? `
+                        <div class="grid grid-cols-2 gap-2 w-full">
+                            <button onclick="window.viewAssetTemplateAction(event, '${a.id}')"
+                                class="border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-label-sm font-bold py-1.5 px-3 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer"
+                                title="Visualizar modelo de ativo padrão">
+                                <span class="material-symbols-outlined text-[16px]">visibility</span>
+                                VISUALIZAR
+                            </button>
+                            <button onclick="window.duplicateAssetTemplateAction(event, '${a.id}')"
+                                class="border border-[#e6d5a8] bg-[#fff8e0] hover:bg-[#fff0c2] text-[#1f1f1f] text-label-sm font-bold py-1.5 px-3 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer"
+                                title="Duplicar modelo de ativo">
+                                <span class="material-symbols-outlined text-[16px]">content_copy</span>
+                                DUPLICAR
+                            </button>
+                        </div>
+                    ` : `
+                        <div class="flex items-center gap-2">
+                            <button onclick="window.editAssetTemplateAction(event, '${a.id}')"
+                                class="border border-[#e6d5a8] bg-[#fff8e0] hover:bg-[#fff0c2] text-[#1f1f1f] text-label-sm font-bold py-1.5 px-3 rounded-xl flex items-center gap-1 transition-all cursor-pointer"
+                                title="Editar modelo de ativo">
+                                <span class="material-symbols-outlined text-[16px]">edit</span>
+                                EDITAR
+                            </button>
+                            <button onclick="window.duplicateAssetTemplateAction(event, '${a.id}')"
+                                class="border border-[#e6d5a8] bg-[#fff8e0] hover:bg-[#fff0c2] text-[#4a4a4a] hover:text-[#1f1f1f] text-label-sm font-bold py-1.5 px-3 rounded-xl flex items-center gap-1 transition-all cursor-pointer"
+                                title="Duplicar modelo de ativo">
+                                <span class="material-symbols-outlined text-[16px]">content_copy</span>
+                                DUPLICAR
+                            </button>
+                        </div>
                         <button onclick="window.deleteAssetTemplateAction(event, '${a.id}')"
-                            class="border border-outline bg-surface-container-low hover:bg-error/10 hover:border-error text-error text-label-md font-bold p-1.5 rounded-xl flex items-center justify-center transition-all cursor-pointer"
+                            class="border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 text-label-sm font-bold p-2 rounded-xl flex items-center justify-center transition-all cursor-pointer"
                             title="Excluir modelo de ativo">
                             <span class="material-symbols-outlined text-[18px]">delete</span>
                         </button>
-                    </div>
-                </td>
-            </tr>`;
+                    `}
+                </div>
+            </div>`;
         }).join('');
     }
 
     container.innerHTML = `
-        <!-- Navegação por Abas (Inspeções vs Ativos) e Botão '+' -->
-        <div class="flex border-b border-outline-variant items-center justify-between gap-2">
-            <div class="flex items-center gap-2">
-                <button type="button" onclick="window.switchTemplatesTab('inspections')"
-                    class="px-5 py-3 font-bold uppercase text-label-lg transition-all flex items-center gap-2 border-b-2 cursor-pointer ${isInspections ? 'border-primary text-primary bg-primary/5 rounded-t-xl' : 'border-transparent text-on-surface-variant hover:text-on-surface'}">
-                    <span class="material-symbols-outlined text-[20px]">assignment</span>
-                    MODELOS DE INSPEÇÃO (CHECKLISTS)
-                    <span class="bg-surface-container-high px-2 py-0.5 rounded-full text-label-sm font-bold">${templates.length}</span>
-                </button>
-                <button type="button" onclick="window.switchTemplatesTab('assets')"
-                    class="px-5 py-3 font-bold uppercase text-label-lg transition-all flex items-center gap-2 border-b-2 cursor-pointer ${!isInspections ? 'border-primary text-primary bg-primary/5 rounded-t-xl' : 'border-transparent text-on-surface-variant hover:text-on-surface'}">
-                    <span class="material-symbols-outlined text-[20px]">precision_manufacturing</span>
-                    MODELOS DE ATIVOS (EQUIPAMENTOS)
-                    <span class="bg-surface-container-high px-2 py-0.5 rounded-full text-label-sm font-bold">${assetTemplates.length}</span>
-                </button>
-                <button type="button" onclick="${isInspections ? 'window.openTemplateModal(event)' : 'window.openAssetTemplateModal(event)'}"
-                    class="p-2 text-on-surface hover:bg-surface-container-high rounded-xl font-bold flex items-center justify-center ml-2 transition-colors cursor-pointer"
-                    title="${isInspections ? 'Novo Modelo de Inspeção' : 'Novo Modelo de Ativo'}">
+        <div class="w-full max-w-full overflow-x-hidden pb-28 md:pb-6">
+            <!-- Navegação por Abas (Ativos vs Inspeção) e Botão '+' no canto direito -->
+            <div class="flex border-b border-outline-variant items-center justify-between gap-1.5 sm:gap-2 w-full max-w-full">
+                <!-- Abas com largura flexível para telas mobile: Ativos à esquerda, Inspeção à direita -->
+                <div class="flex items-center gap-1 sm:gap-2 flex-1 min-w-0">
+                    <button type="button" onclick="window.switchTemplatesTab('assets')"
+                        class="flex-1 sm:flex-none px-2.5 sm:px-5 py-2.5 sm:py-3 font-bold uppercase text-[11px] sm:text-label-lg transition-all flex items-center justify-center gap-1 sm:gap-2 border-b-2 cursor-pointer ${!isInspections ? 'border-primary text-primary bg-primary/5 rounded-t-xl' : 'border-transparent text-on-surface-variant hover:text-on-surface'}">
+                        <span class="material-symbols-outlined text-[18px] sm:text-[20px]">precision_manufacturing</span>
+                        <span>Ativos</span>
+                        <span class="bg-surface-container-high px-1.5 py-0.5 rounded-full text-[10px] sm:text-label-sm font-bold">${assetTemplates.length}</span>
+                    </button>
+                    <button type="button" onclick="window.switchTemplatesTab('inspections')"
+                        class="flex-1 sm:flex-none px-2.5 sm:px-5 py-2.5 sm:py-3 font-bold uppercase text-[11px] sm:text-label-lg transition-all flex items-center justify-center gap-1 sm:gap-2 border-b-2 cursor-pointer ${isInspections ? 'border-primary text-primary bg-primary/5 rounded-t-xl' : 'border-transparent text-on-surface-variant hover:text-on-surface'}">
+                        <span class="material-symbols-outlined text-[18px] sm:text-[20px]">assignment</span>
+                        <span>Inspeção</span>
+                        <span class="bg-surface-container-high px-1.5 py-0.5 rounded-full text-[10px] sm:text-label-sm font-bold">${templates.length}</span>
+                    </button>
+                </div>
+
+                <!-- Botão '+' SEMPRE VISÍVEL no canto direito -->
+                <button type="button" onclick="window.openAssetTemplateModal(event)"
+                    class="shrink-0 bg-primary hover:brightness-105 text-on-primary font-bold w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shadow-md transition-all cursor-pointer"
+                    title="Novo Modelo">
                     <span class="material-symbols-outlined text-[22px]">add</span>
                 </button>
             </div>
-        </div>
 
-        <div class="bg-surface border border-outline shadow-md rounded-xl overflow-hidden mt-stack_md">
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse">
-                    <thead class="bg-surface-container border-b border-outline">
-                        <tr>
-                            <th class="px-card_padding py-stack_md text-label-md font-bold text-on-surface-variant uppercase tracking-wider">NOME DO MODELO</th>
-                            <th class="px-card_padding py-stack_md text-label-md font-bold text-on-surface-variant uppercase tracking-wider">ESTRUTURA</th>
-                            <th class="px-card_padding py-stack_md text-label-md font-bold text-on-surface-variant uppercase tracking-wider">CRIADO EM</th>
-                            <th class="px-card_padding py-stack_md text-label-md font-bold text-on-surface-variant uppercase tracking-wider">ÚLTIMA ALTERAÇÃO</th>
-                            <th class="px-card_padding py-stack_md text-label-md font-bold text-on-surface-variant uppercase tracking-wider text-right">AÇÕES</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-outline">
-                        ${isInspections ? inspectionsTableRowsHtml : assetTableRowsHtml}
-                    </tbody>
-                </table>
+            <!-- Grade Responsiva de Cards de Formulários -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 mt-stack_md">
+                ${isInspections ? inspectionsCardsHtml : assetCardsHtml}
             </div>
         </div>
     `;
@@ -225,9 +283,12 @@ function drawTemplatesUI(container) {
 /**
  * Abre o modal de criação ou edição de modelo
  */
-export function openTemplateModal(templateId = null) {
+export function openTemplateModal(templateId = null, isReadOnly = false) {
     const modal = document.getElementById('template-editor-modal');
     if (!modal) return;
+
+    const isSystem = templateId === SYSTEM_INSPECTION_TEMPLATE_ID;
+    const readOnlyMode = isReadOnly || isSystem;
 
     if (templateId) {
         const existing = getTemplateById(templateId);
@@ -240,7 +301,19 @@ export function openTemplateModal(templateId = null) {
         draftTemplate = createEmptyDraft();
     }
 
+    draftTemplate._isReadOnly = readOnlyMode;
     renderModalEditorContent();
+
+    // Controle de visibilidade do botão Salvar
+    const saveBtn = modal.querySelector('button[onclick*="saveTemplateFromModal"]');
+    if (saveBtn) {
+        if (readOnlyMode) {
+            saveBtn.classList.add('hidden');
+        } else {
+            saveBtn.classList.remove('hidden');
+        }
+    }
+
     modal.classList.remove('hidden');
 }
 
@@ -259,15 +332,7 @@ function createEmptyDraft() {
     return {
         id: null,
         nome: '',
-        items: [
-            {
-                id: null,
-                nome: '',
-                checklists: [
-                    { id: null, descricao: '' }
-                ]
-            }
-        ]
+        items: []
     };
 }
 
@@ -278,18 +343,47 @@ function renderModalEditorContent() {
     const titleEl = document.getElementById('template-modal-title');
     const bodyEl = document.getElementById('template-modal-body');
     const nameInput = document.getElementById('template-name-input');
+    const isReadOnly = draftTemplate && !!draftTemplate._isReadOnly;
 
     if (titleEl) {
-        titleEl.innerText = draftTemplate && draftTemplate.id ? 'EDITAR MODELO DE CHECKLIST' : 'CRIAR MODELO DE CHECKLIST';
+        if (isReadOnly) {
+            titleEl.innerText = 'VISUALIZAR ESTRUTURA DE INSPEÇÃO (PADRÃO)';
+        } else {
+            titleEl.innerText = draftTemplate && draftTemplate.id ? 'EDITAR ESTRUTURA DE INSPEÇÃO' : 'ESTRUTURA DE INSPEÇÃO';
+        }
     }
 
     if (nameInput) {
         nameInput.value = draftTemplate ? draftTemplate.nome || '' : '';
+        nameInput.disabled = true;
+        nameInput.readOnly = true;
+        nameInput.title = 'O nome deste formulário é vinculado ao Modelo de Ativo e não pode ser editado diretamente.';
+        nameInput.classList.add('opacity-80', 'cursor-not-allowed', 'bg-surface-container');
     }
 
     if (!bodyEl) return;
 
     const items = (draftTemplate && draftTemplate.items) || [];
+
+    const readOnlyBannerHtml = isReadOnly ? `
+        <div class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-3.5 flex items-center gap-3 select-none mb-4 shadow-xs">
+            <span class="material-symbols-outlined text-amber-600 text-[24px]">lock</span>
+            <div>
+                <p class="text-body-md font-bold uppercase">Modelo Padrão do Sistema (Somente Leitura)</p>
+                <p class="text-[12px] text-amber-800">Este checklist serve como modelo de referência técnica e não pode ser modificado. Para criar formulários personalizados, crie ou duplique um Modelo de Ativo na aba Ativos.</p>
+            </div>
+        </div>
+    ` : '';
+
+    const emptyChecklistNoticeHtml = (!isReadOnly && items.length === 0) ? `
+        <div class="bg-surface-container-low border border-outline-variant rounded-2xl p-8 text-center text-on-surface-variant space-y-2.5 my-2">
+            <span class="material-symbols-outlined text-[48px] text-primary/70 block">note_add</span>
+            <p class="text-body-lg font-bold uppercase text-on-surface">Formulário de Inspeção Limpo</p>
+            <p class="text-body-md text-on-surface-variant max-w-md mx-auto">
+                Este formulário foi iniciado limpo. Você pode adicionar itens próprios do zero ou clicar no botão <strong>"+ ADICIONAR ITEM PADRÃO"</strong> para importar seções completas de Ponte Rolante.
+            </p>
+        </div>
+    ` : '';
 
     const itemsHtml = items.map((item, itemIdx) => {
         const checklists = item.checklists || [];
@@ -323,10 +417,11 @@ function renderModalEditorContent() {
                             <span class="text-[11px] text-on-surface-variant">Arames rompidos, bitola, diâmetros, corrosão, deformação e danos</span>
                         </div>
                     </div>
-                    <label class="inline-flex items-center gap-2 cursor-pointer group bg-surface px-3 py-1.5 rounded-lg border border-outline hover:border-primary transition-all">
+                    <label class="inline-flex items-center gap-2 ${isReadOnly ? 'pointer-events-none opacity-80' : 'cursor-pointer'} group bg-surface px-3 py-1.5 rounded-lg border border-outline hover:border-primary transition-all">
                         <input type="checkbox"
                             id="toggle-special-${itemIdx}"
                             ${isChecked ? 'checked' : ''}
+                            ${isReadOnly ? 'disabled' : ''}
                             onchange="window.toggleDraftItemSpecialType(${itemIdx}, 'cableComposite', this.checked)"
                             class="w-4.5 h-4.5 rounded border-outline text-primary focus:ring-primary cursor-pointer">
                         <span class="text-label-md font-bold uppercase ${isChecked ? 'text-primary' : 'text-on-surface-variant'}">
@@ -386,10 +481,11 @@ function renderModalEditorContent() {
                             <span class="text-[11px] text-on-surface-variant">Abertura do gancho, líquido penetrante, proteção, norma DIN, capacidade</span>
                         </div>
                     </div>
-                    <label class="inline-flex items-center gap-2 cursor-pointer group bg-surface px-3 py-1.5 rounded-lg border border-outline hover:border-primary transition-all">
+                    <label class="inline-flex items-center gap-2 ${isReadOnly ? 'pointer-events-none opacity-80' : 'cursor-pointer'} group bg-surface px-3 py-1.5 rounded-lg border border-outline hover:border-primary transition-all">
                         <input type="checkbox"
                             id="toggle-special-${itemIdx}"
                             ${isChecked ? 'checked' : ''}
+                            ${isReadOnly ? 'disabled' : ''}
                             onchange="window.toggleDraftItemSpecialType(${itemIdx}, 'hookComposite', this.checked)"
                             class="w-4.5 h-4.5 rounded border-outline text-primary focus:ring-primary cursor-pointer">
                         <span class="text-label-md font-bold uppercase ${isChecked ? 'text-primary' : 'text-on-surface-variant'}">
@@ -425,20 +521,23 @@ function renderModalEditorContent() {
         }
 
         const checklistsHtml = checklists.map((chk, chkIdx) => `
-            <div class="flex items-center justify-between gap-3 py-2 border-b border-outline-variant/30 last:border-b-0 hover:bg-surface-container-low/40 px-2 rounded-lg transition-all group">
-                <div class="flex items-center gap-3 flex-1 min-w-[200px]">
-                    <div class="w-4.5 h-4.5 border-2 border-outline-variant rounded flex items-center justify-center text-on-surface-variant/40 shrink-0 select-none">
+            <div class="flex items-start justify-between gap-3 py-2 border-b border-outline-variant/30 last:border-b-0 hover:bg-surface-container-low/40 px-2 rounded-lg transition-colors group">
+                <div class="flex items-start gap-3 flex-1 min-w-[200px]">
+                    <div class="w-4.5 h-4.5 border-2 border-outline-variant rounded flex items-center justify-center text-on-surface-variant/40 shrink-0 select-none mt-1">
                     </div>
-                    <input type="text"
+                    <textarea
                         id="chk-desc-${itemIdx}-${chkIdx}"
-                        value="${escapeHTML(chk.descricao || '')}"
+                        rows="1"
+                        ${isReadOnly ? 'disabled readonly' : ''}
                         onchange="window.updateDraftChecklist(${itemIdx}, ${chkIdx}, this.value)"
-                        oninput="window.updateDraftChecklist(${itemIdx}, ${chkIdx}, this.value)"
+                        oninput="window.autoResizeTextarea(this); window.updateDraftChecklist(${itemIdx}, ${chkIdx}, this.value)"
+                        onfocus="window.autoResizeTextarea(this)"
                         placeholder="Descrição da verificação (ex: ALINHAMENTO E NIVELAMENTO)"
-                        class="w-full bg-transparent text-body-md font-bold uppercase text-on-surface hover:bg-surface-container-low focus:bg-surface-container-low focus:ring-1 focus:ring-primary border border-transparent hover:border-outline rounded-md py-1 px-2 outline-none transition-all">
+                        style="min-height: 34px;"
+                        class="w-full bg-transparent text-body-md font-bold uppercase text-on-surface hover:bg-surface-container-low focus:bg-surface-container-low focus:ring-1 focus:ring-primary border border-transparent hover:border-outline rounded-md py-1 px-2 outline-none resize-none overflow-hidden transition-colors leading-snug ${isReadOnly ? 'cursor-default select-text' : ''}">${escapeHTML(chk.descricao || '')}</textarea>
                 </div>
 
-                <div class="flex items-center gap-4 shrink-0">
+                <div class="flex items-center gap-4 shrink-0 mt-1">
                     <!-- Simulador de Rádio OK / NOK (Visual Idêntico ao Formulário) -->
                     <div class="flex items-center gap-3 select-none pointer-events-none opacity-80">
                         <div class="flex items-center gap-1.5 text-label-md font-bold text-on-surface">
@@ -451,6 +550,7 @@ function renderModalEditorContent() {
                         </div>
                     </div>
 
+                    ${!isReadOnly ? `
                     <!-- Botões de Ação da Linha de Verificação -->
                     <div class="flex items-center gap-0.5 border-l border-outline-variant/40 pl-2">
                         <button type="button" onclick="window.moveDraftChecklist(${itemIdx}, ${chkIdx}, -1)" ${chkIdx === 0 ? 'disabled' : ''}
@@ -465,7 +565,7 @@ function renderModalEditorContent() {
                             class="p-1 text-error hover:bg-error/10 rounded transition-colors cursor-pointer" title="Excluir verificação">
                             <span class="material-symbols-outlined text-[18px]">delete</span>
                         </button>
-                    </div>
+                    </div>` : ''}
                 </div>
             </div>
         `).join('');
@@ -473,20 +573,24 @@ function renderModalEditorContent() {
         return `
         <div class="bg-surface border border-outline-variant rounded-2xl p-card_padding space-y-stack_md shadow-xs">
             <!-- Cabeçalho da Seção com Número Amarelo e Ações -->
-            <div class="border-b border-outline-variant/60 pb-3 flex flex-wrap items-center justify-between gap-3">
-                <div class="flex items-center gap-3 flex-1 min-w-[280px]">
-                    <div class="w-5 h-5 border-2 border-outline-variant rounded flex items-center justify-center text-on-surface-variant/40 shrink-0 select-none">
+            <div class="border-b border-outline-variant/60 pb-3 flex flex-wrap items-start justify-between gap-3">
+                <div class="flex items-start gap-3 flex-1 min-w-[280px]">
+                    <div class="w-5 h-5 border-2 border-outline-variant rounded flex items-center justify-center text-on-surface-variant/40 shrink-0 select-none mt-1">
                     </div>
-                    <span class="text-primary font-bold text-headline-md shrink-0">${itemIdx + 1}</span>
-                    <input type="text"
+                    <span class="text-primary font-bold text-headline-md shrink-0 leading-none mt-1">${itemIdx + 1}</span>
+                    <textarea
                         id="item-nome-${itemIdx}"
-                        value="${escapeHTML(cleanName || rawName)}"
+                        rows="1"
+                        ${isReadOnly ? 'disabled readonly' : ''}
                         onchange="window.updateDraftItemName(${itemIdx}, this.value)"
-                        oninput="window.updateDraftItemName(${itemIdx}, this.value)"
+                        oninput="window.autoResizeTextarea(this); window.updateDraftItemName(${itemIdx}, this.value)"
+                        onfocus="window.autoResizeTextarea(this)"
                         placeholder="NOME DO ITEM (EX: SISTEMA DE ALIMENTAÇÃO DA PONTE ROLANTE)"
-                        class="w-full bg-transparent font-bold text-headline-md uppercase text-on-surface hover:bg-surface-container-low focus:bg-surface-container-low focus:ring-2 focus:ring-primary focus:border-primary border border-transparent hover:border-outline rounded-lg py-1 px-2.5 outline-none transition-all">
+                        style="min-height: 38px;"
+                        class="w-full bg-transparent font-bold text-headline-md uppercase text-on-surface hover:bg-surface-container-low focus:bg-surface-container-low focus:ring-2 focus:ring-primary focus:border-primary border border-transparent hover:border-outline rounded-lg py-1 px-2.5 outline-none resize-none overflow-hidden transition-colors leading-snug ${isReadOnly ? 'cursor-default select-text' : ''}">${escapeHTML(cleanName || rawName)}</textarea>
                 </div>
 
+                ${!isReadOnly ? `
                 <div class="flex items-center gap-1 shrink-0">
                     <button type="button" onclick="window.addDraftObservationBlock(${itemIdx})"
                         class="w-8 h-8 flex items-center justify-center text-on-surface hover:text-primary hover:bg-primary/10 rounded-lg transition-colors cursor-pointer" title="Adicionar Bloco de Observação e Foto">
@@ -504,14 +608,17 @@ function renderModalEditorContent() {
                         class="w-8 h-8 flex items-center justify-center text-error hover:bg-error/10 rounded-lg transition-colors cursor-pointer" title="Excluir item">
                         <span class="material-symbols-outlined text-[20px]">delete</span>
                     </button>
+                </div>` : ''}
+            </div>
+
+            <!-- Lista de Verificações no Padrão do Formulário com Rolagem Horizontal Segura em Mobile -->
+            <div class="overflow-x-auto -mx-1 px-1 custom-scrollbar pb-1">
+                <div class="min-w-[580px] space-y-1">
+                    ${checklistsHtml}
                 </div>
             </div>
 
-            <!-- Lista de Verificações no Padrão do Formulário -->
-            <div class="space-y-1">
-                ${checklistsHtml}
-            </div>
-
+            ${!isReadOnly ? `
             <!-- Botão Adicionar Verificação no Formato Padrão -->
             <div>
                 <button type="button" onclick="window.addDraftChecklist(${itemIdx})"
@@ -519,18 +626,19 @@ function renderModalEditorContent() {
                     <span class="material-symbols-outlined text-[18px]">add_circle</span>
                     + ADICIONAR VERIFICAÇÃO
                 </button>
-            </div>
+            </div>` : ''}
 
             <!-- Tabela Técnica Opcional -->
             ${specialTableControlHtml}
 
             <!-- Rodapé da Seção com Observação Padrão e Fotos (Sem lixeira) -->
             <div class="space-y-2 pt-2 border-t border-outline-variant/30">
+                ${!isReadOnly ? `
                 <div class="flex justify-end gap-2">
                     <button type="button" class="w-9 h-9 border border-outline bg-surface-container-low text-on-surface-variant hover:text-green-600 rounded-xl flex items-center justify-center transition-all cursor-pointer" title="Anexar Fotos">
                         <span class="material-symbols-outlined text-[20px]">add_a_photo</span>
                     </button>
-                </div>
+                </div>` : ''}
                 <div class="w-full bg-surface-container-low border border-outline rounded-xl py-2 px-4 text-body-md text-on-surface-variant select-none">
                     OBSERVAÇÃO
                 </div>
@@ -543,6 +651,7 @@ function renderModalEditorContent() {
                 for (let oIdx = 0; oIdx < extraCount; oIdx++) {
                     blocksHtml += `
                     <div class="space-y-2 pt-2 border-t border-outline-variant/30">
+                        ${!isReadOnly ? `
                         <div class="flex justify-end gap-2">
                             <button type="button" onclick="window.removeDraftObservationBlock(${itemIdx}, ${oIdx})" class="w-9 h-9 border border-outline bg-surface-container-low text-error hover:bg-error/10 rounded-xl flex items-center justify-center transition-all cursor-pointer" title="Excluir Observação Adicional">
                                 <span class="material-symbols-outlined text-[20px]">delete</span>
@@ -550,7 +659,7 @@ function renderModalEditorContent() {
                             <button type="button" class="w-9 h-9 border border-outline bg-surface-container-low text-on-surface-variant hover:text-green-600 rounded-xl flex items-center justify-center transition-all cursor-pointer" title="Anexar Fotos">
                                 <span class="material-symbols-outlined text-[20px]">add_a_photo</span>
                             </button>
-                        </div>
+                        </div>` : ''}
                         <div class="w-full bg-surface-container-low border border-outline rounded-xl py-2 px-4 text-body-md text-on-surface-variant select-none">
                             OBSERVAÇÃO ADICIONAL ${oIdx + 1}
                         </div>
@@ -563,8 +672,11 @@ function renderModalEditorContent() {
 
     bodyEl.innerHTML = `
         <div class="space-y-stack_lg">
+            ${readOnlyBannerHtml}
+            ${emptyChecklistNoticeHtml}
             ${itemsHtml}
 
+            ${!isReadOnly ? `
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                 <button type="button" onclick="window.addDraftItem()"
                     class="w-full bg-surface border-2 border-dashed border-primary/60 hover:border-primary text-on-surface hover:bg-primary/5 font-bold uppercase text-body-md py-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer">
@@ -576,9 +688,19 @@ function renderModalEditorContent() {
                     <span class="material-symbols-outlined text-secondary">library_add</span>
                     + ADICIONAR ITEM PADRÃO
                 </button>
-            </div>
+            </div>` : ''}
         </div>
     `;
+
+    // Auto-ajustar altura dinâmica de todos os textareas para que nenhum texto fique cortado
+    const adjustAllEditorTextareas = () => {
+        if (!bodyEl) return;
+        bodyEl.querySelectorAll('textarea').forEach(ta => {
+            autoResizeTextarea(ta);
+        });
+    };
+    setTimeout(adjustAllEditorTextareas, 0);
+    setTimeout(adjustAllEditorTextareas, 100);
 }
 
 // Global Handlers para Manipulação do Rascunho
@@ -740,7 +862,13 @@ if (typeof window !== 'undefined') {
 
     window.editTemplateAction = function(evt, id) {
         executeWithAntiDoubleClick(evt, async () => {
-            openTemplateModal(id);
+            openTemplateModal(id, false);
+        });
+    };
+
+    window.viewTemplateAction = function(evt, id) {
+        executeWithAntiDoubleClick(evt, async () => {
+            openTemplateModal(id, true);
         });
     };
 
@@ -817,7 +945,13 @@ if (typeof window !== 'undefined') {
 
     window.editAssetTemplateAction = function(evt, id) {
         executeWithAntiDoubleClick(evt, async () => {
-            openAssetTemplateModal(id);
+            openAssetTemplateModal(id, false);
+        });
+    };
+
+    window.viewAssetTemplateAction = function(evt, id) {
+        executeWithAntiDoubleClick(evt, async () => {
+            openAssetTemplateModal(id, true);
         });
     };
 
@@ -838,11 +972,15 @@ if (typeof window !== 'undefined') {
             const template = getAssetTemplateById(id);
             if (!template) return;
 
-            const confirmMsg = `Excluir o modelo de ativo "${template.nome}"?\n\nEssa ação excluirá o modelo, mas não alterará ativos existentes cadastrados com este modelo.`;
+            if (template.isSystemDefault || String(id) === SYSTEM_ASSET_TEMPLATE_ID) {
+                return window.showAlert('O Formulário modelo Ativo padrão não pode ser excluído.', 'warning');
+            }
+
+            const confirmMsg = `Excluir o modelo de ativo "${template.nome}"?\n\nATENÇÃO: O formulário de inspeção vinculado a ele também será excluído em cascata.\n(Inspeções e ativos já finalizados não serão alterados).`;
             if (confirm(confirmMsg)) {
                 try {
                     await deleteAssetTemplate(id);
-                    window.showAlert('Modelo de ativo excluído com sucesso.', 'success');
+                    window.showAlert('Modelo de ativo e formulário de inspeção vinculado excluídos com sucesso.', 'success');
                     renderTemplatesView();
                 } catch (err) {
                     window.showAlert('Erro ao excluir modelo de ativo.', 'error');
@@ -888,9 +1026,12 @@ export const DEFAULT_ASSET_FIELDS_CATALOG = [
 // MODAL DE MODELO DE ATIVO
 // ============================================================================
 
-export function openAssetTemplateModal(templateId = null) {
+export function openAssetTemplateModal(templateId = null, isReadOnly = false) {
     const modal = document.getElementById('asset-template-editor-modal');
     if (!modal) return;
+
+    const isSystem = templateId === SYSTEM_ASSET_TEMPLATE_ID;
+    const readOnlyMode = isReadOnly || isSystem;
 
     if (templateId) {
         const existing = getAssetTemplateById(templateId);
@@ -903,7 +1044,28 @@ export function openAssetTemplateModal(templateId = null) {
         draftAssetTemplate = createEmptyAssetTemplateDraft();
     }
 
+    draftAssetTemplate._isReadOnly = readOnlyMode;
     renderAssetModalContent();
+
+    // Controle de visibilidade do botão Salvar e de inclusão de novos campos
+    const saveBtn = modal.querySelector('button[onclick*="saveAssetTemplateFromModal"]');
+    if (saveBtn) {
+        if (readOnlyMode) {
+            saveBtn.classList.add('hidden');
+        } else {
+            saveBtn.classList.remove('hidden');
+        }
+    }
+
+    const addFieldBtns = modal.querySelectorAll('button[onclick*="addAssetTemplateFieldRow"], button[onclick*="openAssetDefaultFieldsPickerModal"]');
+    addFieldBtns.forEach(btn => {
+        if (readOnlyMode) {
+            btn.classList.add('hidden');
+        } else {
+            btn.classList.remove('hidden');
+        }
+    });
+
     modal.classList.remove('hidden');
 }
 
@@ -951,43 +1113,85 @@ function renderAssetModalContent() {
     const nameInput = document.getElementById('asset-template-name-input');
     const tipoInput = document.getElementById('asset-template-tipo-default');
     const container = document.getElementById('asset-template-fields-container');
+    const isReadOnly = draftAssetTemplate && !!draftAssetTemplate._isReadOnly;
 
     if (titleEl) {
-        titleEl.innerText = draftAssetTemplate && draftAssetTemplate.id ? 'EDITAR MODELO DE ATIVO' : 'CRIAR MODELO DE ATIVO';
+        if (isReadOnly) {
+            titleEl.innerText = 'VISUALIZAR MODELO DE ATIVO (PADRÃO)';
+        } else {
+            titleEl.innerText = draftAssetTemplate && draftAssetTemplate.id ? 'EDITAR MODELO DE ATIVO' : 'CRIAR MODELO DE ATIVO';
+        }
     }
     if (nameInput) {
         nameInput.value = (draftAssetTemplate && draftAssetTemplate.nome) || '';
+        nameInput.disabled = isReadOnly;
+        nameInput.readOnly = isReadOnly;
+        if (isReadOnly) {
+            nameInput.classList.add('opacity-80', 'cursor-not-allowed', 'bg-surface-container');
+        } else {
+            nameInput.classList.remove('opacity-80', 'cursor-not-allowed', 'bg-surface-container');
+        }
     }
     if (tipoInput) {
         tipoInput.value = (draftAssetTemplate && draftAssetTemplate.tipoEquipamento) || '';
+        tipoInput.disabled = isReadOnly;
+        if (isReadOnly) {
+            tipoInput.classList.add('opacity-80', 'cursor-not-allowed', 'bg-surface-container');
+        } else {
+            tipoInput.classList.remove('opacity-80', 'cursor-not-allowed', 'bg-surface-container');
+        }
     }
 
     if (!container) return;
     container.innerHTML = '';
 
+    if (isReadOnly) {
+        const banner = document.createElement('div');
+        banner.className = 'bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-3.5 flex items-center gap-3 select-none mb-3 shadow-xs';
+        banner.innerHTML = `
+            <span class="material-symbols-outlined text-amber-600 text-[24px]">lock</span>
+            <div>
+                <p class="text-body-md font-bold uppercase">Modelo Padrão do Sistema (Somente Leitura)</p>
+                <p class="text-[12px] text-amber-800">Esta ficha técnica padrão de Ponte Rolante Viga Dupla serve como modelo de exemplo. Para criar sua própria ficha técnica, clique em <strong>"DUPLICAR"</strong> no card deste modelo.</p>
+            </div>
+        `;
+        container.appendChild(banner);
+    }
+
     const fields = (draftAssetTemplate && draftAssetTemplate.customFields) || [];
     fields.forEach((f, idx) => {
         container.appendChild(createAssetFieldRowElement(f, idx));
     });
+
+    // Ajusta a altura dinâmica de todos os textareas de rótulo para que todo o texto fique visível
+    const adjustAssetLabels = () => {
+        container.querySelectorAll('textarea.field-label').forEach(ta => {
+            autoResizeTextarea(ta);
+        });
+    };
+    setTimeout(adjustAssetLabels, 0);
+    setTimeout(adjustAssetLabels, 100);
 }
 
 function createAssetFieldRowElement(field, idx) {
+    const isReadOnly = draftAssetTemplate && !!draftAssetTemplate._isReadOnly;
     const row = document.createElement('div');
-    row.className = 'asset-field-row bg-surface-container/60 p-3 rounded-xl border border-outline-variant grid grid-cols-12 gap-3 items-center';
+    row.className = 'asset-field-row bg-surface-container/60 p-3 rounded-xl border border-outline-variant flex items-start gap-3 min-w-[590px] w-full';
     row.innerHTML = `
-        <div class="col-span-7">
+        <div class="flex-1 min-w-[260px]">
             <label class="text-label-sm text-on-surface-variant uppercase font-bold">RÓTULO DO CAMPO *</label>
-            <input type="text" class="field-label w-full bg-surface-container-low border border-outline rounded-xl py-2 px-3 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-all" placeholder="EX: TIPO DE FREIO" value="${escapeHTML(field.label || '')}">
+            <textarea ${isReadOnly ? 'disabled readonly' : ''} rows="1" class="field-label w-full bg-surface-container-low border border-outline rounded-xl py-2 px-3 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-colors resize-none overflow-hidden leading-snug ${isReadOnly ? 'cursor-default select-text' : ''}" style="min-height: 42px;" placeholder="EX: TIPO DE FREIO" oninput="window.autoResizeTextarea(this)" onfocus="window.autoResizeTextarea(this)">${escapeHTML(field.label || '')}</textarea>
         </div>
-        <div class="col-span-3">
+        <div class="w-[130px] shrink-0">
             <label class="text-label-sm text-on-surface-variant uppercase font-bold">TIPO</label>
-            <select class="field-type w-full bg-surface-container-low border border-outline rounded-xl py-2 px-3 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-all">
+            <select ${isReadOnly ? 'disabled' : ''} class="field-type w-full bg-surface-container-low border border-outline rounded-xl py-2 px-3 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-all ${isReadOnly ? 'cursor-default select-text' : ''}">
                 <option value="text" ${field.type === 'text' ? 'selected' : ''}>TEXTO</option>
                 <option value="number" ${field.type === 'number' ? 'selected' : ''}>NÚMERO</option>
                 <option value="date" ${field.type === 'date' ? 'selected' : ''}>DATA</option>
             </select>
         </div>
-        <div class="col-span-2 flex items-center justify-end gap-1.5 pt-4">
+        ${!isReadOnly ? `
+        <div class="w-[110px] shrink-0 flex items-center justify-end gap-1.5 pt-5 pr-1">
             <button type="button" onclick="window.moveAssetTemplateFieldUp(this)" class="p-1.5 rounded-lg border border-outline hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-all cursor-pointer" title="Mover para cima">
                 <span class="material-symbols-outlined text-[18px]">arrow_upward</span>
             </button>
@@ -997,7 +1201,7 @@ function createAssetFieldRowElement(field, idx) {
             <button type="button" onclick="window.removeAssetTemplateFieldRow(this)" class="p-1.5 rounded-lg text-error hover:bg-error/10 hover:border-error transition-all cursor-pointer" title="Remover Campo">
                 <span class="material-symbols-outlined text-[20px]">delete</span>
             </button>
-        </div>
+        </div>` : ''}
     `;
     return row;
 }
@@ -1026,6 +1230,11 @@ export function addAssetTemplateFieldRow(fieldData = null) {
     const defaultField = fieldData || { label: '', type: 'text' };
     const row = createAssetFieldRowElement(defaultField, container.children.length);
     container.appendChild(row);
+    const ta = row.querySelector('textarea.field-label');
+    if (ta) {
+        autoResizeTextarea(ta);
+        setTimeout(() => ta.focus(), 50);
+    }
 }
 
 export function removeAssetTemplateFieldRow(btn) {
@@ -1142,24 +1351,34 @@ async function saveAssetTemplateFromModal() {
 }
 
 /**
- * Popula qualquer select de modelo de ativo
+ * Popula qualquer select de modelo de ativo exibindo EXCLUSIVAMENTE modelos criados por usuários
  */
 export function populateAssetTemplateDropdown(selectEl, selectedId = null) {
     if (!selectEl) return;
     const rawList = getAssetTemplates() || [];
     
-    // Lista unificada incluindo a opção padrão para ordenação alfabética completa de A a Z
-    const defaultOption = { id: '', nome: 'PONTE ROLANTE VIGA DUPLA', isDefault: true };
-    const allOptions = [defaultOption, ...rawList.map(t => ({ id: t.id, nome: t.nome || t.tipoEquipamento || '' }))];
+    // Filtrar estritamente para NÃO incluir o modelo padrão do sistema
+    const userTemplates = rawList.filter(t => 
+        String(t.id) !== SYSTEM_ASSET_TEMPLATE_ID && !t.isSystemDefault
+    );
+    
+    const allOptions = userTemplates.map(t => ({
+        id: t.id,
+        nome: t.nome || t.tipoEquipamento || ''
+    }));
     
     allOptions.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
 
     let html = '';
-    allOptions.forEach(tpl => {
-        const isSel = (selectedId !== null && selectedId !== undefined && selectedId !== '' && String(tpl.id) === String(selectedId)) || 
-                      ((selectedId === null || selectedId === undefined || selectedId === '') && tpl.isDefault) ? 'selected' : '';
-        html += `<option value="${tpl.id}" ${isSel}>${escapeHTML(tpl.nome.toUpperCase())}</option>`;
-    });
+    if (allOptions.length === 0) {
+        html = '<option value="">NENHUM MODELO DE ATIVO CADASTRADO</option>';
+    } else {
+        allOptions.forEach((tpl, idx) => {
+            const isSel = (selectedId !== null && selectedId !== undefined && selectedId !== '' && String(tpl.id) === String(selectedId)) || 
+                          ((selectedId === null || selectedId === undefined || selectedId === '') && idx === 0) ? 'selected' : '';
+            html += `<option value="${tpl.id}" ${isSel}>${escapeHTML(tpl.nome.toUpperCase())}</option>`;
+        });
+    }
 
     selectEl.innerHTML = html;
 }
@@ -1505,6 +1724,7 @@ export function importSelectedDefaultItems(evt) {
 // --- SELETOR DE ITENS PARA INSPEÇÃO CORRETIVA ---
 let currentCorretivaContext = null;
 let currentCorretivaBaseSchema = null;
+let currentCorretivaCustomSections = [];
 
 /**
  * Filtra um schema de checklist mantendo apenas os nós e itens selecionados
@@ -1550,6 +1770,7 @@ export function filterSchemaForCorretiva(baseSchema, selectedIdsSet) {
 export function openCorretivaItemsPicker(context, baseSchema, templateName = '') {
     currentCorretivaContext = context;
     currentCorretivaBaseSchema = baseSchema || CHECKLIST_SCHEMA;
+    currentCorretivaCustomSections = [];
 
     const modal = document.getElementById('corretiva-items-modal');
     const panel = document.getElementById('corretiva-items-panel');
@@ -1560,8 +1781,7 @@ export function openCorretivaItemsPicker(context, baseSchema, templateName = '')
     if (searchInput) searchInput.value = '';
     if (subtitleEl) {
         const assetName = context.equipamentoNome || context.equipamentoId || 'ATIVO';
-        const baseName = templateName || 'PONTE ROLANTE VIGA DUPLA';
-        subtitleEl.innerText = `ATIVO: ${assetName.toUpperCase()} — BASE: ${baseName.toUpperCase()}`;
+        subtitleEl.innerText = `ATIVO: ${assetName.toUpperCase()}`;
     }
 
     renderCorretivaItemsTree('');
@@ -1596,6 +1816,137 @@ export function closeCorretivaItemsModal() {
     }, 300);
 }
 
+export function openCorretivaCustomItemModal() {
+    const modal = document.getElementById('corretiva-custom-item-modal');
+    const panel = document.getElementById('corretiva-custom-item-panel');
+    const overlay = document.getElementById('corretiva-custom-item-overlay');
+    const titleInput = document.getElementById('corretiva-custom-title');
+    const chkInput = document.getElementById('corretiva-custom-checklists');
+    const includeObs = document.getElementById('corretiva-custom-include-obs');
+
+    if (titleInput) {
+        titleInput.value = '';
+        titleInput.style.height = 'auto';
+    }
+    if (chkInput) chkInput.value = '';
+    if (includeObs) includeObs.checked = true;
+
+    if (modal) modal.classList.remove('hidden');
+    setTimeout(() => {
+        if (overlay) {
+            overlay.classList.remove('opacity-0');
+            overlay.classList.add('opacity-100');
+        }
+        if (panel) {
+            panel.classList.remove('opacity-0', 'scale-95');
+            panel.classList.add('opacity-100', 'scale-100');
+        }
+    }, 10);
+    setTimeout(() => titleInput?.focus(), 150);
+}
+
+export function closeCorretivaCustomItemModal() {
+    const modal = document.getElementById('corretiva-custom-item-modal');
+    const panel = document.getElementById('corretiva-custom-item-panel');
+    const overlay = document.getElementById('corretiva-custom-item-overlay');
+    if (panel) {
+        panel.classList.remove('opacity-100', 'scale-100');
+        panel.classList.add('opacity-0', 'scale-95');
+    }
+    if (overlay) {
+        overlay.classList.remove('opacity-100');
+        overlay.classList.add('opacity-0');
+    }
+    setTimeout(() => {
+        if (modal) modal.classList.add('hidden');
+    }, 300);
+}
+
+export function confirmCorretivaCustomItem() {
+    const titleInput = document.getElementById('corretiva-custom-title');
+    const chkInput = document.getElementById('corretiva-custom-checklists');
+    const includeObsInput = document.getElementById('corretiva-custom-include-obs');
+
+    const titleVal = (titleInput?.value || '').trim();
+    if (!titleVal) {
+        return window.showAlert('INFORME O NOME DO ITEM.', 'warning');
+    }
+
+    const chkText = (chkInput?.value || '').trim();
+    const checklistLines = chkText ? chkText.split('\n').map(l => l.trim()).filter(l => l.length > 0) : [];
+    const includeObs = includeObsInput ? includeObsInput.checked : true;
+
+    if (checklistLines.length === 0 && !includeObs) {
+        return window.showAlert('ADICIONE AO MENOS 1 ITEM DE CHECKLIST OU ATIVE O CAMPO DE OBSERVAÇÕES COM FOTOS.', 'warning');
+    }
+
+    const sectionId = `corretiva_custom_${Date.now()}`;
+    let children = [];
+
+    if (checklistLines.length > 0) {
+        children = checklistLines.map((line, idx) => ({
+            id: `${sectionId}_chk_${idx + 1}`,
+            label: line,
+            fieldType: 'inspectable'
+        }));
+    } else {
+        children = [
+            {
+                id: `${sectionId}_obs`,
+                label: 'OBSERVAÇÕES E PARECER TÉCNICO',
+                fieldType: 'textarea'
+            }
+        ];
+    }
+
+    const cleanTitle = titleVal.replace(/^(\d+(?:\.\d+)*\s*[-–.]*\s*)/, '').trim();
+    const customSection = {
+        id: sectionId,
+        title: cleanTitle || titleVal,
+        isCustomCorretiva: true,
+        level: 1,
+        inspectable: false,
+        includeObs: includeObs,
+        children: children,
+        selected: true
+    };
+
+    if (!currentCorretivaCustomSections) currentCorretivaCustomSections = [];
+    currentCorretivaCustomSections.push(customSection);
+
+    closeCorretivaCustomItemModal();
+    renderCorretivaItemsTree(document.getElementById('corretiva-items-search-input')?.value || '');
+    updateCorretivaItemsCount();
+    window.showAlert(`Item "${cleanTitle || titleVal}" adicionado à lista da corretiva!`, 'success');
+}
+
+export function removeCorretivaCustomSection(secId) {
+    if (!currentCorretivaCustomSections) return;
+    currentCorretivaCustomSections = currentCorretivaCustomSections.filter(s => String(s.id) !== String(secId));
+    renderCorretivaItemsTree(document.getElementById('corretiva-items-search-input')?.value || '');
+    updateCorretivaItemsCount();
+}
+
+export function toggleCorretivaCustomSection(secId, isChecked) {
+    const sec = (currentCorretivaCustomSections || []).find(s => String(s.id) === String(secId));
+    if (sec) sec.selected = isChecked;
+    document.querySelectorAll(`.corretiva-chk-custom-item[data-sec-id="${secId}"]`).forEach(chk => {
+        chk.checked = isChecked;
+    });
+    updateCorretivaItemsCount();
+}
+
+export function onCorretivaCustomItemChange(secId) {
+    const checked = document.querySelectorAll(`.corretiva-chk-custom-item[data-sec-id="${secId}"]:checked`);
+    const secChk = document.querySelector(`.corretiva-chk-custom-sec[data-sec-id="${secId}"]`);
+    if (secChk) {
+        secChk.checked = checked.length > 0;
+        const sec = (currentCorretivaCustomSections || []).find(s => String(s.id) === String(secId));
+        if (sec) sec.selected = secChk.checked;
+    }
+    updateCorretivaItemsCount();
+}
+
 export function renderCorretivaItemsTree(searchTerm = '') {
     const container = document.getElementById('corretiva-items-tree-container');
     if (!container) return;
@@ -1604,6 +1955,7 @@ export function renderCorretivaItemsTree(searchTerm = '') {
     const sections = getHierarchyDefaultTree(schemaToUse);
     const term = (searchTerm || '').trim().toLowerCase();
 
+    // 1. Filtra seções padrão
     let filteredSections = sections;
     if (term) {
         filteredSections = sections.map(sec => {
@@ -1626,7 +1978,17 @@ export function renderCorretivaItemsTree(searchTerm = '') {
         }).filter(Boolean);
     }
 
-    if (filteredSections.length === 0) {
+    // 2. Filtra seções customizadas
+    let customSectionsToRender = currentCorretivaCustomSections || [];
+    if (term) {
+        customSectionsToRender = customSectionsToRender.filter(sec => {
+            const matchTitle = (sec.title || '').toLowerCase().includes(term);
+            const matchChild = (sec.children || []).some(c => (c.label || '').toLowerCase().includes(term));
+            return matchTitle || matchChild;
+        });
+    }
+
+    if (filteredSections.length === 0 && customSectionsToRender.length === 0) {
         container.innerHTML = `
             <div class="py-12 text-center text-on-surface-variant">
                 <span class="material-symbols-outlined text-[48px] opacity-40 mb-2 block">search_off</span>
@@ -1636,7 +1998,53 @@ export function renderCorretivaItemsTree(searchTerm = '') {
         return;
     }
 
-    const html = filteredSections.map(sec => {
+    // 3. Renderiza blocos de itens customizados adicionados
+    const customHtml = customSectionsToRender.map(customSec => {
+        const inspectables = (customSec.children || []).filter(c => c.fieldType === 'inspectable');
+        const hasObs = (customSec.children || []).some(c => c.fieldType === 'textarea') || customSec.includeObs;
+
+        const inspectablesHtml = inspectables.map(child => `
+            <label class="flex items-center gap-3 p-2.5 rounded-lg bg-surface hover:bg-surface-container/70 cursor-pointer transition-colors text-body-md uppercase text-on-surface border border-outline-variant/50">
+                <input type="checkbox" class="corretiva-chk-custom-item rounded border-outline text-primary focus:ring-primary w-4.5 h-4.5" data-sec-id="${customSec.id}" data-item-id="${child.id}" ${customSec.selected !== false ? 'checked' : ''} onchange="window.onCorretivaCustomItemChange('${customSec.id}')">
+                <span class="leading-tight font-semibold">${escapeHTML(child.label)}</span>
+            </label>
+        `).join('');
+
+        const obsBadge = hasObs ? `
+            <div class="flex items-center gap-2 px-3 py-2 bg-surface rounded-lg border border-outline-variant/40 text-xs text-on-surface-variant uppercase font-medium">
+                <span class="material-symbols-outlined text-primary text-[18px]">add_a_photo</span>
+                <span>Inclui campo de observações técnicas com fotos</span>
+            </div>
+        ` : '';
+
+        return `
+        <div class="bg-[#fffdf5] border-2 border-[#e6d5a8] rounded-2xl p-5 space-y-3.5 shadow-sm" data-corretiva-custom-sec="${customSec.id}">
+            <div class="flex items-center justify-between border-b border-[#e6d5a8]/60 pb-3 bg-[#fff8e0]/60 -mx-5 -mt-5 p-5 rounded-t-2xl">
+                <label class="flex items-center gap-3.5 cursor-pointer group flex-1">
+                    <input type="checkbox" class="corretiva-chk-custom-sec rounded border-outline text-primary focus:ring-primary w-6 h-6" data-sec-id="${customSec.id}" ${customSec.selected !== false ? 'checked' : ''} onchange="window.toggleCorretivaCustomSection('${customSec.id}', this.checked)">
+                    <div>
+                        <span class="text-headline-md font-bold uppercase text-on-surface tracking-tight group-hover:text-primary transition-colors block">
+                            ${escapeHTML(customSec.title)}
+                        </span>
+                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-[#fa520f]/15 text-[#fa520f] uppercase mt-0.5">
+                            <span class="material-symbols-outlined text-[14px]">tune</span>
+                            ITEM PERSONALIZADO
+                        </span>
+                    </div>
+                </label>
+                <button type="button" onclick="window.removeCorretivaCustomSection('${customSec.id}')" class="w-9 h-9 flex items-center justify-center rounded-xl text-error hover:bg-error/10 transition-colors cursor-pointer shrink-0 ml-2" title="Excluir item personalizado">
+                    <span class="material-symbols-outlined text-[22px]">delete</span>
+                </button>
+            </div>
+            <div class="space-y-2 pt-1">
+                ${inspectables.length > 0 ? `<div class="grid grid-cols-1 md:grid-cols-2 gap-2">${inspectablesHtml}</div>` : ''}
+                ${obsBadge}
+            </div>
+        </div>`;
+    }).join('');
+
+    // 4. Renderiza seções do formulário padrão
+    const standardHtml = filteredSections.map(sec => {
         const match = sec.title.match(/^(\d+(?:\s*–\s*|\s+))?(.*)$/);
         let numPart = '';
         let textPart = sec.title;
@@ -1701,7 +2109,7 @@ export function renderCorretivaItemsTree(searchTerm = '') {
         </div>`;
     }).join('');
 
-    container.innerHTML = html;
+    container.innerHTML = customHtml + standardHtml;
     updateCorretivaItemsCount();
 }
 
@@ -1710,8 +2118,23 @@ export function updateCorretivaItemsCount() {
     const confirmBtn = document.getElementById('corretiva-confirm-btn');
     if (!counterEl && !confirmBtn) return;
 
-    const checkedItems = document.querySelectorAll('#corretiva-items-tree-container input.corretiva-chk-item:checked');
-    const count = checkedItems.length;
+    const checkedStandard = document.querySelectorAll('#corretiva-items-tree-container input.corretiva-chk-item:checked');
+    
+    let customCount = 0;
+    (currentCorretivaCustomSections || []).forEach(sec => {
+        const secChk = document.querySelector(`.corretiva-chk-custom-sec[data-sec-id="${sec.id}"]`);
+        if (secChk && secChk.checked) {
+            const inspectables = (sec.children || []).filter(c => c.fieldType === 'inspectable');
+            if (inspectables.length > 0) {
+                const checkedItems = document.querySelectorAll(`.corretiva-chk-custom-item[data-sec-id="${sec.id}"]:checked`);
+                customCount += checkedItems.length;
+            } else {
+                customCount += 1;
+            }
+        }
+    });
+
+    const count = checkedStandard.length + customCount;
 
     if (counterEl) {
         counterEl.innerText = `${count} ${count === 1 ? 'ITEM SELECIONADO' : 'ITENS SELECIONADOS'}`;
@@ -1759,6 +2182,9 @@ export function toggleAllCorretivaItems(isChecked) {
     container.querySelectorAll('input[type="checkbox"]').forEach(chk => {
         chk.checked = isChecked;
     });
+    if (currentCorretivaCustomSections) {
+        currentCorretivaCustomSections.forEach(s => s.selected = isChecked);
+    }
     updateCorretivaItemsCount();
 }
 
@@ -1768,23 +2194,49 @@ export function onCorretivaSearchInput(term) {
 
 export function confirmCorretivaChecklist() {
     const checkedItems = Array.from(document.querySelectorAll('#corretiva-items-tree-container input.corretiva-chk-item:checked'));
-    if (checkedItems.length === 0) {
-        return window.showAlert('SELECIONE AO MENOS 1 ITEM PARA INICIAR A INSPEÇÃO CORRETIVA.', 'warning');
-    }
-
+    
+    // 1. Filtra itens do template padrão
     const selectedIdsSet = new Set(checkedItems.map(chk => String(chk.dataset.nodeId)));
     const baseSchema = currentCorretivaBaseSchema || CHECKLIST_SCHEMA;
-    const filteredSchema = filterSchemaForCorretiva(baseSchema, selectedIdsSet);
+    const filteredStandardSchema = filterSchemaForCorretiva(baseSchema, selectedIdsSet);
 
-    if (!filteredSchema || filteredSchema.length === 0) {
-        return window.showAlert('ERRO AO PROCESSAR OS ITENS SELECIONADOS. POR FAVOR, SELECIONE NOVAMENTE.', 'warning');
+    // 2. Coleta itens customizados selecionados
+    const activeCustomSections = [];
+    (currentCorretivaCustomSections || []).forEach(sec => {
+        const secChk = document.querySelector(`.corretiva-chk-custom-sec[data-sec-id="${sec.id}"]`);
+        if (secChk && secChk.checked) {
+            const inspectables = (sec.children || []).filter(c => c.fieldType === 'inspectable');
+            if (inspectables.length > 0) {
+                const checkedSubIds = new Set(
+                    Array.from(document.querySelectorAll(`.corretiva-chk-custom-item[data-sec-id="${sec.id}"]:checked`))
+                        .map(c => String(c.dataset.itemId))
+                );
+                const filteredChildren = (sec.children || []).filter(c => 
+                    c.fieldType !== 'inspectable' || checkedSubIds.has(String(c.id))
+                );
+                if (filteredChildren.length > 0) {
+                    activeCustomSections.push({
+                        ...sec,
+                        children: filteredChildren
+                    });
+                }
+            } else {
+                activeCustomSections.push(sec);
+            }
+        }
+    });
+
+    const finalSchema = [...filteredStandardSchema, ...activeCustomSections];
+
+    if (finalSchema.length === 0) {
+        return window.showAlert('SELECIONE AO MENOS 1 ITEM PARA INICIAR A INSPEÇÃO CORRETIVA.', 'warning');
     }
 
     const ctx = currentCorretivaContext;
     closeCorretivaItemsModal();
 
     if (typeof window !== 'undefined' && window.launchInspectionWithSchema) {
-        window.launchInspectionWithSchema(ctx, filteredSchema);
+        window.launchInspectionWithSchema(ctx, finalSchema);
     }
 }
 
@@ -1792,6 +2244,12 @@ export function confirmCorretivaChecklist() {
 if (typeof window !== 'undefined') {
     window.openCorretivaItemsPicker = openCorretivaItemsPicker;
     window.closeCorretivaItemsModal = closeCorretivaItemsModal;
+    window.openCorretivaCustomItemModal = openCorretivaCustomItemModal;
+    window.closeCorretivaCustomItemModal = closeCorretivaCustomItemModal;
+    window.confirmCorretivaCustomItem = confirmCorretivaCustomItem;
+    window.removeCorretivaCustomSection = removeCorretivaCustomSection;
+    window.toggleCorretivaCustomSection = toggleCorretivaCustomSection;
+    window.onCorretivaCustomItemChange = onCorretivaCustomItemChange;
     window.renderCorretivaItemsTree = renderCorretivaItemsTree;
     window.updateCorretivaItemsCount = updateCorretivaItemsCount;
     window.toggleCorretivaMainSection = toggleCorretivaMainSection;

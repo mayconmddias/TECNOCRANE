@@ -1,6 +1,6 @@
-import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteCompanyAllDataFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud, openOrders, setOpenOrders, finalizedReports, setFinalizedReports, syncAllFromSupabase, syncKeyToSupabase, eventsList } from './data.js';
+import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteCompanyAllDataFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud, openOrders, setOpenOrders, finalizedReports, setFinalizedReports, syncAllFromSupabase, syncKeyToSupabase, eventsList, setEventsList } from './data.js';
 import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay, hashPassword, formatShortName } from './utils.js';
-import { renderCompanies as renderCompaniesUI, renderAssetsTable } from './ui-render.js';
+import { renderCompanies as renderCompaniesUI, renderAssetsTable, getDefaultAssetImage, getDefaultCompanyLogo } from './ui-render.js';
 import { renderObservationBlock, renderNode, renderCustomChecklistItemRow, renderResponsibleCard } from './checklist-render.js';
 import { mountChecklistForm, getFormRoot, collectFormData } from './checklist-ui.js';
 import { createInspectionDocument, validateBeforeSend, mergeLegacyReport } from './checklist-state.js';
@@ -9,10 +9,14 @@ import { getTenantCode, isSupabaseConfigured } from './supabase.js';
 import { CHECKLIST_SCHEMA } from './checklist-schema.js';
 import { showPrintLoadingOverlay, hidePrintLoadingOverlay, collectAllReportImageUrls, preloadImageUrls, printReportPDF, getChecklistPrintHTML } from './modules/reports/reports-pdf.js';
 import { filterReports, formatReportNumber, normalizeComp as normCompReports, normalizeAssetId as normAssetReports } from './modules/reports/reports-service.js';
-import { renderTemplatesView, populateAssetTemplateDropdown, openCorretivaItemsPicker } from './modules/templates/templates-ui.js';
-import { getTemplates, getTemplateById, convertTemplateToChecklistSchema, loadTemplates, getAssetTemplates, getAssetTemplateById, loadAssetTemplates } from './modules/templates/templates-module.js';
+import { renderTemplatesView, populateAssetTemplateDropdown, openCorretivaItemsPicker, autoResizeTextarea } from './modules/templates/templates-ui.js';
+import { getTemplates, getTemplateById, convertTemplateToChecklistSchema, loadTemplates, getAssetTemplates, getAssetTemplateById, loadAssetTemplates, SYSTEM_INSPECTION_TEMPLATE_ID } from './modules/templates/templates-module.js';
 import { reserveNextAssetId, prepareAssetPayload, parseAssetSequenceNumber } from './modules/assets/assets-service.js';
 import { generateNextOrderId, saveDraftOrder, deleteDraftOrder, saveFastLocalDraft, getFastLocalDraft, clearFastLocalDraft } from './modules/orders/orders-service.js';
+import { initNativeFeatures } from './native.js';
+import { calculateRecurringDate, buildScheduledEventId, filterEventsOnSingleDelete, filterEventsOnGroupDelete, getEventCloudIdsToDelete, generateScheduledEvents } from './modules/scheduling/scheduling-service.js';
+
+window.calculateRecurringDate = calculateRecurringDate;
 
 window.hidePrintLoadingOverlay = hidePrintLoadingOverlay;
 window.getChecklistPrintHTML = getChecklistPrintHTML;
@@ -20,6 +24,7 @@ window.allAssetsList = allAssetsList;
 window.companies = companies;
 
 console.log('CRANE PRO: Iniciando carregamento do módulo app.js...');
+initNativeFeatures();
 
 // --- GLOBAL FUNCTIONS (EXPOSED TO WINDOW) ---
 // --- GLOBAL STATE ---
@@ -30,46 +35,7 @@ let assets = getStoredData('crane_assets', []);
 let events = eventsList;
 
 function runMigrationsAndSync() {
-    // Recupera o ativo #EQP-0001 original da AUTOKINITON caso tenha sido acidentalmente sobrescrito
-    const hasEqp1 = allAssetsList.find(a => a && (a.id === '#EQP-0001' || a.id === '#EQP 0001'));
-    if (hasEqp1 && (hasEqp1.tipo === 'TALHA MANUAL' || hasEqp1.empresa !== 'AUTOKINITON')) {
-        const originalAutokiniton = {
-            id: '#EQP-0001',
-            empresa: 'AUTOKINITON',
-            nome: 'PONTE ROLANTE VIGA DUPLA',
-            tipo: 'PONTE ROLANTE VIGA DUPLA',
-            local: 'ARMAZEM A',
-            fabricante: 'TECNOCRANE',
-            capacidade: '32 TON',
-            caboPrincipal: '',
-            capacidadeAuxiliar: '',
-            caboAuxiliar: '',
-            altura: '13 MTS',
-            vao: '19.730 MTS',
-            tensaoAlimentacao: '',
-            tensaoComando: '',
-            alimentacaoEquipamento: '',
-            motorElevPrincipalAlta: '',
-            motorElevPrincipalBaixa: '',
-            motorElevAuxiliarAlta: '',
-            motorElevAuxiliarBaixa: '',
-            motorDirecaoCarro: '',
-            motorTranslacaoPonte: '',
-            template_id: null,
-            template_name: null,
-            schema_snapshot: null,
-            custom_fields: {},
-            is_provisional: false,
-            provisional_id: null,
-            sync_status: 'synced'
-        };
-
-        const reallocated = { ...hasEqp1, id: '#EQP-0004' };
-        const updated = allAssetsList.filter(a => a.id !== hasEqp1.id);
-        updated.unshift(originalAutokiniton);
-        updated.push(reallocated);
-        setAllAssetsList(updated);
-    }
+    // Sincronização inicial de propriedades técnicas entre listas locais
 
     // Migração dos ativos no localStorage para corresponder às especificações da nova lista técnica
     assets = assets.map(a => {
@@ -85,7 +51,7 @@ function runMigrationsAndSync() {
         return a;
     });
 
-    setStoredData('crane_assets', assets);
+    setStoredData('crane_assets', assets, false);
 
     // Atualiza eventos garantindo que tipo e local sejam enriquecidos a partir do cadastro tecnico allAssetsList
     if (events && events.length > 0) {
@@ -98,7 +64,8 @@ function runMigrationsAndSync() {
             };
         });
         updateArrayInPlace(events, enrichedEvents);
-        setStoredData('crane_events', events);
+        updateArrayInPlace(eventsList, enrichedEvents);
+        setStoredData('crane_events', events, false);
     }
 
     // Migração das ordens de serviço e relatórios no localStorage para usar os novos tipos
@@ -116,7 +83,7 @@ function runMigrationsAndSync() {
         }
         return order;
     }));
-    setStoredData('crane_open_orders', openOrders);
+    setStoredData('crane_open_orders', openOrders, false);
 
     updateArrayInPlace(finalizedReports, finalizedReports.map(report => {
         const matchingTechnicalAsset = allAssetsList.find(ta => ta.id === report.equipamentoId || ta.id === report.equipamento);
@@ -132,6 +99,7 @@ function runMigrationsAndSync() {
         }
         return report;
     }));
+    setStoredData('crane_reports', finalizedReports, false);
 
 }
 
@@ -252,6 +220,63 @@ window.initCalendarVisibility = function() {
 
 // --- VIEW NAVIGATION ---
 
+window.toggleMobileMoreMenu = function(show) {
+    const sheet = document.getElementById('mobile-more-sheet');
+    if (!sheet) return;
+    if (show) {
+        sheet.classList.remove('hidden');
+    } else {
+        sheet.classList.add('hidden');
+    }
+};
+
+window.toggleLoginPasswordVisibility = function(inputId, btn) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const icon = btn ? btn.querySelector('.material-symbols-outlined') : null;
+    if (input.type === 'password') {
+        input.type = 'text';
+        if (icon) icon.innerText = 'visibility_off';
+    } else {
+        input.type = 'password';
+        if (icon) icon.innerText = 'visibility';
+    }
+};
+
+window.updateMobileUserInfo = function(user) {
+    if (!user) return;
+    const name = (user.name || 'Usuário').toUpperCase();
+    const role = (user.permission || 'Técnico').toUpperCase();
+    const initials = name.split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('') || 'CP';
+
+    const avatarContainer = document.getElementById('mobile-user-avatar');
+    if (avatarContainer) {
+        if (user.avatar || user.foto) {
+            avatarContainer.innerHTML = `<img src="${user.avatar || user.foto}" class="w-full h-full object-cover" alt="${name}">`;
+        } else {
+            avatarContainer.innerHTML = `<span id="mobile-avatar-initials">${initials}</span>`;
+        }
+    }
+
+    const sheetAvatar = document.getElementById('mobile-sheet-avatar');
+    const sheetInitials = document.getElementById('mobile-sheet-avatar-initials');
+    if (sheetAvatar) {
+        if (user.avatar || user.foto) {
+            sheetAvatar.innerHTML = `<img src="${user.avatar || user.foto}" class="w-full h-full object-cover" alt="${name}">`;
+        } else {
+            sheetAvatar.innerHTML = `<span id="mobile-sheet-avatar-initials">${initials}</span>`;
+        }
+    } else if (sheetInitials) {
+        sheetInitials.innerText = initials;
+    }
+
+    const sheetName = document.getElementById('mobile-sheet-user-name');
+    if (sheetName) sheetName.innerText = name;
+
+    const sheetRole = document.getElementById('mobile-sheet-user-role');
+    if (sheetRole) sheetRole.innerText = role;
+};
+
 window.switchView = function(view) {
     // Inspeção abre popup, não troca de view
     if (view === 'inspections') {
@@ -280,11 +305,27 @@ window.switchView = function(view) {
         'open-orders': document.getElementById('nav-open-orders')
     };
 
+    const mobileNavs = {
+        dashboard: document.getElementById('mobile-nav-dashboard'),
+        reports: document.getElementById('mobile-nav-reports'),
+        inspections: document.getElementById('mobile-nav-inspections'),
+        'open-orders': document.getElementById('mobile-nav-open-orders')
+    };
+
     Object.values(views).forEach(v => v?.classList.add('hidden'));
     Object.values(navs).forEach(n => n?.classList.remove('nav-item-active'));
+    Object.values(mobileNavs).forEach(m => {
+        if (!m) return;
+        m.classList.remove('mobile-nav-active');
+        m.classList.add('text-slate-400');
+    });
 
     if (views[view]) views[view].classList.remove('hidden');
     if (navs[view]) navs[view].classList.add('nav-item-active');
+    if (mobileNavs[view]) {
+        mobileNavs[view].classList.add('mobile-nav-active');
+        mobileNavs[view].classList.remove('text-slate-400');
+    }
 
     if (view === 'dashboard') {
         renderAssets();
@@ -297,14 +338,19 @@ window.switchView = function(view) {
     else if (view === 'assets') renderAtivosView();
     else if (view === 'templates') renderTemplatesView();
 
+    try {
+        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    } catch (_) {}
+
     // Sincroniza dados com o Supabase em segundo plano ao alternar de menu
     if (isSupabaseConfigured) {
         syncAllFromSupabase().then(async () => {
             const dbAssets = await getDBValue('crane_assets', assets);
             updateArrayInPlace(assets, dbAssets);
 
-            const dbEvents = await getDBValue('crane_events', events);
+            const dbEvents = await getDBValue('crane_events', eventsList);
             updateArrayInPlace(events, dbEvents);
+            updateArrayInPlace(eventsList, dbEvents);
 
             const dbOpenOrders = await getDBValue('crane_open_orders', openOrders);
             updateArrayInPlace(openOrders, dbOpenOrders);
@@ -362,15 +408,26 @@ window.openInspecaoModal = function() {
     }
     window.updateInspecaoEquipments();
 
-    // Popula seleção de modelos imediatamente e atualiza assincronamente
+    // Popula seleção de modelos imediatamente e atualiza assincronamente (exclusivamente modelos criados por usuários)
     const modeloSelect = document.getElementById('inspecao-modelo');
     if (modeloSelect) {
         const populateOptions = (list) => {
-            let optionsHtml = '<option value="DEFAULT">PONTE ROLANTE VIGA DUPLA</option>';
-            optionsHtml += (list || []).map(t => `<option value="${t.id}">${(t.nome || '').toUpperCase()}</option>`).join('');
+            const userList = (list || []).filter(t => 
+                String(t.id) !== SYSTEM_INSPECTION_TEMPLATE_ID && !t.isSystemDefault
+            );
+            userList.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
+
+            let optionsHtml = '';
+            if (userList.length === 0) {
+                optionsHtml = '<option value="">NENHUM FORMULÁRIO DE INSPEÇÃO CADASTRADO</option>';
+            } else {
+                optionsHtml = userList.map(t => `<option value="${t.id}">${(t.nome || '').toUpperCase()}</option>`).join('');
+            }
             modeloSelect.innerHTML = optionsHtml;
             if (window.selectedInspectionTemplate) {
                 modeloSelect.value = window.selectedInspectionTemplate.id;
+            } else if (typeof window.syncInspectionModelWithSelectedAsset === 'function') {
+                window.syncInspectionModelWithSelectedAsset();
             }
         };
 
@@ -383,6 +440,8 @@ window.openInspecaoModal = function() {
             if (window.selectedInspectionTemplate) {
                 modeloSelect.value = window.selectedInspectionTemplate.id;
                 window.selectedInspectionTemplate = null;
+            } else if (typeof window.syncInspectionModelWithSelectedAsset === 'function') {
+                window.syncInspectionModelWithSelectedAsset();
             }
         });
     }
@@ -538,6 +597,65 @@ window.updateInspecaoEquipments = function() {
         ).join('');
     } else {
         equipSelect.innerHTML = '<option value="">NENHUM ATIVO ENCONTRADO</option>';
+    }
+    if (typeof window.syncInspectionModelWithSelectedAsset === 'function') {
+        window.syncInspectionModelWithSelectedAsset();
+    }
+};
+
+window.syncInspectionModelWithSelectedAsset = function() {
+    const equipSelect = document.getElementById('inspecao-equipamento');
+    const modeloSelect = document.getElementById('inspecao-modelo');
+    if (!equipSelect || !modeloSelect) return;
+
+    const equipId = equipSelect.value;
+    if (!equipId) return;
+
+    const list = allAssetsList || [];
+    const asset = list.find(a => a && String(a.id) === String(equipId));
+    if (!asset) return;
+
+    const templates = (getTemplates() || []).filter(t => 
+        String(t.id) !== SYSTEM_INSPECTION_TEMPLATE_ID && !t.isSystemDefault
+    );
+    if (!templates.length) return;
+
+    // 1. Tentar vínculo direto por ID do template se o ativo possuir
+    if (asset.template_id || asset.templateId || asset.inspection_template_id) {
+        const targetId = String(asset.template_id || asset.templateId || asset.inspection_template_id);
+        const matchById = templates.find(t => String(t.id) === targetId);
+        if (matchById) {
+            modeloSelect.value = matchById.id;
+            return;
+        }
+    }
+
+    // 2. Tentar vínculo por nomes e tipos candidatos
+    const candidateNames = [
+        asset.template_name,
+        asset.templateName,
+        asset.tipo,
+        asset.nome,
+        asset.tipoEquipamento
+    ].filter(Boolean).map(s => String(s).trim().toUpperCase());
+
+    let matched = null;
+    for (const cand of candidateNames) {
+        matched = templates.find(t => t.nome && t.nome.trim().toUpperCase() === cand);
+        if (matched) break;
+    }
+
+    if (!matched) {
+        for (const cand of candidateNames) {
+            matched = templates.find(t =>
+                t.nome && (cand.includes(t.nome.trim().toUpperCase()) || t.nome.trim().toUpperCase().includes(cand))
+            );
+            if (matched) break;
+        }
+    }
+
+    if (matched) {
+        modeloSelect.value = matched.id;
     }
 };
 
@@ -811,11 +929,8 @@ window.saveProgEvent = function() {
     const assetTipo = matchingAsset ? (matchingAsset.tipo || matchingAsset.nome || 'N/A') : 'N/A';
     const assetLocal = matchingAsset ? (matchingAsset.local || 'SETOR OPERACIONAL') : 'SETOR OPERACIONAL';
 
-    let startDate = new Date(date + 'T12:00:00');
     for (let i = 0; i < recorrencia; i++) {
-        const currentEventDate = new Date(startDate);
-        currentEventDate.setMonth(startDate.getMonth() + i);
-        const dateStr = currentEventDate.toISOString().split('T')[0];
+        const dateStr = calculateRecurringDate(date, i);
         
         // Garante ID único baseado no equipamento e na data da programação para evitar que novos agendamentos sobrescrevam anteriores
         const eventId = `${equipamento}-${dateStr}`;
@@ -826,6 +941,7 @@ window.saveProgEvent = function() {
             empresa, equipamento,
             tipo: assetTipo,
             local: assetLocal,
+            foto: matchingAsset?.foto || matchingAsset?.photo || matchingAsset?.imagemUrl || '',
             date: dateStr,
             tecnico: tecnicoStr,
             tecnicos: selectedTecs,
@@ -839,7 +955,8 @@ window.saveProgEvent = function() {
             events.push(eventData);
         }
     }
-    setStoredData('crane_events', events);
+    updateArrayInPlace(eventsList, events);
+    setStoredData('crane_events', events, true);
     window.closeProgModal();
     renderCalendar();
     renderAssets();
@@ -851,24 +968,7 @@ window.openEditModal = async function(eventOrId, id) {
     const eventId = (typeof eventOrId === 'object' && eventOrId !== null) ? id : eventOrId;
     if (typeof eventOrId === 'object' && eventOrId !== null && eventOrId.stopPropagation) eventOrId.stopPropagation();
 
-    let event = events.find(e => e.id == eventId);
-    if (!event) {
-        const asset = assets.find(a => a.id == eventId);
-        if (asset) {
-            event = {
-                id: asset.id,
-                empresa: asset.empresa,
-                tipo: asset.tipo || asset.nome || "N/A",
-                equipamento: asset.id,
-                date: asset.data.includes('/') || asset.data.includes('-') 
-                    ? parseAssetDate(asset.data).toISOString().split('T')[0]
-                    : asset.data,
-                status: asset.status || 'PENDENTE',
-                justificativa: asset.justificativa || ''
-            };
-        }
-    }
-
+    let event = events.find(e => String(e.id) === String(eventId));
     if (!event) return;
 
     const lockKey = `event:${event.id}`;
@@ -1093,7 +1193,8 @@ window.updateEventFromIndustrial = function() {
         events.push(eventData);
     }
     
-    setStoredData('crane_events', events);
+    updateArrayInPlace(eventsList, events);
+    setStoredData('crane_events', events, true);
     window.closeEditAssetModal();
     renderCalendar();
     if (typeof renderAssets === 'function') renderAssets();
@@ -1123,13 +1224,13 @@ window.confirmDeleteModal = function() {
 
 window.deleteSingleEvent = async function() {
     const id = window.currentEditingEventId;
-    events = events.filter(e => e.id != id);
-    setStoredData('crane_events', events);
-    if (id) {
-        await deleteEventFromCloud(id);
-    }
+    if (!id) return;
+    events = filterEventsOnSingleDelete(events, id);
+    updateArrayInPlace(eventsList, events);
+    setStoredData('crane_events', events, false);
+    await deleteEventFromCloud(id);
     
-    document.getElementById('modal-delete-prog').classList.add('hidden');
+    document.getElementById('modal-delete-prog')?.classList.add('hidden');
     window.closeEditAssetModal();
     renderCalendar();
     renderAssets();
@@ -1138,21 +1239,24 @@ window.deleteSingleEvent = async function() {
 
 window.deleteRecurringEvents = async function() {
     const id = window.currentEditingEventId;
-    const event = events.find(e => e.id == id);
+    if (!id) return;
+    const event = events.find(e => String(e.id) === String(id));
+    const idsToDelete = getEventCloudIdsToDelete(events, id, true);
+    
     if (event && event.groupId) {
-        const eventsToDelete = events.filter(e => e.groupId === event.groupId);
-        events = events.filter(e => e.groupId !== event.groupId);
-        setStoredData('crane_events', events);
-        for (const ev of eventsToDelete) {
-            await deleteEventFromCloud(ev.id);
-        }
-    } else if (id) {
-        events = events.filter(e => e.id != id);
-        setStoredData('crane_events', events);
-        await deleteEventFromCloud(id);
+        events = filterEventsOnGroupDelete(events, event.groupId);
+    } else {
+        events = filterEventsOnSingleDelete(events, id);
     }
     
-    document.getElementById('modal-delete-prog').classList.add('hidden');
+    updateArrayInPlace(eventsList, events);
+    setStoredData('crane_events', events, false);
+    
+    for (const evId of idsToDelete) {
+        await deleteEventFromCloud(evId);
+    }
+    
+    document.getElementById('modal-delete-prog')?.classList.add('hidden');
     window.closeEditAssetModal();
     renderCalendar();
     renderAssets();
@@ -1492,26 +1596,75 @@ window.generateWorkOrder = function() {
 
 function renderUsers(searchTerm = '') {
     const tbody = document.getElementById('users-tbody');
-    if (!tbody) return;
-    tbody.innerHTML = '';
+    const mobileContainer = document.getElementById('users-mobile-container');
+
+    if (tbody) tbody.innerHTML = '';
+    if (mobileContainer) mobileContainer.innerHTML = '';
+
     const filtered = searchTerm ? usersList.filter(u => u.name.toLowerCase().includes(searchTerm)) : [...usersList];
     filtered.sort((a, b) => a.name.localeCompare(b.name));
+
+    if (filtered.length === 0) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM USUÁRIO ENCONTRADO</td></tr>`;
+        if (mobileContainer) {
+            mobileContainer.innerHTML = `
+                <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-md text-zinc-600">
+                    <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">person_off</span>
+                    <p class="font-bold text-sm text-zinc-900 uppercase">Nenhum usuário cadastrado</p>
+                </div>
+            `;
+        }
+        return;
+    }
+
     filtered.forEach(user => {
-        const tr = document.createElement('tr');
-        tr.className = "hover:bg-zinc-50 transition-colors group";
         const displayName = formatShortName(user.name);
-        tr.innerHTML = `
-            <td class="p-4 text-table-data font-bold uppercase">${displayName}</td>
-            <td class="p-4 text-table-data text-zinc-500 lowercase">${user.email}</td>
-            <td class="p-4 text-table-data">
-                <span class="px-2 py-1 ${user.permission === 'ADMINISTRADOR' ? 'bg-primary-container/20 text-on-surface' : 'bg-zinc-100 text-zinc-600'} text-[10px] font-bold">${user.permission}</span>
-            </td>
-            <td class="p-4 text-right">
-                <button onclick="window.openEditUserModal('${user.id}')" class="text-zinc-400 hover:text-black p-1">
-                    <span class="material-symbols-outlined text-lg">edit</span>
+        const permRaw = (user.permission || 'TECNICO').toUpperCase();
+        const permLabel = permRaw === 'ADMINISTRADOR' ? 'Administrador' : 'Técnico';
+        const permBadgeClass = permRaw === 'ADMINISTRADOR' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-zinc-100 text-zinc-700 border-zinc-300';
+        const initials = user.name.split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('') || 'U';
+
+        // Desktop Table
+        if (tbody) {
+            const tr = document.createElement('tr');
+            tr.className = "hover:bg-zinc-50 transition-colors group";
+            tr.innerHTML = `
+                <td class="p-4 text-table-data font-bold uppercase">${displayName}</td>
+                <td class="p-4 text-table-data text-zinc-500 lowercase">${user.email}</td>
+                <td class="p-4 text-table-data">
+                    <span class="px-2.5 py-1 ${permBadgeClass} text-[10px] font-bold border rounded">${permLabel}</span>
+                </td>
+                <td class="p-4 text-right">
+                    <button onclick="window.openEditUserModal('${user.id}')" class="text-zinc-400 hover:text-black p-1 transition-colors">
+                        <span class="material-symbols-outlined text-lg">edit</span>
+                    </button>
+                </td>`;
+            tbody.appendChild(tr);
+        }
+
+        // Mobile Card
+        if (mobileContainer) {
+            const card = document.createElement('div');
+            card.className = "bg-white text-zinc-900 rounded-2xl p-4 shadow-md border border-zinc-200/90 flex items-center justify-between gap-3";
+            card.innerHTML = `
+                <div class="flex items-center gap-3.5 min-w-0">
+                    <div class="w-12 h-12 rounded-full bg-zinc-900 text-amber-400 flex items-center justify-center font-extrabold text-sm border-2 border-zinc-300 flex-shrink-0 overflow-hidden">
+                        ${user.avatar || user.foto ? `<img src="${user.avatar || user.foto}" class="w-full h-full object-cover" />` : initials}
+                    </div>
+                    <div class="min-w-0">
+                        <div class="font-extrabold text-zinc-950 text-sm uppercase leading-tight truncate">${user.name}</div>
+                        <div class="text-zinc-500 text-xs font-mono lowercase truncate mt-0.5">${user.email}</div>
+                        <div class="mt-1">
+                            <span class="px-2 py-0.5 ${permBadgeClass} text-[10px] font-bold border rounded">${permLabel}</span>
+                        </div>
+                    </div>
+                </div>
+                <button onclick="window.openEditUserModal('${user.id}')" class="p-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl border border-zinc-200 transition-all flex-shrink-0 cursor-pointer" title="Editar Usuário">
+                    <span class="material-symbols-outlined text-[20px]">edit</span>
                 </button>
-            </td>`;
-        tbody.appendChild(tr);
+            `;
+            mobileContainer.appendChild(card);
+        }
     });
 }
 
@@ -1534,6 +1687,14 @@ window.openUserModal = function() {
     document.getElementById('user-password-input').value = '';
     document.getElementById('user-permission-select').value = 'TECNICO';
     
+    // Foto do Usuário
+    window.currentUserPhotoBase64 = null;
+    const userPhotoPreview = document.getElementById('user-photo-preview-container');
+    if (userPhotoPreview) userPhotoPreview.innerHTML = '<span class="material-symbols-outlined text-on-surface-variant text-[28px]">person</span>';
+    document.getElementById('remove-user-photo-btn')?.classList.add('hidden');
+    const userPhotoInput = document.getElementById('user-photo-input');
+    if (userPhotoInput) userPhotoInput.value = '';
+
     // Tenta carregar a empresa interna do storage
     const internalCompany = getStoredData('crane_internal_company', null);
 
@@ -1627,6 +1788,18 @@ window.openEditUserModal = async function(id) {
     document.getElementById('user-password-input').value = user.password || '';
     document.getElementById('user-permission-select').value = user.permission || 'TECNICO';
     
+    // Foto do Usuário
+    window.currentUserPhotoBase64 = user.avatar || user.foto || null;
+    const userPhotoPreview = document.getElementById('user-photo-preview-container');
+    const removePhotoBtn = document.getElementById('remove-user-photo-btn');
+    if (user.avatar || user.foto) {
+        if (userPhotoPreview) userPhotoPreview.innerHTML = `<img src="${user.avatar || user.foto}" class="w-full h-full object-cover" />`;
+        removePhotoBtn?.classList.remove('hidden');
+    } else {
+        if (userPhotoPreview) userPhotoPreview.innerHTML = '<span class="material-symbols-outlined text-on-surface-variant text-[28px]">person</span>';
+        removePhotoBtn?.classList.add('hidden');
+    }
+
     document.getElementById('btn-user-delete').style.display = 'block'; // Show delete when editing
     
     window.currentUserSignatureBase64 = user.signature || null;
@@ -1647,6 +1820,35 @@ window.openEditUserModal = async function(id) {
         panel.classList.remove('opacity-0', 'scale-95');
         panel.classList.add('opacity-100', 'scale-100');
     }, 10);
+};
+
+window.handleUserPhotoUpload = function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const base64 = e.target.result;
+        window.currentUserPhotoBase64 = base64;
+        const previewContainer = document.getElementById('user-photo-preview-container');
+        if (previewContainer) {
+            previewContainer.innerHTML = `<img src="${base64}" class="w-full h-full object-cover" />`;
+        }
+        const removeBtn = document.getElementById('remove-user-photo-btn');
+        if (removeBtn) removeBtn.classList.remove('hidden');
+    };
+    reader.readAsDataURL(file);
+};
+
+window.removeUserPhoto = function() {
+    window.currentUserPhotoBase64 = "";
+    const previewContainer = document.getElementById('user-photo-preview-container');
+    if (previewContainer) {
+        previewContainer.innerHTML = '<span class="material-symbols-outlined text-on-surface-variant text-[28px]">person</span>';
+    }
+    const fileInput = document.getElementById('user-photo-input');
+    if (fileInput) fileInput.value = '';
+    const removeBtn = document.getElementById('remove-user-photo-btn');
+    if (removeBtn) removeBtn.classList.add('hidden');
 };
 
 window.handleUserRegistrationTypeChange = function() {
@@ -1869,6 +2071,7 @@ window.saveUserFromForm = async function() {
                     email: email.toLowerCase(),
                     password: hashedPassword,
                     permission: permission,
+                    avatar: window.currentUserPhotoBase64 !== null ? window.currentUserPhotoBase64 : (u.avatar || u.foto || ""),
                     signature: window.currentUserSignatureBase64 !== null ? window.currentUserSignatureBase64 : (u.signature || ""),
                     tenant_code: u.tenant_code || getTenantCode() || '001'
                 };
@@ -1885,6 +2088,7 @@ window.saveUserFromForm = async function() {
             email: email.toLowerCase(),
             password: hashedPassword,
             permission: permission,
+            avatar: window.currentUserPhotoBase64 || "",
             signature: window.currentUserSignatureBase64 || "",
             tenant_code: getTenantCode() || '001'
         };
@@ -1901,6 +2105,9 @@ window.saveUserFromForm = async function() {
         const nameEl = document.getElementById('user-name-display');
         if (roleEl) roleEl.innerText = savedUser.permission || 'TECNICO';
         if (nameEl) nameEl.innerText = savedUser.name || 'USUÁRIO';
+        if (typeof window.updateMobileUserInfo === 'function') {
+            window.updateMobileUserInfo(savedUser);
+        }
     }
 
     window.closeUserModal();
@@ -1926,30 +2133,77 @@ window.deleteUserFromForm = function() {
 
 function renderOpenOrders() {
     const tbody = document.getElementById('open-orders-tbody');
-    if (!tbody) return;
-    tbody.innerHTML = '';
+    const mobileContainer = document.getElementById('open-orders-mobile-container');
+    if (tbody) tbody.innerHTML = '';
+    if (mobileContainer) mobileContainer.innerHTML = '';
+
+    if (openOrders.length === 0) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUMA ORDEM EM ABERTO</td></tr>`;
+        if (mobileContainer) {
+            mobileContainer.innerHTML = `
+                <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-md text-zinc-600">
+                    <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">assignment_turned_in</span>
+                    <p class="font-bold text-sm text-zinc-900 uppercase">Nenhuma ordem em aberto</p>
+                    <p class="text-xs text-zinc-500 mt-1">Todas as ordens de serviço foram finalizadas.</p>
+                </div>
+            `;
+        }
+        return;
+    }
+
     openOrders.forEach(order => {
         const parts = (order.assetInfo || '').split('—').map(s => s.trim());
         const equip = order.equipamentoNome || parts[0] || '---';
         const emp = order.empresa || parts[1] || '---';
-        const tr = document.createElement('tr');
-        tr.className = "hover:bg-zinc-50 transition-colors group";
-        tr.innerHTML = `
-            <td class="p-4 font-bold text-table-data uppercase text-zinc-900">${order.id}</td>
-            <td class="p-4 text-table-data uppercase text-zinc-500">${emp}</td>
-            <td class="p-4 text-table-data uppercase font-bold text-zinc-900">${equip}</td>
-            <td class="p-4"><span class="px-2 py-1 bg-amber-100 text-amber-700 text-[9px] font-black uppercase border border-amber-200">EM ABERTO</span></td>
-            <td class="p-4 text-right">
-                <div class="flex items-center justify-end gap-1">
-                    <button onclick="window.openChecklistModal('${order.id}')" class="text-zinc-400 hover:text-black p-1 transition-colors" title="Editar Ordem">
-                        <span class="material-symbols-outlined text-lg">edit_note</span>
+
+        // Desktop Table
+        if (tbody) {
+            const tr = document.createElement('tr');
+            tr.className = "hover:bg-zinc-50 transition-colors group";
+            tr.innerHTML = `
+                <td class="p-4 font-bold text-table-data uppercase text-zinc-900">${order.id}</td>
+                <td class="p-4 text-table-data uppercase text-zinc-500">${emp}</td>
+                <td class="p-4 text-table-data uppercase font-bold text-zinc-900">${equip}</td>
+                <td class="p-4"><span class="px-2 py-1 bg-amber-100 text-amber-700 text-[9px] font-black uppercase border border-amber-200">EM ABERTO</span></td>
+                <td class="p-4 text-right">
+                    <div class="flex items-center justify-end gap-1">
+                        <button onclick="window.openChecklistModal('${order.id}')" class="text-zinc-400 hover:text-black p-1 transition-colors" title="Editar Ordem">
+                            <span class="material-symbols-outlined text-lg">edit_note</span>
+                        </button>
+                        <button onclick="window.deleteOpenOrder('${order.id}')" class="text-zinc-400 hover:text-error p-1 transition-colors" title="Excluir Ordem">
+                            <span class="material-symbols-outlined text-lg">delete</span>
+                        </button>
+                    </div>
+                </td>`;
+            tbody.appendChild(tr);
+        }
+
+        // Mobile Card
+        if (mobileContainer) {
+            const card = document.createElement('div');
+            card.className = "bg-white text-zinc-900 rounded-2xl p-4 shadow-md border border-zinc-200/90 flex flex-col gap-3";
+            card.innerHTML = `
+                <div class="flex items-center justify-between border-b border-zinc-100 pb-2">
+                    <span class="font-mono font-extrabold text-sm text-amber-600">${order.id}</span>
+                    <span class="px-2.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-black uppercase rounded border border-amber-300">EM ABERTO</span>
+                </div>
+                <div class="text-[12px] space-y-1 text-zinc-700 font-semibold">
+                    <div>🏢 Empresa: <span class="text-zinc-900 font-bold uppercase">${emp}</span></div>
+                    <div>⚙️ Equipamento: <span class="text-zinc-900 font-bold uppercase">${equip}</span></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2 pt-1 border-t border-zinc-100">
+                    <button onclick="window.openChecklistModal('${order.id}')" class="bg-primary hover:brightness-105 text-on-primary font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs shadow-sm transition-all cursor-pointer">
+                        <span class="material-symbols-outlined text-[18px]">edit_note</span>
+                        Retomar
                     </button>
-                    <button onclick="window.deleteOpenOrder('${order.id}')" class="text-zinc-400 hover:text-error p-1 transition-colors" title="Excluir Ordem">
-                        <span class="material-symbols-outlined text-lg">delete</span>
+                    <button onclick="window.deleteOpenOrder('${order.id}')" class="bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs border border-red-200 transition-all cursor-pointer">
+                        <span class="material-symbols-outlined text-[18px]">delete</span>
+                        Excluir
                     </button>
                 </div>
-            </td>`;
-        tbody.appendChild(tr);
+            `;
+            mobileContainer.appendChild(card);
+        }
     });
 }
 window.renderOpenOrders = renderOpenOrders;
@@ -1963,6 +2217,19 @@ window.deleteOpenOrder = async function(orderId) {
 
 let reportsSelectedCompany = selectedCompany;
 let reportsSelectedAssetId = null;
+window.mobileReportsViewLevel = 'companies';
+
+window.backToReportsCompanies = function() {
+    window.mobileReportsViewLevel = 'companies';
+    reportsSelectedAssetId = null;
+    renderReportsView();
+};
+
+window.backToReportsAssets = function() {
+    window.mobileReportsViewLevel = 'assets';
+    reportsSelectedAssetId = null;
+    renderReportsView();
+};
 
 function formatTechnicianName(fullName) {
     if (!fullName) return "N/A";
@@ -1973,15 +2240,39 @@ function renderReportsView() {
     const comTbody = document.getElementById('reports-companies-tbody');
     const assTbody = document.getElementById('reports-assets-tbody');
     const repTbody = document.getElementById('reports-tbody');
-    if (!comTbody || !assTbody || !repTbody) return;
+
+    const desktopComContainer = document.getElementById('reports-desktop-companies-container');
+    const desktopAssContainer = document.getElementById('reports-desktop-assets-container');
+    const desktopRepContainer = document.getElementById('reports-desktop-reports-container');
+
+    const mobileContainer = document.getElementById('reports-view-mobile-container');
+    const mobileCompaniesHeader = document.getElementById('reports-mobile-companies-header');
+    const mobileCompaniesList = document.getElementById('reports-mobile-companies-list');
+    const mobileAssetsHeader = document.getElementById('reports-mobile-assets-header');
+    const mobileAssetsList = document.getElementById('reports-mobile-assets-list');
+    const mobileReportsHeader = document.getElementById('reports-mobile-reports-header');
+    const mobileReportsList = document.getElementById('reports-mobile-reports-list');
+    const mobileSelectedCompTitle = document.getElementById('reports-mobile-selected-company-title');
+    const mobileSelectedAssetTitle = document.getElementById('reports-mobile-selected-asset-title');
 
     const currentList = companies || [];
     
     // Se não houver empresas cadastradas no sistema
     if (currentList.length === 0) {
-        comTbody.innerHTML = `<tr><td class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUMA EMPRESA CADASTRADA</td></tr>`;
-        assTbody.innerHTML = `<tr><td colspan="3" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM ATIVO TÉCNICO ENCONTRADO</td></tr>`;
-        repTbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM RELATÓRIO ENCONTRADO</td></tr>`;
+        if (comTbody) comTbody.innerHTML = `<tr><td class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUMA EMPRESA CADASTRADA</td></tr>`;
+        if (assTbody) assTbody.innerHTML = `<tr><td colspan="3" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM ATIVO TÉCNICO ENCONTRADO</td></tr>`;
+        if (repTbody) repTbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM RELATÓRIO ENCONTRADO</td></tr>`;
+        if (desktopComContainer) desktopComContainer.innerHTML = `<div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-sm text-zinc-600"><p class="font-bold text-sm text-zinc-900 uppercase">NENHUMA EMPRESA CADASTRADA</p></div>`;
+        if (desktopAssContainer) desktopAssContainer.innerHTML = `<div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-sm text-zinc-600"><p class="font-bold text-sm text-zinc-900 uppercase">NENHUM ATIVO TÉCNICO ENCONTRADO</p></div>`;
+        if (desktopRepContainer) desktopRepContainer.innerHTML = `<div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-sm text-zinc-600"><p class="font-bold text-sm text-zinc-900 uppercase">NENHUM RELATÓRIO ENCONTRADO</p></div>`;
+        if (mobileCompaniesList) {
+            mobileCompaniesList.innerHTML = `
+                <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-md text-zinc-600">
+                    <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">folder_off</span>
+                    <p class="font-bold text-sm text-zinc-900 uppercase">Nenhum relatório encontrado</p>
+                </div>
+            `;
+        }
         reportsSelectedCompany = "";
         reportsSelectedAssetId = null;
         return;
@@ -1998,14 +2289,70 @@ function renderReportsView() {
         reportsSelectedAssetId = null;
     }
 
-    // 1. Render Card 1 (Companies)
-    renderCompaniesUI('reports-companies-tbody', companies, reportsSelectedCompany, (company) => {
-        reportsSelectedCompany = company;
-        reportsSelectedAssetId = null; // reset asset selection when changing company
-        renderReportsView();
-    });
+    // 1. Render Coluna 1 (Empresas - Desktop Cards)
+    if (desktopComContainer) {
+        desktopComContainer.innerHTML = '';
+        currentList.forEach(company => {
+            const compName = typeof company === 'string' ? company : (company.name || '');
+            const logoUrl = (typeof company === 'object' && company.logo) ? company.logo : getDefaultCompanyLogo();
+            const totalCompReports = filterReports(finalizedReports, compName, null, allAssetsList).length;
+            const isSelected = normCompReports(compName) === normCompReports(reportsSelectedCompany);
 
-    // 2. Render Card 2 (Assets: ID EQUIPAMENTO, LOCALIZAÇÃO, TIPO)
+            const card = document.createElement('div');
+            card.className = `bg-white text-zinc-900 rounded-2xl p-3.5 shadow-sm border ${isSelected ? 'border-2 border-[#fa520f] shadow-md ring-1 ring-[#fa520f]/20' : 'border-zinc-200/90 hover:border-orange-300'} flex items-center justify-between gap-3 cursor-pointer transition-all active:scale-[0.99] select-none`;
+            card.onclick = () => {
+                reportsSelectedCompany = compName;
+                reportsSelectedAssetId = null;
+                renderReportsView();
+            };
+
+            const leftCol = document.createElement('div');
+            leftCol.className = "flex items-center gap-3 min-w-0";
+
+            const logoBox = document.createElement('div');
+            logoBox.className = "w-14 h-14 rounded-xl bg-white border border-zinc-200 shadow-xs flex-shrink-0 flex items-center justify-center overflow-hidden p-1";
+            const imgEl = document.createElement('img');
+            imgEl.alt = compName;
+            imgEl.className = "w-full h-full object-contain";
+            imgEl.src = logoUrl;
+            imgEl.onerror = function() {
+                this.onerror = null;
+                this.src = getDefaultCompanyLogo();
+            };
+            logoBox.appendChild(imgEl);
+
+            const infoBox = document.createElement('div');
+            infoBox.className = "flex-1 min-w-0";
+            infoBox.innerHTML = `
+                <div class="font-extrabold text-zinc-950 text-sm truncate uppercase tracking-tight">${compName}</div>
+                <div class="mt-1">
+                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 bg-orange-50 text-orange-800 border border-orange-200 rounded-md text-[11px] font-bold">
+                        <span class="material-symbols-outlined text-[14px] text-orange-600">folder</span>
+                        ${totalCompReports} ${totalCompReports === 1 ? 'RELATÓRIO' : 'RELATÓRIOS'}
+                    </span>
+                </div>
+            `;
+
+            leftCol.appendChild(logoBox);
+            leftCol.appendChild(infoBox);
+
+            const chevron = document.createElement('span');
+            chevron.className = `material-symbols-outlined ${isSelected ? 'text-[#fa520f]' : 'text-zinc-400'} text-xl flex-shrink-0`;
+            chevron.innerText = 'chevron_right';
+
+            card.appendChild(leftCol);
+            card.appendChild(chevron);
+            desktopComContainer.appendChild(card);
+        });
+    } else if (comTbody) {
+        renderCompaniesUI('reports-companies-tbody', companies, reportsSelectedCompany, (company) => {
+            reportsSelectedCompany = company;
+            reportsSelectedAssetId = null;
+            renderReportsView();
+        });
+    }
+
+    // 2. Render Coluna 2 (Ativos: ID EQUIPAMENTO - Desktop Cards)
     const filteredAssets = allAssetsList
         .filter(a => a.empresa && reportsSelectedCompany && normCompReports(a.empresa) === normCompReports(reportsSelectedCompany))
         .sort((a, b) => {
@@ -2014,53 +2361,393 @@ function renderReportsView() {
             if (numA !== numB) return numA - numB;
             return String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true });
         });
-    assTbody.innerHTML = filteredAssets.map(a => {
-        const isSelected = reportsSelectedAssetId && (a.id === reportsSelectedAssetId || normAssetReports(a.id) === normAssetReports(reportsSelectedAssetId));
-        const bgClass = isSelected ? "bg-primary-container border-l-4 border-primary font-bold" : "hover:bg-surface-container cursor-pointer border-l-4 border-transparent";
-        return `
-            <tr class="${bgClass} transition-colors duration-200" onclick="window.selectReportsAsset('${a.id}')">
-                <td class="px-card_padding py-3 text-label-md font-bold uppercase text-on-surface">${a.id}</td>
-                <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant">${(a.local || 'N/A').toUpperCase()}</td>
-                <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant">${(a.tipo || a.nome || 'N/A').toUpperCase()}</td>
-            </tr>
-        `;
-    }).join('') || `<tr><td colspan="3" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM ATIVO TÉCNICO ENCONTRADO PARA ESTA EMPRESA</td></tr>`;
 
-    // 3. Render Card 3 (Reports)
+    if (desktopAssContainer) {
+        desktopAssContainer.innerHTML = '';
+        if (filteredAssets.length === 0) {
+            desktopAssContainer.innerHTML = `
+                <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-sm text-zinc-600">
+                    <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">precision_manufacturing</span>
+                    <p class="font-bold text-sm text-zinc-900 uppercase">Nenhum ativo encontrado</p>
+                </div>
+            `;
+        } else {
+            filteredAssets.forEach(a => {
+                const displayTipo = a.tipo || a.nome || 'Equipamento';
+                const fotoUrl = a.foto || a.imagemUrl || getDefaultAssetImage(displayTipo);
+                const assetReports = filterReports(finalizedReports, reportsSelectedCompany, a.id, allAssetsList);
+                const isSelected = reportsSelectedAssetId && (a.id === reportsSelectedAssetId || normAssetReports(a.id) === normAssetReports(reportsSelectedAssetId));
+
+                const card = document.createElement('div');
+                card.className = `bg-white text-zinc-900 rounded-2xl p-3 shadow-sm border ${isSelected ? 'border-2 border-[#fa520f] shadow-md ring-1 ring-[#fa520f]/20' : 'border-zinc-200/90 hover:border-orange-300'} flex gap-3.5 items-center cursor-pointer transition-all active:scale-[0.99] select-none`;
+                card.onclick = () => {
+                    reportsSelectedAssetId = a.id;
+                    renderReportsView();
+                };
+
+                const imgBox = document.createElement('div');
+                imgBox.className = "w-20 h-20 rounded-xl bg-zinc-100 flex-shrink-0 overflow-hidden flex items-center justify-center border border-zinc-200";
+                const imgEl = document.createElement('img');
+                imgEl.alt = displayTipo;
+                imgEl.className = "w-full h-full object-cover";
+                imgEl.src = fotoUrl;
+                imgEl.onerror = function() {
+                    this.onerror = null;
+                    this.src = getDefaultAssetImage(displayTipo);
+                };
+                imgBox.appendChild(imgEl);
+
+                const infoBox = document.createElement('div');
+                infoBox.className = "flex-1 min-w-0 text-left text-[12px] leading-tight space-y-0.5 text-zinc-800";
+                infoBox.innerHTML = `
+                    <div class="font-extrabold text-zinc-950 text-sm truncate leading-snug">${(a.nome || a.tipo || 'EQUIPAMENTO').toUpperCase()}</div>
+                    <div class="text-zinc-900 font-bold">ID: <span class="font-mono font-extrabold text-orange-600">${a.id}</span></div>
+                    <div class="text-zinc-700 truncate font-semibold">Local: <span class="text-zinc-900 font-bold">${(a.local || 'N/A').toUpperCase()}</span></div>
+                    <div class="pt-1">
+                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 bg-orange-50 text-orange-800 border border-orange-200 rounded-md text-[11px] font-bold">
+                            <span class="material-symbols-outlined text-[14px] text-orange-600">description</span>
+                            ${assetReports.length} ${assetReports.length === 1 ? 'RELATÓRIO' : 'RELATÓRIOS'}
+                        </span>
+                    </div>
+                `;
+
+                card.appendChild(imgBox);
+                card.appendChild(infoBox);
+                desktopAssContainer.appendChild(card);
+            });
+        }
+    } else if (assTbody) {
+        assTbody.innerHTML = filteredAssets.map(a => {
+            const isSelected = reportsSelectedAssetId && (a.id === reportsSelectedAssetId || normAssetReports(a.id) === normAssetReports(reportsSelectedAssetId));
+            const bgClass = isSelected ? "bg-primary-container border-l-4 border-primary font-bold" : "hover:bg-surface-container cursor-pointer border-l-4 border-transparent";
+            return `
+                <tr class="${bgClass} transition-colors duration-200" onclick="window.selectReportsAsset('${a.id}')">
+                    <td class="px-card_padding py-3 text-label-md font-bold uppercase text-on-surface">${a.id}</td>
+                    <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant">${(a.local || 'N/A').toUpperCase()}</td>
+                    <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant">${(a.tipo || a.nome || 'N/A').toUpperCase()}</td>
+                </tr>
+            `;
+        }).join('') || `<tr><td colspan="3" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM ATIVO TÉCNICO ENCONTRADO PARA ESTA EMPRESA</td></tr>`;
+    }
+
+    // 3. Render Coluna 3 (Relatórios - Desktop Cards com Menu de 3 Pontinhos)
     const filteredReports = filterReports(finalizedReports, reportsSelectedCompany, reportsSelectedAssetId, allAssetsList);
 
-    repTbody.innerHTML = '';
-    filteredReports.forEach((report, index) => {
-        const tr = document.createElement('tr');
-        tr.className = "hover:bg-zinc-50 transition-colors group border-b border-outline-variant";
-        
-        const repNumber = formatReportNumber(report, index);
-        const typeLabel = (report.type || 'PREVENTIVA').toUpperCase();
-        const techName = formatTechnicianName(report.tecnico || 'MAYCON DIAS');
+    if (desktopRepContainer) {
+        desktopRepContainer.innerHTML = '';
+        if (filteredReports.length === 0) {
+            desktopRepContainer.innerHTML = `
+                <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-sm text-zinc-600">
+                    <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">description</span>
+                    <p class="font-bold text-sm text-zinc-900 uppercase">Nenhum relatório finalizado</p>
+                    <p class="text-xs text-zinc-500 mt-1">Selecione um ativo técnico para visualizar seus relatórios.</p>
+                </div>
+            `;
+        } else {
+            filteredReports.forEach((report, index) => {
+                const repNumber = formatReportNumber(report, index);
+                const isCorretiva = (report.type || '').toUpperCase() === 'CORRETIVA';
+                const typeLabel = isCorretiva ? 'CORRETIVA' : 'PREVENTIVA';
+                const typeBadgeClass = isCorretiva ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-green-100 text-green-800 border-green-200';
+                const techName = formatTechnicianName(report.tecnico || 'MAYCON DIAS');
 
-        tr.innerHTML = `
-            <td class="px-card_padding py-3 text-label-md font-bold text-zinc-900">${repNumber}</td>
-            <td class="px-card_padding py-3 text-label-md uppercase text-zinc-600">${typeLabel}</td>
-            <td class="px-card_padding py-3 text-label-md uppercase text-zinc-500">${report.date || ''}</td>
-            <td class="px-card_padding py-3 text-label-md uppercase text-zinc-700">${techName}</td>
-            <td class="px-card_padding py-3 text-right">
-                <button onclick="window.toggleActionMenu(event, '${report.id}')" class="text-zinc-400 hover:text-black p-1">
-                    <span class="material-symbols-outlined text-lg pointer-events-none">more_vert</span>
-                </button>
-            </td>
-        `;
-        repTbody.appendChild(tr);
-    });
+                const card = document.createElement('div');
+                card.className = "bg-white text-zinc-900 rounded-2xl p-4 shadow-sm border border-zinc-200/90 flex flex-col gap-2.5 hover:shadow-md transition-shadow";
+                card.innerHTML = `
+                    <div class="flex items-center justify-between border-b border-zinc-100 pb-2">
+                        <span class="font-mono font-black text-sm text-zinc-950">${repNumber}</span>
+                        <div class="flex items-center gap-2">
+                            <span class="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase border ${typeBadgeClass}">${typeLabel}</span>
+                            <button onclick="window.toggleActionMenu(event, '${report.id}')" class="text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 p-1 rounded-lg transition-colors cursor-pointer flex items-center justify-center" title="Ações">
+                                <span class="material-symbols-outlined text-[20px] pointer-events-none">more_vert</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="text-[12px] space-y-1 text-zinc-700 font-semibold">
+                        <div>📅 Data: <span class="text-zinc-900 font-bold">${report.date || '---'}</span></div>
+                        <div>👷 Técnico: <span class="text-zinc-900 font-bold uppercase">${techName}</span></div>
+                    </div>
+                `;
+                desktopRepContainer.appendChild(card);
+            });
+        }
+    } else if (repTbody) {
+        repTbody.innerHTML = '';
+        filteredReports.forEach((report, index) => {
+            const tr = document.createElement('tr');
+            tr.className = "hover:bg-zinc-50 transition-colors group border-b border-outline-variant";
+            
+            const repNumber = formatReportNumber(report, index);
+            const isCorretiva = (report.type || '').toUpperCase() === 'CORRETIVA';
+            const typeLabel = isCorretiva ? 'CORRETIVA' : 'PREVENTIVA';
+            const techName = formatTechnicianName(report.tecnico || 'MAYCON DIAS');
 
-    if (filteredReports.length === 0) {
-        repTbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM RELATÓRIO ENCONTRADO</td></tr>`;
+            tr.innerHTML = `
+                <td class="px-card_padding py-3 text-label-md font-bold text-zinc-900">${repNumber}</td>
+                <td class="px-card_padding py-3 text-label-md uppercase text-zinc-600">${typeLabel}</td>
+                <td class="px-card_padding py-3 text-label-md uppercase text-zinc-500">${report.date || ''}</td>
+                <td class="px-card_padding py-3 text-label-md uppercase text-zinc-700">${techName}</td>
+                <td class="px-card_padding py-3 text-right">
+                    <button onclick="window.toggleActionMenu(event, '${report.id}')" class="text-zinc-400 hover:text-black p-1">
+                        <span class="material-symbols-outlined text-lg pointer-events-none">more_vert</span>
+                    </button>
+                </td>
+            `;
+            repTbody.appendChild(tr);
+        });
+
+        if (filteredReports.length === 0) {
+            repTbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM RELATÓRIO ENCONTRADO</td></tr>`;
+        }
     }
+
+    // 4. Mobile Render (3 Níveis em Cards Brancos)
+    if (mobileContainer && mobileCompaniesList && mobileAssetsList && mobileReportsList) {
+        if (window.mobileReportsViewLevel === 'reports' && reportsSelectedAssetId) {
+            // Nível 3: Relatórios do Ativo Selecionado
+            if (mobileCompaniesHeader) mobileCompaniesHeader.classList.add('hidden');
+            mobileCompaniesList.classList.add('hidden');
+            mobileCompaniesList.classList.remove('flex');
+            if (mobileAssetsHeader) {
+                mobileAssetsHeader.classList.add('hidden');
+                mobileAssetsHeader.classList.remove('flex');
+            }
+            mobileAssetsList.classList.add('hidden');
+            mobileAssetsList.classList.remove('flex');
+            if (mobileReportsHeader) {
+                mobileReportsHeader.classList.remove('hidden');
+                mobileReportsHeader.classList.add('flex');
+            }
+            mobileReportsList.classList.remove('hidden');
+            mobileReportsList.classList.add('flex');
+
+            const matchingAsset = allAssetsList.find(a => a.id === reportsSelectedAssetId);
+            if (mobileSelectedAssetTitle) {
+                mobileSelectedAssetTitle.innerText = `${reportsSelectedAssetId} - ${(matchingAsset?.nome || matchingAsset?.tipo || '').toUpperCase()}`;
+            }
+
+            mobileReportsList.innerHTML = '';
+            if (filteredReports.length === 0) {
+                mobileReportsList.innerHTML = `
+                    <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-md text-zinc-600">
+                        <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">description</span>
+                        <p class="font-bold text-sm text-zinc-900 uppercase">Nenhum relatório finalizado</p>
+                        <p class="text-xs text-zinc-500 mt-1">Este equipamento ainda não possui relatórios finalizados.</p>
+                    </div>
+                `;
+            } else {
+                filteredReports.forEach((report, index) => {
+                    const repNumber = formatReportNumber(report, index);
+                    const isCorretiva = (report.type || '').toUpperCase() === 'CORRETIVA';
+                    const typeLabel = isCorretiva ? 'CORRETIVA' : 'PREVENTIVA';
+                    const typeBadgeClass = isCorretiva ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-green-100 text-green-800 border-green-200';
+                    const techName = formatTechnicianName(report.tecnico || 'TÉCNICO');
+
+                    const card = document.createElement('div');
+                    card.className = "bg-white text-zinc-900 rounded-2xl p-4 shadow-md border border-zinc-200/90 flex flex-col gap-3";
+                    card.innerHTML = `
+                        <div class="flex items-center justify-between border-b border-zinc-100 pb-2">
+                            <span class="font-mono font-black text-sm text-zinc-950">${repNumber}</span>
+                            <span class="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase border ${typeBadgeClass}">${typeLabel}</span>
+                        </div>
+                        <div class="text-[12px] space-y-1 text-zinc-700 font-semibold">
+                            <div>📅 Data: <span class="text-zinc-900 font-bold">${report.date || '---'}</span></div>
+                            <div>👷 Técnico: <span class="text-zinc-900 font-bold uppercase">${techName}</span></div>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2 pt-1 border-t border-zinc-100">
+                            <button onclick="window.handleEditReport('${report.id}')" class="bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-bold py-2 px-2 rounded-xl flex items-center justify-center gap-1 text-xs border border-zinc-200 transition-all cursor-pointer">
+                                <span class="material-symbols-outlined text-[16px]">edit</span>
+                                Editar
+                            </button>
+                            <button onclick="window.handleDownloadReportPDF('${report.id}')" class="bg-primary hover:brightness-105 text-on-primary font-black py-2 px-2 rounded-xl flex items-center justify-center gap-1 text-xs shadow-sm transition-all cursor-pointer">
+                                <span class="material-symbols-outlined text-[16px]">picture_as_pdf</span>
+                                PDF
+                            </button>
+                            <button onclick="window.handleDeleteReport('${report.id}')" class="bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2 px-2 rounded-xl flex items-center justify-center gap-1 text-xs border border-red-200 transition-all cursor-pointer">
+                                <span class="material-symbols-outlined text-[16px]">delete</span>
+                                Excluir
+                            </button>
+                        </div>
+                    `;
+                    mobileReportsList.appendChild(card);
+                });
+            }
+        } else if (window.mobileReportsViewLevel === 'assets' && reportsSelectedCompany) {
+            // Nível 2: Ativos da Empresa
+            if (mobileCompaniesHeader) mobileCompaniesHeader.classList.add('hidden');
+            mobileCompaniesList.classList.add('hidden');
+            mobileCompaniesList.classList.remove('flex');
+            if (mobileAssetsHeader) {
+                mobileAssetsHeader.classList.remove('hidden');
+                mobileAssetsHeader.classList.add('flex');
+            }
+            mobileAssetsList.classList.remove('hidden');
+            mobileAssetsList.classList.add('flex');
+            if (mobileReportsHeader) {
+                mobileReportsHeader.classList.add('hidden');
+                mobileReportsHeader.classList.remove('flex');
+            }
+            mobileReportsList.classList.add('hidden');
+            mobileReportsList.classList.remove('flex');
+
+            if (mobileSelectedCompTitle) {
+                mobileSelectedCompTitle.innerText = reportsSelectedCompany.toUpperCase();
+            }
+
+            mobileAssetsList.innerHTML = '';
+            if (filteredAssets.length === 0) {
+                mobileAssetsList.innerHTML = `
+                    <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-md text-zinc-600">
+                        <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">precision_manufacturing</span>
+                        <p class="font-bold text-sm text-zinc-900 uppercase">Nenhum ativo encontrado</p>
+                    </div>
+                `;
+            } else {
+                filteredAssets.forEach(a => {
+                    const displayTipo = a.tipo || a.nome || 'Equipamento';
+                    const fotoUrl = a.foto || a.imagemUrl || getDefaultAssetImage(displayTipo);
+                    const assetReports = filterReports(finalizedReports, reportsSelectedCompany, a.id, allAssetsList);
+
+                    const card = document.createElement('div');
+                    card.className = "bg-white text-zinc-900 rounded-2xl p-3.5 shadow-md border border-zinc-200/90 flex gap-3.5 items-center cursor-pointer hover:shadow-lg transition-all active:scale-[0.99]";
+                    card.onclick = () => {
+                        reportsSelectedAssetId = a.id;
+                        window.mobileReportsViewLevel = 'reports';
+                        renderReportsView();
+                    };
+
+                    const imgBox = document.createElement('div');
+                    imgBox.className = "w-20 h-20 rounded-xl bg-zinc-100 flex-shrink-0 overflow-hidden flex items-center justify-center border border-zinc-200";
+                    const imgEl = document.createElement('img');
+                    imgEl.alt = displayTipo;
+                    imgEl.className = "w-full h-full object-cover";
+                    imgEl.src = fotoUrl;
+                    imgEl.onerror = function() {
+                        this.onerror = null;
+                        this.src = getDefaultAssetImage(displayTipo);
+                    };
+                    imgBox.appendChild(imgEl);
+
+                    const infoBox = document.createElement('div');
+                    infoBox.className = "flex-1 min-w-0 text-left text-[12px] leading-tight space-y-0.5 text-zinc-800";
+                    infoBox.innerHTML = `
+                        <div class="font-extrabold text-zinc-950 text-sm truncate leading-snug">${(a.nome || a.tipo || 'EQUIPAMENTO').toUpperCase()}</div>
+                        <div class="text-zinc-900 font-bold">ID: <span class="font-mono font-extrabold text-orange-600">${a.id}</span></div>
+                        <div class="text-zinc-700 truncate font-semibold">Local: <span class="text-zinc-900 font-bold">${(a.local || 'N/A').toUpperCase()}</span></div>
+                        <div class="pt-1">
+                            <span class="inline-flex items-center gap-1 px-2.5 py-0.5 bg-orange-50 text-orange-800 border border-orange-200 rounded-md text-[11px] font-bold">
+                                <span class="material-symbols-outlined text-[14px] text-orange-600">description</span>
+                                ${assetReports.length} ${assetReports.length === 1 ? 'RELATÓRIO' : 'RELATÓRIOS'}
+                            </span>
+                        </div>
+                    `;
+
+                    card.appendChild(imgBox);
+                    card.appendChild(infoBox);
+                    mobileAssetsList.appendChild(card);
+                });
+            }
+        } else {
+            // Nível 1: Empresas
+            if (mobileCompaniesHeader) mobileCompaniesHeader.classList.remove('hidden');
+            mobileCompaniesList.classList.remove('hidden');
+            mobileCompaniesList.classList.add('flex');
+            if (mobileAssetsHeader) {
+                mobileAssetsHeader.classList.add('hidden');
+                mobileAssetsHeader.classList.remove('flex');
+            }
+            mobileAssetsList.classList.add('hidden');
+            mobileAssetsList.classList.remove('flex');
+            if (mobileReportsHeader) {
+                mobileReportsHeader.classList.add('hidden');
+                mobileReportsHeader.classList.remove('flex');
+            }
+            mobileReportsList.classList.add('hidden');
+            mobileReportsList.classList.remove('flex');
+
+            mobileCompaniesList.innerHTML = '';
+            if (currentList.length === 0) {
+                mobileCompaniesList.innerHTML = `
+                    <div class="py-12 text-center text-zinc-500 font-bold text-sm uppercase tracking-wider">
+                        NENHUMA EMPRESA CADASTRADA
+                    </div>
+                `;
+            } else {
+                currentList.forEach(company => {
+                const compName = typeof company === 'string' ? company : (company.name || '');
+                const logoUrl = (typeof company === 'object' && company.logo) ? company.logo : getDefaultCompanyLogo();
+                const totalCompReports = filterReports(finalizedReports, compName, null, allAssetsList).length;
+
+                const card = document.createElement('div');
+                card.className = "bg-white text-zinc-900 rounded-2xl p-4 shadow-md border border-zinc-200/90 flex items-center justify-between gap-3.5 cursor-pointer hover:shadow-lg transition-all active:scale-[0.99]";
+                card.onclick = () => {
+                    reportsSelectedCompany = compName;
+                    reportsSelectedAssetId = null;
+                    window.mobileReportsViewLevel = 'assets';
+                    renderReportsView();
+                };
+
+                const leftCol = document.createElement('div');
+                leftCol.className = "flex items-center gap-3.5 min-w-0";
+
+                const logoBox = document.createElement('div');
+                logoBox.className = "w-14 h-14 rounded-xl bg-white border border-zinc-300 shadow-sm flex-shrink-0 flex items-center justify-center overflow-hidden p-1";
+                const imgEl = document.createElement('img');
+                imgEl.alt = compName;
+                imgEl.className = "w-full h-full object-contain";
+                imgEl.src = logoUrl;
+                imgEl.onerror = function() {
+                    this.onerror = null;
+                    this.src = getDefaultCompanyLogo();
+                };
+                logoBox.appendChild(imgEl);
+
+                const infoBox = document.createElement('div');
+                infoBox.className = "min-w-0";
+                infoBox.innerHTML = `
+                    <div class="font-extrabold text-zinc-950 text-sm uppercase leading-tight truncate">${compName}</div>
+                    <div class="mt-1">
+                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 bg-orange-50 text-orange-800 border border-orange-200 rounded-md text-[11px] font-bold">
+                            <span class="material-symbols-outlined text-[14px] text-orange-600">folder</span>
+                            ${totalCompReports} ${totalCompReports === 1 ? 'RELATÓRIO' : 'RELATÓRIOS'}
+                        </span>
+                    </div>
+                `;
+
+                leftCol.appendChild(logoBox);
+                leftCol.appendChild(infoBox);
+
+                const rightCol = document.createElement('div');
+                rightCol.className = "text-zinc-400";
+                rightCol.innerHTML = `<span class="material-symbols-outlined text-[24px]">chevron_right</span>`;
+
+                card.appendChild(leftCol);
+                card.appendChild(rightCol);
+                mobileCompaniesList.appendChild(card);
+            });
+        }
+    }
+}
 }
 window.renderReportsView = renderReportsView;
 
+window.handleEditReport = async function(id) {
+    await editReport(id);
+};
+
+window.handleDownloadReportPDF = async function(id) {
+    await window.printReportPDF(id);
+};
+
+window.handleDeleteReport = function(id) {
+    window.reportIdParaExcluir = id;
+    const modal = document.getElementById('modal-confirm-exclusao');
+    if (modal) modal.classList.remove('hidden');
+};
+
 window.selectReportsAsset = function(assetId) {
     if (reportsSelectedAssetId === assetId) {
-        reportsSelectedAssetId = null; // Toggle off se clicado novamente para ver todos os relatórios da empresa
+        reportsSelectedAssetId = null;
     } else {
         reportsSelectedAssetId = assetId;
     }
@@ -2101,8 +2788,7 @@ window.execMenuAction = async function(action) {
         await window.printReportPDF(id);
     }
     if (action === 'delete') {
-        window.reportIdParaExcluir = id;
-        document.getElementById('modal-confirm-exclusao').classList.remove('hidden');
+        window.handleDeleteReport(id);
     }
 };
 
@@ -2138,11 +2824,21 @@ window.toggleAssetActionMenu = function(event, id) {
 };
 
 window.execAssetAction = function(action) {
-    const id = document.getElementById('asset-action-menu').getAttribute('data-current-id');
-    document.getElementById('asset-action-menu').style.display = 'none';
-    document.getElementById('asset-action-menu').classList.add('hidden');
+    const menu = document.getElementById('asset-action-menu');
+    const id = menu ? menu.getAttribute('data-current-id') : null;
+    if (menu) {
+        menu.style.display = 'none';
+        menu.classList.add('hidden');
+    }
     
-    if (action === 'edit-schedule') window.openEditModal(id);
+    if (action === 'edit-schedule') {
+        window.openEditModal(id);
+    } else if (action === 'edit-asset') {
+        const asset = (allAssetsList || []).find(a => a && (String(a.id) === String(id) || String(a.id).toUpperCase() === String(id).toUpperCase()));
+        if (asset && typeof window.openEditAssetModal === 'function') {
+            window.openEditAssetModal(asset.id, asset.empresa || '');
+        }
+    }
 };
 
 
@@ -2211,9 +2907,15 @@ window.renderAssets = function(searchTerm = '') {
     // Always update month display
     const targetDate = new Date();
     targetDate.setMonth(targetDate.getMonth() + filterMonthOffset);
+    const monthFormatted = `${monthNames[targetDate.getMonth()]}/${targetDate.getFullYear()}`.toUpperCase();
+    
     const monthDisplay = document.getElementById('filter-month-display');
     if (monthDisplay) {
-        monthDisplay.innerText = `${monthNames[targetDate.getMonth()]}/${targetDate.getFullYear()}`.toUpperCase();
+        monthDisplay.innerText = monthFormatted;
+    }
+    const mobileMonthDisplay = document.getElementById('mobile-filter-month-display');
+    if (mobileMonthDisplay) {
+        mobileMonthDisplay.innerText = monthFormatted;
     }
 };
 
@@ -2262,25 +2964,6 @@ window.exportOperationalDashboardData = function() {
         `<img src="${internalCompany.logo}" style="max-height: 60px; max-width: 200px; object-fit: contain;">` : 
         `<div style="font-size: 22px; font-weight: 900; color: #1e3a8a;">${companyName}</div>`;
 
-    // 3. Criar iframe invisível na própria página para evitar abrir nova aba no navegador
-    let printFrame = document.getElementById('crane-dashboard-print-iframe');
-    if (printFrame) {
-        printFrame.remove();
-    }
-    printFrame = document.createElement('iframe');
-    printFrame.id = 'crane-dashboard-print-iframe';
-    printFrame.style.position = 'fixed';
-    printFrame.style.left = '-9999px';
-    printFrame.style.top = '-9999px';
-    printFrame.style.width = '1000px';
-    printFrame.style.height = '1000px';
-    printFrame.style.border = '0';
-    printFrame.style.opacity = '0';
-    printFrame.style.pointerEvents = 'none';
-    document.body.appendChild(printFrame);
-
-    const printWindow = printFrame.contentWindow;
-
     // Gerar linhas da tabela de eventos
     let tableRows = '';
     const dayNames = ['DOMINGO', 'SEGUNDA-FEIRA', 'TERÇA-FEIRA', 'QUARTA-FEIRA', 'QUINTA-FEIRA', 'SEXTA-FEIRA', 'SÁBADO'];
@@ -2325,8 +3008,7 @@ window.exportOperationalDashboardData = function() {
         });
     }
 
-    printWindow.document.write(`
-<!DOCTYPE html>
+    const reportHtml = `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
@@ -2461,7 +3143,36 @@ window.exportOperationalDashboardData = function() {
             ${tableRows}
         </tbody>
     </table>
+</body>
+</html>`;
 
+    // 3. Android APK Nativo (Compartilhamento Direto de PDF sem abrir tela de impressão)
+    const androidPrinter = window.AndroidPrinter || (window.parent && window.parent.AndroidPrinter);
+    if (androidPrinter && typeof androidPrinter.sharePdf === 'function') {
+        const safeJobName = `Agenda_Inspecoes_${year}_${String(targetMonth + 1).padStart(2, '0')}`;
+        androidPrinter.sharePdf(reportHtml, safeJobName);
+        return;
+    }
+
+    // 4. Modo Desktop / Web (Preservado 100% de forma idêntica via iframe)
+    let printFrame = document.getElementById('crane-dashboard-print-iframe');
+    if (printFrame) {
+        printFrame.remove();
+    }
+    printFrame = document.createElement('iframe');
+    printFrame.id = 'crane-dashboard-print-iframe';
+    printFrame.style.position = 'fixed';
+    printFrame.style.left = '-9999px';
+    printFrame.style.top = '-9999px';
+    printFrame.style.width = '1000px';
+    printFrame.style.height = '1000px';
+    printFrame.style.border = '0';
+    printFrame.style.opacity = '0';
+    printFrame.style.pointerEvents = 'none';
+    document.body.appendChild(printFrame);
+
+    const printWindow = printFrame.contentWindow;
+    const desktopHtml = reportHtml.replace('</body>', `
     <script>
         window.onload = function() {
             setTimeout(function() {
@@ -2470,9 +3181,8 @@ window.exportOperationalDashboardData = function() {
             }, 300);
         };
     </script>
-</body>
-</html>
-    `);
+</body>`);
+    printWindow.document.write(desktopHtml);
     printWindow.document.close();
 };
 
@@ -2518,9 +3228,9 @@ window.reloadAppDataAndUI = async function() {
     const dbAssets = await getDBValue('crane_assets', assets);
     updateArrayInPlace(assets, dbAssets);
 
-    const dbEvents = await getDBValue('crane_events', events);
+    const dbEvents = await getDBValue('crane_events', eventsList);
     updateArrayInPlace(events, dbEvents);
-    updateArrayInPlace(events, eventsList);
+    updateArrayInPlace(eventsList, dbEvents);
 
     const dbOpenOrders = await getDBValue('crane_open_orders', openOrders);
     updateArrayInPlace(openOrders, dbOpenOrders);
@@ -2545,9 +3255,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const dbAssets = await getDBValue('crane_assets', assets);
     updateArrayInPlace(assets, dbAssets);
 
-    const dbEvents = await getDBValue('crane_events', events);
+    const dbEvents = await getDBValue('crane_events', eventsList);
     updateArrayInPlace(events, dbEvents);
-    updateArrayInPlace(events, eventsList);
+    updateArrayInPlace(eventsList, dbEvents);
 
     const dbOpenOrders = await getDBValue('crane_open_orders', openOrders);
     updateArrayInPlace(openOrders, dbOpenOrders);
@@ -2600,14 +3310,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('CRANE PRO: Aplicação inicializada com sucesso.');
 });
 
+window.mobileAssetsViewLevel = 'companies';
+
+window.backToMobileCompanies = function() {
+    window.mobileAssetsViewLevel = 'companies';
+    renderAtivosView();
+};
+
 function renderAtivosView() {
     const tbody = document.getElementById('assets-view-tbody');
-    if (!tbody) return;
+    const compTbody = document.getElementById('assets-view-companies-tbody');
+    const mobileContainer = document.getElementById('assets-view-mobile-container');
+    const mobileCompaniesHeader = document.getElementById('assets-mobile-companies-header');
+    const mobileCompaniesList = document.getElementById('assets-mobile-companies-list');
+    const mobileAssetsHeader = document.getElementById('assets-mobile-assets-header');
+    const mobileAssetsList = document.getElementById('assets-mobile-assets-list');
+    const mobileSelectedCompanyTitle = document.getElementById('assets-mobile-selected-company-title');
 
     const currentList = companies || [];
     if (currentList.length === 0) {
-        renderCompaniesUI('assets-view-companies-tbody', [], '', () => {});
-        tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUMA EMPRESA OU ATIVO CADASTRADO</td></tr>`;
+        if (compTbody) renderCompaniesUI('assets-view-companies-tbody', [], '', () => {});
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUMA EMPRESA OU ATIVO CADASTRADO</td></tr>`;
+        if (mobileCompaniesList) {
+            mobileCompaniesList.innerHTML = `
+                <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-md text-zinc-600">
+                    <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">domain_disabled</span>
+                    <p class="font-bold text-sm text-zinc-900 uppercase">Nenhuma empresa cadastrada</p>
+                </div>
+            `;
+        }
         selectedCompany = "";
         return;
     }
@@ -2621,11 +3352,13 @@ function renderAtivosView() {
         selectedCompany = typeof firstComp === 'string' ? firstComp : (firstComp?.name || "");
     }
 
-    // Sidebar de empresas na vista de ativos
-    renderCompaniesUI('assets-view-companies-tbody', companies, selectedCompany, (company) => {
-        selectedCompany = company;
-        renderAtivosView();
-    });
+    // Sidebar de empresas na vista desktop
+    if (compTbody) {
+        renderCompaniesUI('assets-view-companies-tbody', companies, selectedCompany, (company) => {
+            selectedCompany = company;
+            renderAtivosView();
+        });
+    }
 
     const filteredAssets = allAssetsList
         .filter(a => a.empresa && selectedCompany && a.empresa.toLowerCase() === selectedCompany.toLowerCase())
@@ -2635,34 +3368,192 @@ function renderAtivosView() {
             if (numA !== numB) return numA - numB;
             return String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true });
         });
-    
-    tbody.innerHTML = filteredAssets.map(a => {
-        const customFields = a.custom_fields || a.customFields || {};
-        let displayCapacidade = a.capacidade;
-        if (!displayCapacidade && customFields) {
-            const capKey = Object.keys(customFields).find(k => k.toLowerCase().includes('capacidade') || k.toLowerCase().includes('peso'));
-            if (capKey && customFields[capKey]) displayCapacidade = customFields[capKey];
-        }
 
-        let displayVao = a.vao;
-        if (!displayVao && customFields) {
-            const vaoKey = Object.keys(customFields).find(k => k.toLowerCase().includes('vao') || k.toLowerCase().includes('ano') || k.toLowerCase().includes('data'));
-            if (vaoKey && customFields[vaoKey]) displayVao = customFields[vaoKey];
-        }
+    // Renderiza Desktop Table
+    if (tbody) {
+        tbody.innerHTML = filteredAssets.map(a => {
+            const customFields = a.custom_fields || a.customFields || {};
+            let displayCapacidade = a.capacidade;
+            if (!displayCapacidade && customFields) {
+                const capKey = Object.keys(customFields).find(k => k.toLowerCase().includes('capacidade') || k.toLowerCase().includes('peso'));
+                if (capKey && customFields[capKey]) displayCapacidade = customFields[capKey];
+            }
 
-        return `
-        <tr class="hover:bg-surface-container transition-colors duration-200 group border-b border-outline-variant/60">
-            <td class="px-card_padding py-3 text-label-md font-bold uppercase text-on-surface truncate">
-                <span class="truncate">${a.id}</span>
-            </td>
-            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(a.local || 'N/A').toUpperCase()}">${(a.local || 'N/A').toUpperCase()}</td>
-            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(a.tipo || a.nome || 'N/A').toUpperCase()}">${(a.tipo || a.nome || 'N/A').toUpperCase()}</td>
-            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(displayCapacidade || 'N/A').toUpperCase()}">${(displayCapacidade || 'N/A').toUpperCase()}</td>
-            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(displayVao || 'N/A').toUpperCase()}">${(displayVao || 'N/A').toUpperCase()}</td>
-            <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(a.fabricante || 'N/A').toUpperCase()}">${(a.fabricante || 'N/A').toUpperCase()}</td>
-        </tr>
-        `;
-    }).join('') || `<tr><td colspan="6" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM ATIVO TÉCNICO ENCONTRADO PARA ESTA EMPRESA</td></tr>`;
+            let displayVao = a.vao;
+            if (!displayVao && customFields) {
+                const vaoKey = Object.keys(customFields).find(k => k.toLowerCase().includes('vao') || k.toLowerCase().includes('ano') || k.toLowerCase().includes('data'));
+                if (vaoKey && customFields[vaoKey]) displayVao = customFields[vaoKey];
+            }
+
+            return `
+            <tr class="hover:bg-surface-container transition-colors duration-200 group border-b border-outline-variant/60">
+                <td class="px-card_padding py-3 text-label-md font-bold uppercase text-on-surface truncate">
+                    <span class="truncate">${a.id}</span>
+                </td>
+                <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(a.local || 'N/A').toUpperCase()}">${(a.local || 'N/A').toUpperCase()}</td>
+                <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(a.tipo || a.nome || 'N/A').toUpperCase()}">${(a.tipo || a.nome || 'N/A').toUpperCase()}</td>
+                <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(displayCapacidade || 'N/A').toUpperCase()}">${(displayCapacidade || 'N/A').toUpperCase()}</td>
+                <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(displayVao || 'N/A').toUpperCase()}">${(displayVao || 'N/A').toUpperCase()}</td>
+                <td class="px-card_padding py-3 text-label-md uppercase text-on-surface-variant truncate" title="${(a.fabricante || 'N/A').toUpperCase()}">${(a.fabricante || 'N/A').toUpperCase()}</td>
+            </tr>
+            `;
+        }).join('') || `<tr><td colspan="6" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM ATIVO TÉCNICO ENCONTRADO PARA ESTA EMPRESA</td></tr>`;
+    }
+
+    // Renderiza Mobile Cards
+    if (mobileContainer && mobileCompaniesList && mobileAssetsList) {
+        if (window.mobileAssetsViewLevel === 'assets' && selectedCompany) {
+            if (mobileCompaniesHeader) mobileCompaniesHeader.classList.add('hidden');
+            mobileCompaniesList.classList.add('hidden');
+            mobileCompaniesList.classList.remove('flex');
+            if (mobileAssetsHeader) {
+                mobileAssetsHeader.classList.remove('hidden');
+                mobileAssetsHeader.classList.add('flex');
+            }
+            mobileAssetsList.classList.remove('hidden');
+            mobileAssetsList.classList.add('flex');
+
+            if (mobileSelectedCompanyTitle) {
+                mobileSelectedCompanyTitle.innerText = selectedCompany.toUpperCase();
+            }
+
+            mobileAssetsList.innerHTML = '';
+            if (filteredAssets.length === 0) {
+                mobileAssetsList.innerHTML = `
+                    <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-md text-zinc-600">
+                        <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">precision_manufacturing</span>
+                        <p class="font-bold text-sm text-zinc-900 uppercase">Nenhum ativo cadastrado</p>
+                        <p class="text-xs text-zinc-500 mt-1">Esta empresa ainda não possui equipamentos cadastrados.</p>
+                    </div>
+                `;
+            } else {
+                filteredAssets.forEach(a => {
+                    const customFields = a.custom_fields || a.customFields || {};
+                    let displayCapacidade = a.capacidade;
+                    if (!displayCapacidade && customFields) {
+                        const capKey = Object.keys(customFields).find(k => k.toLowerCase().includes('capacidade') || k.toLowerCase().includes('peso'));
+                        if (capKey && customFields[capKey]) displayCapacidade = customFields[capKey];
+                    }
+
+                    let displayVao = a.vao;
+                    if (!displayVao && customFields) {
+                        const vaoKey = Object.keys(customFields).find(k => k.toLowerCase().includes('vao') || k.toLowerCase().includes('ano') || k.toLowerCase().includes('data'));
+                        if (vaoKey && customFields[vaoKey]) displayVao = customFields[vaoKey];
+                    }
+
+                    const displayTipo = a.tipo || a.nome || 'Equipamento';
+                    const fotoUrl = a.foto || a.imagemUrl || getDefaultAssetImage(displayTipo);
+
+                    const card = document.createElement('div');
+                    card.className = "bg-white text-zinc-900 rounded-2xl p-3.5 shadow-md border border-zinc-200/90 flex gap-3.5 items-center";
+                    
+                    const imgBox = document.createElement('div');
+                    imgBox.className = "w-24 h-24 rounded-xl bg-zinc-100 flex-shrink-0 overflow-hidden flex items-center justify-center border border-zinc-200";
+                    const imgEl = document.createElement('img');
+                    imgEl.alt = displayTipo;
+                    imgEl.className = "w-full h-full object-cover";
+                    imgEl.src = fotoUrl;
+                    imgEl.onerror = function() {
+                        this.onerror = null;
+                        this.src = getDefaultAssetImage(displayTipo);
+                    };
+                    imgBox.appendChild(imgEl);
+
+                    const infoBox = document.createElement('div');
+                    infoBox.className = "flex-1 min-w-0 text-left text-[12px] leading-tight space-y-0.5 text-zinc-800";
+                    infoBox.innerHTML = `
+                        <div class="font-extrabold text-zinc-950 text-sm truncate leading-snug">Ativo: ${(a.nome || a.tipo || 'EQUIPAMENTO').toUpperCase()}</div>
+                        <div class="text-zinc-900 font-bold">ID: <span class="font-mono font-extrabold text-amber-600">${a.id}</span></div>
+                        <div class="text-zinc-700 truncate font-semibold">Local: <span class="text-zinc-900 font-bold">${(a.local || 'N/A').toUpperCase()}</span></div>
+                        <div class="text-zinc-700 truncate font-semibold">Fabricante: <span class="text-zinc-900 font-bold">${(a.fabricante || 'N/A').toUpperCase()}</span></div>
+                        <div class="text-zinc-700 truncate font-semibold">Capacidade: <span class="text-zinc-900 font-bold">${(displayCapacidade || 'N/A').toUpperCase()}</span></div>
+                        <div class="text-zinc-700 truncate font-semibold">Vão: <span class="text-zinc-900 font-bold">${(displayVao || 'N/A').toUpperCase()}</span></div>
+                    `;
+
+                    card.appendChild(imgBox);
+                    card.appendChild(infoBox);
+                    mobileAssetsList.appendChild(card);
+                });
+            }
+        } else {
+            // Nível 1: Lista de Empresas
+            if (mobileCompaniesHeader) mobileCompaniesHeader.classList.remove('hidden');
+            mobileCompaniesList.classList.remove('hidden');
+            mobileCompaniesList.classList.add('flex');
+            if (mobileAssetsHeader) mobileAssetsHeader.classList.add('hidden');
+            mobileAssetsList.classList.add('hidden');
+            mobileAssetsList.classList.remove('flex');
+
+            mobileCompaniesList.innerHTML = '';
+            currentList.forEach(company => {
+                const compName = typeof company === 'string' ? company : (company.name || '');
+                const cnpj = (typeof company === 'object' && company.cnpj) ? company.cnpj : 'CNPJ NÃO CADASTRADO';
+                const endereco = (typeof company === 'object' && company.endereco) ? `${company.endereco}${company.numero ? ', ' + company.numero : ''}${company.bairro ? ' - ' + company.bairro : ''}` : 'ENDEREÇO NÃO CADASTRADO';
+                const cidadeEstado = (typeof company === 'object' && company.cidade) ? `${company.cidade}${company.estado ? ' / ' + company.estado : ''}${company.cep ? ' • CEP ' + company.cep : ''}` : '';
+                const logoUrl = (typeof company === 'object' && company.logo) ? company.logo : getDefaultCompanyLogo();
+
+                const countAssets = allAssetsList.filter(a => a.empresa && a.empresa.toLowerCase() === compName.toLowerCase()).length;
+
+                const card = document.createElement('div');
+                card.className = "bg-white text-zinc-900 rounded-2xl p-4 shadow-md border border-zinc-200/90 flex flex-col gap-3 cursor-pointer hover:shadow-lg transition-all active:scale-[0.99]";
+                card.onclick = () => {
+                    selectedCompany = compName;
+                    window.mobileAssetsViewLevel = 'assets';
+                    renderAtivosView();
+                };
+
+                const topRow = document.createElement('div');
+                topRow.className = "flex items-center gap-3.5";
+
+                const logoBox = document.createElement('div');
+                logoBox.className = "w-16 h-16 rounded-xl bg-white border border-zinc-300 shadow-sm flex-shrink-0 flex items-center justify-center overflow-hidden p-1";
+                const imgEl = document.createElement('img');
+                imgEl.alt = compName;
+                imgEl.className = "w-full h-full object-contain";
+                imgEl.src = logoUrl;
+                imgEl.onerror = function() {
+                    this.onerror = null;
+                    this.src = getDefaultCompanyLogo();
+                };
+                logoBox.appendChild(imgEl);
+
+                const titleBox = document.createElement('div');
+                titleBox.className = "flex-1 min-w-0";
+                titleBox.innerHTML = `
+                    <div class="font-extrabold text-zinc-950 text-base uppercase leading-tight truncate">${compName}</div>
+                    <div class="text-zinc-600 font-mono font-bold text-xs mt-0.5">${cnpj}</div>
+                `;
+
+                topRow.appendChild(logoBox);
+                topRow.appendChild(titleBox);
+
+                const midRow = document.createElement('div');
+                midRow.className = "text-[12px] leading-snug space-y-0.5 text-zinc-700 font-semibold border-t border-zinc-100 pt-2.5";
+                midRow.innerHTML = `
+                    <div class="truncate">📍 <span class="text-zinc-800">${endereco}</span></div>
+                    ${cidadeEstado ? `<div class="truncate">🏙️ <span class="text-zinc-800">${cidadeEstado}</span></div>` : ''}
+                `;
+
+                const footerRow = document.createElement('div');
+                footerRow.className = "flex items-center justify-between pt-1 border-t border-zinc-100";
+                footerRow.innerHTML = `
+                    <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-bold">
+                        <span class="material-symbols-outlined text-[16px] text-amber-600">precision_manufacturing</span>
+                        ${countAssets} ${countAssets === 1 ? 'ATIVO' : 'ATIVOS'}
+                    </span>
+                    <div class="flex items-center text-xs font-bold text-zinc-400 group-hover:text-zinc-900">
+                        <span>Ver Ativos</span>
+                        <span class="material-symbols-outlined text-[18px]">chevron_right</span>
+                    </div>
+                `;
+
+                card.appendChild(topRow);
+                card.appendChild(midRow);
+                card.appendChild(footerRow);
+                mobileCompaniesList.appendChild(card);
+            });
+        }
+    }
 }
 
 window.renderAtivosView = renderAtivosView;
@@ -2722,11 +3613,47 @@ window.openUnifiedRegistrationModal = async function() {
     const initialTipoEl = document.getElementById('reg-ativo-tipo');
     if (initialTipoEl) initialTipoEl.value = 'PONTE ROLANTE VIGA DUPLA';
 
+    window.currentAssetFotoBase64 = null;
+    const fotoPreview = document.getElementById('ativo-foto-preview-container');
+    if (fotoPreview) fotoPreview.innerHTML = '<span class="material-symbols-outlined text-on-surface-variant">add_a_photo</span>';
+    document.getElementById('remove-ativo-foto-btn')?.classList.add('hidden');
+    const fotoInput = document.getElementById('reg-ativo-foto');
+    if (fotoInput) fotoInput.value = '';
+
     modal.classList.remove('hidden');
     setTimeout(() => {
         panel.classList.remove('opacity-0', 'scale-95');
         panel.classList.add('opacity-100', 'scale-100');
     }, 10);
+};
+
+window.handleAssetFotoPreview = function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const base64 = e.target.result;
+        window.currentAssetFotoBase64 = base64;
+        const previewContainer = document.getElementById('ativo-foto-preview-container');
+        if (previewContainer) {
+            previewContainer.innerHTML = `<img src="${base64}" class="w-full h-full object-cover" />`;
+        }
+        const removeBtn = document.getElementById('remove-ativo-foto-btn');
+        if (removeBtn) removeBtn.classList.remove('hidden');
+    };
+    reader.readAsDataURL(file);
+};
+
+window.removeAssetFoto = function() {
+    window.currentAssetFotoBase64 = "";
+    const previewContainer = document.getElementById('ativo-foto-preview-container');
+    if (previewContainer) {
+        previewContainer.innerHTML = '<span class="material-symbols-outlined text-on-surface-variant">add_a_photo</span>';
+    }
+    const fileInput = document.getElementById('reg-ativo-foto');
+    if (fileInput) fileInput.value = '';
+    const removeBtn = document.getElementById('remove-ativo-foto-btn');
+    if (removeBtn) removeBtn.classList.add('hidden');
 };
 
 window.handleRegistrationTypeChange = function(keepFields = false) {
@@ -2783,19 +3710,30 @@ window.handleRegistrationTypeChange = function(keepFields = false) {
         if (dynamicWrapper) dynamicWrapper.classList.add('hidden');
         if (dynamicContainer) dynamicContainer.innerHTML = '';
         if (tplSelect) tplSelect.value = '';
+
+        window.currentAssetFotoBase64 = null;
+        const fotoPrev = document.getElementById('ativo-foto-preview-container');
+        if (fotoPrev) fotoPrev.innerHTML = '<span class="material-symbols-outlined text-on-surface-variant">add_a_photo</span>';
+        document.getElementById('remove-ativo-foto-btn')?.classList.add('hidden');
+        const fInput = document.getElementById('reg-ativo-foto');
+        if (fInput) fInput.value = '';
     }
 
     const btnCancel = document.getElementById('reg-btn-cancel');
+    const btnSave = document.getElementById('reg-btn-save');
     if (btnCancel) {
         if (type === 'edit-ativo') {
             btnCancel.textContent = 'EXCLUIR';
-            btnCancel.className = 'p-card_padding border border-error text-error font-bold uppercase hover:bg-error-container/10 transition-all rounded-xl cursor-pointer text-center';
+            btnCancel.className = 'border border-outline bg-white text-[#1f1f1f] hover:bg-zinc-50 font-bold p-3.5 uppercase transition-all rounded-xl cursor-pointer text-center';
             btnCancel.onclick = () => window.deleteAssetFromModal();
         } else {
             btnCancel.textContent = 'CANCELAR';
-            btnCancel.className = 'p-card_padding border border-outline text-on-surface-variant font-bold uppercase hover:bg-surface-container transition-all rounded-xl cursor-pointer text-center';
+            btnCancel.className = 'border border-outline bg-white text-on-surface-variant hover:bg-zinc-50 font-bold p-3.5 uppercase transition-all rounded-xl cursor-pointer text-center';
             btnCancel.onclick = () => window.closeUnifiedRegistrationModal();
         }
+    }
+    if (btnSave) {
+        btnSave.textContent = 'SALVAR';
     }
 
     if (type === 'empresa') {
@@ -2948,7 +3886,8 @@ window.deleteAssetFromModal = function() {
         // 3. Remove from events (calendar events)
         const eventsToDelete = events.filter(ev => ev.id === assetId || ev.equipamento === assetId);
         events = events.filter(ev => ev.id !== assetId && ev.equipamento !== assetId);
-        setStoredData('crane_events', events);
+        updateArrayInPlace(eventsList, events);
+        setStoredData('crane_events', events, false);
         eventsToDelete.forEach(ev => deleteEventFromCloud(ev.id));
         
         // 4. Remove from openOrders
@@ -2976,6 +3915,13 @@ window.updateEditAssetList = function() {
     const empresa = document.getElementById('reg-edit-empresa').value;
     const selectAtivo = document.getElementById('reg-edit-ativo-id');
     
+    // Reseta foto e visualização anterior
+    window.currentAssetFotoBase64 = null;
+    const fotoPreview = document.getElementById('ativo-foto-preview-container');
+    const removeFotoBtn = document.getElementById('remove-ativo-foto-btn');
+    if (fotoPreview) fotoPreview.innerHTML = '<span class="material-symbols-outlined text-on-surface-variant">add_a_photo</span>';
+    if (removeFotoBtn) removeFotoBtn.classList.add('hidden');
+
     if (!empresa) {
         selectAtivo.innerHTML = `<option value="">SELECIONAR EMPRESA PRIMEIRO</option>`;
         return;
@@ -2994,7 +3940,15 @@ window.updateEditAssetList = function() {
 
 window.loadAssetDataForEdit = function() {
     const id = document.getElementById('reg-edit-ativo-id').value;
-    if (!id) return;
+    const fotoPreview = document.getElementById('ativo-foto-preview-container');
+    const removeFotoBtn = document.getElementById('remove-ativo-foto-btn');
+
+    if (!id) {
+        window.currentAssetFotoBase64 = null;
+        if (fotoPreview) fotoPreview.innerHTML = '<span class="material-symbols-outlined text-on-surface-variant">add_a_photo</span>';
+        if (removeFotoBtn) removeFotoBtn.classList.add('hidden');
+        return;
+    }
 
     const asset = allAssetsList.find(a => a.id === id);
     if (asset) {
@@ -3003,6 +3957,20 @@ window.loadAssetDataForEdit = function() {
         document.getElementById('reg-ativo-local').value = (asset.local || "").toUpperCase();
         document.getElementById('reg-ativo-fabricante').value = (asset.fabricante || "").toUpperCase();
         
+        // Foto do Ativo
+        window.currentAssetFotoBase64 = asset.foto || asset.photo || asset.imagemUrl || null;
+        const fotoPreview = document.getElementById('ativo-foto-preview-container');
+        const removeFotoBtn = document.getElementById('remove-ativo-foto-btn');
+        if (fotoPreview) {
+            if (window.currentAssetFotoBase64) {
+                fotoPreview.innerHTML = `<img src="${window.currentAssetFotoBase64}" class="w-full h-full object-cover" />`;
+                if (removeFotoBtn) removeFotoBtn.classList.remove('hidden');
+            } else {
+                fotoPreview.innerHTML = '<span class="material-symbols-outlined text-on-surface-variant">add_a_photo</span>';
+                if (removeFotoBtn) removeFotoBtn.classList.add('hidden');
+            }
+        }
+
         // Remove sufixos para o input numérico e preenche
         document.getElementById('reg-ativo-capacidade-principal').value = (asset.capacidade || asset.capacidadePrincipal || "").replace(/[^\d.]/g, '');
         document.getElementById('reg-ativo-cabo-principal').value = asset.caboPrincipal || asset.caboprincipal || '';
@@ -3087,6 +4055,7 @@ window.saveUnifiedRegistration = async function() {
         // Lógica para Novo Ativo OU Edição de Ativo
         const isEdit = type === 'edit-ativo';
         const oldId = isEdit ? document.getElementById('reg-edit-ativo-id').value : null;
+        if (isEdit && !oldId) return window.showAlert('SELECIONE O ATIVO A SER EDITADO.', 'warning');
         const empresa = isEdit ? document.getElementById('reg-edit-empresa').value : document.getElementById('reg-ativo-empresa').value;
         const id = document.getElementById('reg-ativo-id').value.trim();
         const tipo = document.getElementById('reg-ativo-tipo').value.trim();
@@ -3147,17 +4116,21 @@ window.saveUnifiedRegistration = async function() {
             }
         });
 
+        const searchId = (isEdit && oldId) ? oldId : id;
+        const existingAsset = allAssetsList.find(a => a.id === searchId);
+        const fotoVal = window.currentAssetFotoBase64 !== null ? window.currentAssetFotoBase64 : (existingAsset?.foto || existingAsset?.photo || existingAsset?.imagemUrl || "");
+
         const baseAsset = { 
             id, empresa, nome: tipo, tipo, local, fabricante,
             capacidade, caboPrincipal, capacidadeAuxiliar, caboAuxiliar,
             altura, vao, tensaoAlimentacao, tensaoComando, alimentacaoEquipamento,
             motorElevPrincipalAlta, motorElevPrincipalBaixa, motorElevAuxiliarAlta, motorElevAuxiliarBaixa,
-            motorDirecaoCarro, motorTranslacaoPonte
+            motorDirecaoCarro, motorTranslacaoPonte,
+            foto: fotoVal
         };
 
         const assetData = prepareAssetPayload(baseAsset, selectedTemplate, customFields, false);
-        
-        const searchId = (isEdit && oldId) ? oldId : id;
+        assetData.foto = fotoVal;
 
         // 1. Lista Técnica Principal
         const existingIdx = allAssetsList.findIndex(a => a.id === searchId);
@@ -3172,15 +4145,28 @@ window.saveUnifiedRegistration = async function() {
         // Atualiza tanto o array 'assets' quanto o array 'events'
         const dashIdx = assets.findIndex(a => a.id === searchId);
         if (dashIdx !== -1) {
-            assets[dashIdx] = { ...assets[dashIdx], id: id, empresa, local, tipo };
+            assets[dashIdx] = { ...assets[dashIdx], id: id, empresa, local, tipo, foto: fotoVal };
         } else {
-            assets.push({ id, empresa, local, tipo, data: new Date().toISOString().split('T')[0] });
+            assets.push({ id, empresa, local, tipo, foto: fotoVal, data: new Date().toISOString().split('T')[0] });
         }
         
-        // Sincronizar também os eventos existentes
+        // Sincronizar também os eventos existentes mantendo seus IDs únicos
         events.forEach((ev, idx) => {
-            if (ev.id == searchId || ev.equipamento == searchId) {
-                events[idx] = { ...events[idx], id: id, equipamento: id, empresa, local, tipo };
+            const isMatch = String(ev.equipamento || ev.id || '').trim().toUpperCase() === String(searchId || '').trim().toUpperCase() ||
+                            String(ev.id || '').startsWith(`${searchId}-`);
+            if (isMatch) {
+                const newId = (oldId && oldId !== id && ev.id && ev.id.startsWith(`${oldId}-`))
+                    ? ev.id.replace(oldId, id)
+                    : ev.id;
+                events[idx] = { 
+                    ...events[idx], 
+                    id: newId, 
+                    equipamento: id, 
+                    empresa, 
+                    local, 
+                    tipo, 
+                    foto: fotoVal 
+                };
             }
         });
 
@@ -3506,7 +4492,8 @@ window.deleteCompany = function(empresaNome) {
 
     // 4. Remove all events for this company
     events = events.filter(e => e.empresa.toLowerCase() !== target);
-    setStoredData('crane_events', events);
+    updateArrayInPlace(eventsList, events);
+    setStoredData('crane_events', events, false);
 
     // 5. Remove open orders and finalized reports for this company
     setOpenOrders(openOrders.filter(o => (o.empresa || '').trim().toLowerCase() !== target));
@@ -3561,6 +4548,11 @@ window.toggleSectionMenu = function(event, sectionId) {
             <span class="material-symbols-outlined text-[#EAB308] text-[22px]">playlist_add</span>
             <span>CHECKLIST</span>
         </button>
+        <div class="h-px bg-outline-variant/40 my-0.5"></div>
+        <button type="button" onclick="window.selectSectionMenuOption('delete', '${sectionId}')" class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-600 font-bold text-xs uppercase transition-all duration-150 cursor-pointer">
+            <span class="material-symbols-outlined text-red-600 text-[22px]">delete</span>
+            <span>EXCLUIR</span>
+        </button>
     `;
     
     parentContainer.appendChild(menu);
@@ -3572,7 +4564,253 @@ window.selectSectionMenuOption = function(option, sectionId) {
         window.addAdditionalObservationBlock(null, sectionId);
     } else if (option === 'checklist') {
         window.openSectionChecklistItemModal(sectionId);
+    } else if (option === 'delete') {
+        window.enterSectionDeleteMode(sectionId);
     }
+};
+
+let currentDeleteSectionId = null;
+const deleteModeItemHandlers = new Map();
+
+window.enterSectionDeleteMode = function(sectionId) {
+    if (currentDeleteSectionId && currentDeleteSectionId !== sectionId) {
+        window.cancelSectionDeleteMode(currentDeleteSectionId);
+    }
+
+    const groupCard = document.querySelector(`.checklist-inspectable-group[data-section-id="${sectionId}"]`);
+    if (!groupCard) {
+        return window.showAlert('SEÇÃO NÃO ENCONTRADA.', 'warning');
+    }
+
+    const itemsContainer = groupCard.querySelector('.checklist-items-container') || groupCard.querySelector('.divide-y');
+    const itemRows = itemsContainer ? Array.from(itemsContainer.querySelectorAll('[data-field-id]')) : [];
+    const obsBlocks = Array.from(groupCard.querySelectorAll('.checklist-obs-block'));
+
+    if (itemRows.length === 0 && obsBlocks.length === 0) {
+        return window.showAlert('ESTA SEÇÃO NÃO POSSUI ITENS OU OBSERVAÇÕES PARA EXCLUIR.', 'warning');
+    }
+
+    currentDeleteSectionId = sectionId;
+
+    document.getElementById(`section-delete-bar-${sectionId}`)?.remove();
+
+    const bar = document.createElement('div');
+    bar.id = `section-delete-bar-${sectionId}`;
+    bar.className = 'flex flex-wrap items-center justify-between bg-red-50 border-2 border-red-300 rounded-2xl p-3 mb-3 gap-2.5 animate-fadeIn shadow-sm';
+    bar.innerHTML = `
+        <div class="flex items-center gap-2.5">
+            <span class="material-symbols-outlined text-red-600 text-[24px] animate-pulse">touch_app</span>
+            <div>
+                <p class="text-xs font-black uppercase text-red-700 tracking-wide">MODO EXCLUSÃO ATIVO</p>
+                <p class="text-[11px] font-bold text-red-600 uppercase section-delete-count-label">Toque nos itens ou observações que deseja excluir</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2 ml-auto">
+            <button type="button" onclick="window.cancelSectionDeleteMode('${sectionId}')" class="px-3 py-1.5 rounded-xl border border-outline bg-surface text-xs font-bold uppercase text-on-surface hover:bg-surface-container-low transition-all cursor-pointer">
+                CANCELAR
+            </button>
+            <button type="button" onclick="window.confirmSectionDelete('${sectionId}')" class="px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow transition-all cursor-pointer">
+                <span class="material-symbols-outlined text-[16px]">delete</span>
+                <span class="section-delete-confirm-btn-label">CONFIRMAR</span>
+            </button>
+        </div>
+    `;
+
+    if (itemsContainer) {
+        itemsContainer.parentNode.insertBefore(bar, itemsContainer);
+    } else {
+        groupCard.insertBefore(bar, groupCard.firstChild);
+    }
+
+    // Configura itens de checklist
+    itemRows.forEach(row => {
+        row.classList.add('cursor-pointer', 'transition-all', 'duration-150', 'select-none');
+        row.setAttribute('title', 'Toque para marcar/desmarcar para exclusão');
+
+        const handler = (e) => {
+            if (e.target.tagName !== 'BUTTON' && !e.target.closest('button')) {
+                e.preventDefault();
+            }
+            e.stopPropagation();
+
+            const isMarked = row.classList.toggle('marked-for-delete');
+            if (isMarked) {
+                row.classList.add('bg-red-500/15', 'border-red-500', 'text-red-700', 'font-black', 'rounded-xl', 'px-2.5');
+                row.classList.remove('text-on-surface');
+            } else {
+                row.classList.remove('bg-red-500/15', 'border-red-500', 'text-red-700', 'font-black', 'rounded-xl', 'px-2.5');
+                row.classList.add('text-on-surface');
+            }
+
+            updateSectionDeleteBarCount(sectionId);
+        };
+
+        deleteModeItemHandlers.set(row, handler);
+        row.addEventListener('click', handler);
+    });
+
+    // Configura blocos de observações para também responderem ao clique no modo exclusão
+    obsBlocks.forEach(obsBlock => {
+        obsBlock.classList.add('cursor-pointer', 'transition-all', 'duration-150', 'select-none', 'rounded-2xl', 'p-2.5');
+        obsBlock.setAttribute('title', 'Toque para marcar/desmarcar campo de observação para exclusão');
+
+        const obsHandler = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const isMarked = obsBlock.classList.toggle('marked-for-delete');
+            if (isMarked) {
+                obsBlock.classList.add('bg-red-500/15', 'border-2', 'border-red-500', 'shadow-sm');
+                let badge = obsBlock.querySelector('.obs-delete-mode-badge');
+                if (!badge) {
+                    badge = document.createElement('div');
+                    badge.className = 'obs-delete-mode-badge flex items-center gap-1.5 text-xs font-black uppercase text-red-600 mb-2 py-1 px-2.5 bg-red-100 rounded-lg w-fit';
+                    badge.innerHTML = `<span class="material-symbols-outlined text-[16px]">delete</span> <span>CAMPO DE OBSERVAÇÕES MARCADO PARA EXCLUSÃO</span>`;
+                    obsBlock.insertBefore(badge, obsBlock.firstChild);
+                }
+            } else {
+                obsBlock.classList.remove('bg-red-500/15', 'border-2', 'border-red-500', 'shadow-sm');
+                obsBlock.querySelector('.obs-delete-mode-badge')?.remove();
+            }
+
+            updateSectionDeleteBarCount(sectionId);
+        };
+
+        deleteModeItemHandlers.set(obsBlock, obsHandler);
+        obsBlock.addEventListener('click', obsHandler);
+    });
+
+    bar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+};
+
+function updateSectionDeleteBarCount(sectionId) {
+    const groupCard = document.querySelector(`.checklist-inspectable-group[data-section-id="${sectionId}"]`);
+    if (!groupCard) return;
+    const markedRows = groupCard.querySelectorAll('[data-field-id].marked-for-delete');
+    const markedObs = groupCard.querySelectorAll('.checklist-obs-block.marked-for-delete');
+    const count = markedRows.length + markedObs.length;
+    const labelEl = groupCard.querySelector('.section-delete-count-label');
+    const confirmBtnLabel = groupCard.querySelector('.section-delete-confirm-btn-label');
+
+    if (labelEl) {
+        labelEl.textContent = count === 0 
+            ? 'Toque nos itens ou observações que deseja excluir'
+            : `${count} ${count === 1 ? 'item/observação marcado' : 'itens/observações marcados'} para excluir`;
+    }
+    if (confirmBtnLabel) {
+        confirmBtnLabel.textContent = count > 0 ? `CONFIRMAR (${count})` : 'CONFIRMAR';
+    }
+}
+
+window.cancelSectionDeleteMode = function(sectionId) {
+    const groupCard = document.querySelector(`.checklist-inspectable-group[data-section-id="${sectionId}"]`);
+    if (groupCard) {
+        const itemsContainer = groupCard.querySelector('.checklist-items-container') || groupCard.querySelector('.divide-y');
+        const itemRows = itemsContainer ? itemsContainer.querySelectorAll('[data-field-id]') : [];
+        itemRows.forEach(row => {
+            row.classList.remove('marked-for-delete', 'bg-red-500/15', 'border-red-500', 'text-red-700', 'font-black', 'rounded-xl', 'px-2.5', 'cursor-pointer', 'transition-all', 'duration-150', 'select-none');
+            row.classList.add('text-on-surface');
+            row.removeAttribute('title');
+            const handler = deleteModeItemHandlers.get(row);
+            if (handler) {
+                row.removeEventListener('click', handler);
+                deleteModeItemHandlers.delete(row);
+            }
+        });
+
+        const obsBlocks = groupCard.querySelectorAll('.checklist-obs-block');
+        obsBlocks.forEach(obsBlock => {
+            obsBlock.classList.remove('marked-for-delete', 'bg-red-500/15', 'border-2', 'border-red-500', 'shadow-sm', 'cursor-pointer', 'transition-all', 'duration-150', 'select-none', 'rounded-2xl', 'p-2.5');
+            obsBlock.removeAttribute('title');
+            obsBlock.querySelector('.obs-delete-mode-badge')?.remove();
+            const handler = deleteModeItemHandlers.get(obsBlock);
+            if (handler) {
+                obsBlock.removeEventListener('click', handler);
+                deleteModeItemHandlers.delete(obsBlock);
+            }
+        });
+    }
+
+    document.getElementById(`section-delete-bar-${sectionId}`)?.remove();
+    if (currentDeleteSectionId === sectionId) {
+        currentDeleteSectionId = null;
+    }
+};
+
+window.confirmSectionDelete = function(sectionId) {
+    const groupCard = document.querySelector(`.checklist-inspectable-group[data-section-id="${sectionId}"]`);
+    if (!groupCard) return;
+
+    const markedRows = Array.from(groupCard.querySelectorAll('[data-field-id].marked-for-delete'));
+    const markedObs = Array.from(groupCard.querySelectorAll('.checklist-obs-block.marked-for-delete'));
+    const totalMarked = markedRows.length + markedObs.length;
+
+    if (totalMarked === 0) {
+        return window.showAlert('NENHUM ITEM OU OBSERVAÇÃO MARCADO PARA EXCLUSÃO. TOQUE EM AO MENOS 1 ITEM OU CLIQUE EM CANCELAR.', 'warning');
+    }
+
+    // 1. Remove os itens de checklist do DOM
+    const deletedIds = markedRows.map(row => String(row.dataset.fieldId)).filter(Boolean);
+    markedRows.forEach(row => {
+        const handler = deleteModeItemHandlers.get(row);
+        if (handler) {
+            row.removeEventListener('click', handler);
+            deleteModeItemHandlers.delete(row);
+        }
+        row.remove();
+    });
+
+    // 2. Remove os blocos de observação do DOM
+    markedObs.forEach(obsBlock => {
+        const handler = deleteModeItemHandlers.get(obsBlock);
+        if (handler) {
+            obsBlock.removeEventListener('click', handler);
+            deleteModeItemHandlers.delete(obsBlock);
+        }
+        obsBlock.remove();
+    });
+
+    // 3. Remove os itens de checklist do schema em memória (currentChecklistContext)
+    if (deletedIds.length > 0) {
+        const removeFieldFromSchema = (nodes) => {
+            if (!Array.isArray(nodes)) return nodes;
+            return nodes.map(node => {
+                const clone = { ...node };
+                if (Array.isArray(clone.children)) {
+                    clone.children = clone.children.filter(child => !deletedIds.includes(String(child.id)));
+                    clone.children = removeFieldFromSchema(clone.children);
+                }
+                return clone;
+            });
+        };
+
+        if (typeof currentChecklistContext !== 'undefined' && currentChecklistContext) {
+            if (currentChecklistContext.schema) {
+                currentChecklistContext.schema = removeFieldFromSchema(currentChecklistContext.schema);
+            }
+            if (currentChecklistContext.schema_snapshot) {
+                currentChecklistContext.schema_snapshot = removeFieldFromSchema(currentChecklistContext.schema_snapshot);
+            }
+        }
+
+        // Remove de activeCustomItems se for item customizado
+        if (typeof activeCustomItems !== 'undefined' && Array.isArray(activeCustomItems)) {
+            activeCustomItems = activeCustomItems.filter(ci => !deletedIds.includes(String(ci.id)));
+            window.activeCustomItems = activeCustomItems;
+        }
+    }
+
+    // 4. Limpa o modo de exclusão da tela e desvincula handlers
+    window.cancelSectionDeleteMode(sectionId);
+
+    // 5. Dispara evento de mudança para que autosave / rascunho salve o estado atualizado
+    const formRoot = document.getElementById('checklist-form-root');
+    if (formRoot) {
+        formRoot.dispatchEvent(new CustomEvent('checklist-input-change', { bubbles: true }));
+    }
+
+    const msg = totalMarked === 1 ? '1 item excluído com sucesso!' : `${totalMarked} itens excluídos com sucesso!`;
+    window.showAlert(msg, 'success');
 };
 
 document.addEventListener('click', (e) => {
@@ -3585,9 +4823,21 @@ window.openSectionChecklistItemModal = function(sectionId) {
     targetSectionIdForChecklistModal = sectionId;
     const modal = document.getElementById('section-checklist-item-modal');
     const input = document.getElementById('section-checklist-item-title');
-    if (input) input.value = '';
+    if (input) {
+        input.value = '';
+        if (typeof window.autoResizeTextarea === 'function') {
+            window.autoResizeTextarea(input);
+        } else {
+            input.style.height = 'auto';
+        }
+    }
     modal?.classList.remove('hidden');
-    setTimeout(() => input?.focus(), 50);
+    setTimeout(() => {
+        if (input) {
+            if (typeof window.autoResizeTextarea === 'function') window.autoResizeTextarea(input);
+            input.focus();
+        }
+    }, 50);
 };
 
 window.closeSectionChecklistItemModal = function() {
@@ -3695,9 +4945,19 @@ window.openCustomItemModal = function() {
         // Sugere o próximo número (ex: 11)
         const nextNum = 11 + activeCustomSections.length;
         titleInput.value = `${nextNum} SISTEMA ADICIONAL`;
+        if (typeof window.autoResizeTextarea === 'function') {
+            window.autoResizeTextarea(titleInput);
+        } else {
+            titleInput.style.height = 'auto';
+        }
     }
     if (subsInput) subsInput.value = '';
     modal?.classList.remove('hidden');
+    setTimeout(() => {
+        if (titleInput && typeof window.autoResizeTextarea === 'function') {
+            window.autoResizeTextarea(titleInput);
+        }
+    }, 50);
 };
 
 window.closeCustomItemModal = function() {
@@ -3794,6 +5054,9 @@ window.handleLogoPreview = function(event) {
     };
     reader.readAsDataURL(file);
 };
+
+// Utilitário global unificado para auto-expansão dinâmica de textareas sem travamento por animações
+window.autoResizeTextarea = autoResizeTextarea;
 
 // Listener para auto-save rápido síncrono local (zero lag, < 1ms)
 if (typeof document !== 'undefined') {
