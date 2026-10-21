@@ -113,11 +113,24 @@ export async function dbFetchAll(tableName) {
 /**
  * Helper genérico para upsert (inserir ou atualizar) dados
  */
-export async function dbUpsert(tableName, payload) {
+export async function dbUpsert(tableName, payload, options = {}) {
     const client = getActiveSupabase();
     if (!client) return null;
     try {
-        const { data, error } = await client.from(tableName).upsert(payload);
+        let cleanPayload = payload;
+        if (Array.isArray(payload)) {
+            const seen = new Map();
+            for (const item of payload) {
+                if (item && item.id != null) {
+                    const idKey = String(item.id).trim();
+                    seen.set(idKey, item);
+                }
+            }
+            if (seen.size > 0 && seen.size < payload.length) {
+                cleanPayload = Array.from(seen.values());
+            }
+        }
+        const { data, error } = await client.from(tableName).upsert(cleanPayload, options);
         if (error) throw error;
         return data;
     } catch (e) {

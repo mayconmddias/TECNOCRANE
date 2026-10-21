@@ -247,7 +247,16 @@ export async function syncKeyToSupabase(key, data) {
             try { localStorage.setItem(tenantKey, JSON.stringify(data)); } catch (e) {}
             await setDBValue(tenantKey, data);
         } else if (key === 'crane_all_assets') {
-            await Promise.all(data.map(async a => {
+            // Deduplica dados de ativos por ID para evitar violação de unicidade (erro 21000) no PostgreSQL
+            const uniqueAssetsMap = new Map();
+            (Array.isArray(data) ? data : []).forEach(a => {
+                if (a && a.id != null) {
+                    uniqueAssetsMap.set(String(a.id).trim(), a);
+                }
+            });
+            const uniqueData = Array.from(uniqueAssetsMap.values());
+
+            await Promise.all(uniqueData.map(async a => {
                 let fotoUrl = a.foto || a.photo || a.imagemUrl || '';
                 const assetId = a.id || String(Date.now());
                 if (typeof fotoUrl === 'string' && fotoUrl.startsWith('data:')) {
@@ -259,7 +268,7 @@ export async function syncKeyToSupabase(key, data) {
 
             const photoVal = (a) => a.foto || a.photo || a.imagemUrl || '';
 
-            const baseRowsWithFoto = data.map(a => ({
+            const baseRowsWithFoto = uniqueData.map(a => ({
                 id: a.id,
                 empresa: a.empresa || '',
                 nome: a.nome || '',
@@ -286,7 +295,7 @@ export async function syncKeyToSupabase(key, data) {
 
             const baseRowsWithoutFoto = baseRowsWithFoto.map(({ foto, ...rest }) => rest);
 
-            const fullRowsWithFoto = data.map((a, i) => ({
+            const fullRowsWithFoto = uniqueData.map((a, i) => ({
                 ...baseRowsWithFoto[i],
                 template_id: a.template_id || null,
                 template_name: a.template_name || null,
@@ -317,8 +326,8 @@ export async function syncKeyToSupabase(key, data) {
                 }
             }
             const tenantKey = getTenantKey('crane_all_assets');
-            try { localStorage.setItem(tenantKey, JSON.stringify(data)); } catch (e) {}
-            await setDBValue(tenantKey, data);
+            try { localStorage.setItem(tenantKey, JSON.stringify(uniqueData)); } catch (e) {}
+            await setDBValue(tenantKey, uniqueData);
         } else if (key === 'crane_users') {
             const dbUsers = await dbFetchAll('users');
             const rows = await Promise.all(data.map(async u => {
@@ -651,10 +660,13 @@ export async function syncAllFromSupabase() {
         let dbAllAssets = await dbFetchAll('all_assets');
         if (Array.isArray(dbAllAssets)) {
             const handledIds = new Set();
-            const merged = dbAllAssets.map(a => {
-                const localAsset = (allAssetsList || []).find(l => l && String(l.id) === String(a.id));
-                handledIds.add(String(a.id));
-                return {
+            const mergedMap = new Map();
+            dbAllAssets.forEach(a => {
+                if (!a || a.id == null) return;
+                const idStr = String(a.id).trim();
+                handledIds.add(idStr);
+                const localAsset = (allAssetsList || []).find(l => l && String(l.id).trim() === idStr);
+                mergedMap.set(idStr, {
                     id: a.id,
                     empresa: a.empresa || (localAsset ? localAsset.empresa : ''),
                     nome: a.nome || (localAsset ? localAsset.nome : ''),
@@ -684,16 +696,21 @@ export async function syncAllFromSupabase() {
                     is_provisional: !!a.is_provisional,
                     provisional_id: a.provisional_id || (localAsset ? localAsset.provisional_id : null),
                     sync_status: a.sync_status || 'synced'
-                };
+                });
             });
 
-            // Preserva ativos locais que ainda não constem no Supabase
+            // Preserva ativos locais que ainda não constem no Supabase (garantindo unicidade)
             (allAssetsList || []).forEach(local => {
-                if (local && local.id && !handledIds.has(String(local.id))) {
-                    merged.push(local);
+                if (local && local.id != null) {
+                    const idStr = String(local.id).trim();
+                    if (!handledIds.has(idStr) && !mergedMap.has(idStr)) {
+                        handledIds.add(idStr);
+                        mergedMap.set(idStr, local);
+                    }
                 }
             });
 
+            const merged = Array.from(mergedMap.values());
             updateArrayInPlace(allAssetsList, merged);
             const tenantKeyAssets = getTenantKey('crane_all_assets');
             try { localStorage.setItem(tenantKeyAssets, JSON.stringify(allAssetsList)); } catch (e) {}
