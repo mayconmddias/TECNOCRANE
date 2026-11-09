@@ -1738,8 +1738,9 @@ function renderUsers(searchTerm = '') {
     filtered.forEach(user => {
         const displayName = formatShortName(user.name);
         const permRaw = (user.permission || 'TECNICO').toUpperCase();
-        const permLabel = permRaw === 'ADMINISTRADOR' ? 'Administrador' : 'Técnico';
-        const permBadgeClass = permRaw === 'ADMINISTRADOR' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-zinc-100 text-zinc-700 border-zinc-300';
+        const isAdmin = permRaw === 'ADMINISTRADOR' || permRaw === 'ADMIN';
+        const permLabel = isAdmin ? 'Administrador' : 'Técnico';
+        const permBadgeClass = isAdmin ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-zinc-100 text-zinc-700 border-zinc-300';
         const initials = user.name.split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('') || 'U';
 
         // Desktop Table (retrocompatibilidade)
@@ -1928,10 +1929,11 @@ window.openEditUserModal = async function(id) {
     document.getElementById('user-modal-subtitle').innerText = 'CONFIGURAÇÕES DE ACESSO';
     document.getElementById('user-id-input').value = user.id;
     document.getElementById('user-name-input').value = (user.name || '').toUpperCase();
-    document.getElementById('user-cargo-input').value = (user.cargo || (user.permission === 'ADMINISTRADOR' ? 'GERENTE' : 'INSPETOR TÉCNICO')).toUpperCase();
+    const isUserAdmin = (user.permission === 'ADMINISTRADOR' || user.permission === 'ADMIN');
+    document.getElementById('user-cargo-input').value = (user.cargo || (isUserAdmin ? 'GERENTE' : 'INSPETOR TÉCNICO')).toUpperCase();
     document.getElementById('user-email-input').value = (user.email || '').toLowerCase();
     document.getElementById('user-password-input').value = user.password || '';
-    document.getElementById('user-permission-select').value = user.permission || 'TECNICO';
+    document.getElementById('user-permission-select').value = isUserAdmin ? 'ADMINISTRADOR' : (user.permission || 'TECNICO');
     
     // Foto do Usuário
     window.currentUserPhotoBase64 = user.avatar || user.foto || null;
