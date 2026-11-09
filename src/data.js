@@ -1,6 +1,6 @@
 // Crane Pro - Data Layer
 
-import { isSupabaseConfigured, dbFetchAll, dbUpsert, dbDelete, uploadBase64ToStorage, deleteStorageFile, deleteStorageFilesByPrefix, getTenantCode } from './supabase.js';
+import { isSupabaseConfigured, getActiveSupabase, dbFetchAll, dbUpsert, dbDelete, uploadBase64ToStorage, deleteStorageFile, deleteStorageFilesByPrefix, getTenantCode } from './supabase.js';
 import { hashPassword } from './utils.js';
 
 export let isInitialLoad = true;
@@ -79,6 +79,29 @@ export function setDBValue(key, value) {
                 store.put(value, tenantKey);
                 if (tenantKey !== key) {
                     store.put(value, key);
+                }
+            } catch (err) {
+                return reject(err);
+            }
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = () => reject(transaction.error);
+        });
+    }).catch(() => {});
+}
+
+export function deleteDBValue(key) {
+    if (typeof indexedDB === 'undefined') {
+        return Promise.resolve();
+    }
+    const tenantKey = getTenantKey(key);
+    return getDB().then(db => {
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction(STORE_NAME, 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            try {
+                store.delete(tenantKey);
+                if (tenantKey !== key) {
+                    store.delete(key);
                 }
             } catch (err) {
                 return reject(err);
@@ -247,22 +270,39 @@ export async function syncKeyToSupabase(key, data) {
             try { localStorage.setItem(tenantKey, JSON.stringify(data)); } catch (e) {}
             await setDBValue(tenantKey, data);
         } else if (key === 'crane_all_assets') {
+            await fixConflictingAssetIds();
             // Deduplica dados de ativos por ID para evitar violação de unicidade (erro 21000) no PostgreSQL
             const uniqueAssetsMap = new Map();
-            (Array.isArray(data) ? data : []).forEach(a => {
+            (Array.isArray(allAssetsList && allAssetsList.length > 0 ? allAssetsList : data) ? (allAssetsList && allAssetsList.length > 0 ? allAssetsList : data) : []).forEach(a => {
                 if (a && a.id != null) {
                     uniqueAssetsMap.set(String(a.id).trim(), a);
                 }
             });
             const uniqueData = Array.from(uniqueAssetsMap.values());
 
+            const dbAssets = await dbFetchAll('all_assets');
+
             await Promise.all(uniqueData.map(async a => {
                 let fotoUrl = a.foto || a.photo || a.imagemUrl || '';
                 const assetId = a.id || String(Date.now());
+                const cleanId = String(assetId).replace(/\W+/g, '_');
+                const oldAsset = Array.isArray(dbAssets) ? dbAssets.find(oa => oa && String(oa.id).trim() === String(a.id).trim()) : null;
+
                 if (typeof fotoUrl === 'string' && fotoUrl.startsWith('data:')) {
-                    const uniqueFileName = `asset_${String(assetId).replace(/\W+/g, '_')}_${Date.now()}`;
+                    // Remove foto remota anterior para não duplicar arquivos no storage
+                    if (oldAsset && oldAsset.foto && typeof oldAsset.foto === 'string' && oldAsset.foto.startsWith('http')) {
+                        await deleteStorageFile('crane-app-media', oldAsset.foto);
+                    }
+                    // Limpa quaisquer duplicatas legadas anteriores com timestamp para este ativo
+                    await deleteStorageFilesByPrefix('crane-app-media', 'assets', `asset_${cleanId}_`);
+
+                    const uniqueFileName = `asset_${cleanId}_${Date.now()}`;
                     fotoUrl = await uploadBase64ToStorage('crane-app-media', 'assets', fotoUrl, uniqueFileName);
                     a.foto = fotoUrl;
+                } else if (!fotoUrl && oldAsset && oldAsset.foto && typeof oldAsset.foto === 'string' && oldAsset.foto.startsWith('http')) {
+                    // Foto foi removida pelo usuário no modal
+                    await deleteStorageFile('crane-app-media', oldAsset.foto);
+                    await deleteStorageFilesByPrefix('crane-app-media', 'assets', `asset_${cleanId}_`);
                 }
             }));
 
@@ -330,6 +370,7 @@ export async function syncKeyToSupabase(key, data) {
             await setDBValue(tenantKey, uniqueData);
         } else if (key === 'crane_users') {
             const dbUsers = await dbFetchAll('users');
+            const hasAvatarColumn = Array.isArray(dbUsers) && dbUsers.length > 0 && ('avatar' in dbUsers[0]);
             const rows = await Promise.all(data.map(async u => {
                 let sigUrl = u.signature || u.assinatura || '';
                 let avatarUrl = u.avatar || u.foto || '';
@@ -358,19 +399,27 @@ export async function syncKeyToSupabase(key, data) {
                     await deleteStorageFile('crane-app-media', oldUser.avatar || oldUser.foto);
                 }
 
+                const resolvedId = (oldUser && oldUser.id != null)
+                    ? oldUser.id
+                    : (typeof u.id === 'number' ? u.id : (parseInt(u.id, 10) || undefined));
+
                 return {
-                    id: u.id,
+                    ...(resolvedId != null ? { id: resolvedId } : {}),
                     name: u.name,
                     email: u.email,
                     password: await hashPassword(u.password),
                     permission: u.permission,
                     cargo: u.cargo || u.role || '',
                     signature: sigUrl,
-                    avatar: avatarUrl,
+                    ...(hasAvatarColumn ? { avatar: avatarUrl } : {}),
                     tenant_code: u.tenant_code || getTenantCode() || '001'
                 };
             }));
-            await dbUpsert('users', rows);
+            try {
+                await dbUpsert('users', rows);
+            } catch (err) {
+                console.warn('CRANE USERS: Erro ao sincronizar usuários com o Supabase:', err);
+            }
             const tenantKey = getTenantKey('crane_users');
             try { localStorage.setItem(tenantKey, JSON.stringify(data)); } catch (e) {}
             await setDBValue(tenantKey, data);
@@ -584,7 +633,7 @@ export async function deleteCompanyAssetsFromCloud(companyName) {
         if (dbAssets && dbAssets.length > 0) {
             const toDelete = dbAssets.filter(a => (a.empresa || '').trim().toLowerCase() === target);
             for (const asset of toDelete) {
-                await dbDelete('all_assets', 'id', asset.id);
+                await deleteAssetFromCloud(asset.id);
             }
         }
     } catch (e) {
@@ -593,12 +642,66 @@ export async function deleteCompanyAssetsFromCloud(companyName) {
 }
 
 export async function deleteAssetFromCloud(assetId) {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !assetId) return;
+    try {
+        const cleanId = String(assetId).replace(/\W+/g, '_');
+        const targetAsset = (allAssetsList || []).find(a => a && String(a.id).trim() === String(assetId).trim());
+        const photoUrl = targetAsset ? (targetAsset.foto || targetAsset.photo || targetAsset.imagemUrl) : null;
+        if (photoUrl && typeof photoUrl === 'string' && photoUrl.startsWith('http')) {
+            await deleteStorageFile('crane-app-media', photoUrl);
+        }
+        await deleteStorageFilesByPrefix('crane-app-media', 'assets', `asset_${cleanId}`);
+    } catch (e) {
+        console.warn(`Erro ao excluir arquivos de mídia do ativo ${assetId} no Storage:`, e);
+    }
+
+    // Exclusão em cascata: remove também todos os agendamentos vinculados a este ativo no Supabase
+    try {
+        const cloudEvents = await dbFetchAll('scheduled_inspections');
+        if (Array.isArray(cloudEvents)) {
+            const eventsToDelete = cloudEvents.filter(ev => 
+                ev && (ev.equipamento === assetId || ev.id === assetId || String(ev.id).startsWith(`${assetId}-`))
+            );
+            for (const ev of eventsToDelete) {
+                await dbDelete('scheduled_inspections', 'id', ev.id);
+            }
+        }
+    } catch (e) {
+        console.warn(`Erro ao excluir agendamentos vinculados ao ativo ${assetId} no Supabase:`, e);
+    }
+
+    // Atualiza a lista local de eventos se disponível
+    if (Array.isArray(eventsList)) {
+        const filteredEvents = eventsList.filter(ev => 
+            !ev || (ev.equipamento !== assetId && ev.id !== assetId && !String(ev.id).startsWith(`${assetId}-`))
+        );
+        updateArrayInPlace(eventsList, filteredEvents);
+        setStoredData('crane_events', eventsList, false);
+    }
+
     return dbDelete('all_assets', 'id', assetId);
 }
 
 export async function deleteUserFromCloud(userId) {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !userId) return;
+    try {
+        const targetUser = (usersList || []).find(u => u && String(u.id).trim() === String(userId).trim());
+        if (targetUser) {
+            const avatarUrl = targetUser.avatar || targetUser.foto;
+            if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.startsWith('http')) {
+                await deleteStorageFile('crane-app-media', avatarUrl);
+            }
+            const sigUrl = targetUser.signature || targetUser.assinatura;
+            if (sigUrl && typeof sigUrl === 'string' && sigUrl.startsWith('http')) {
+                await deleteStorageFile('crane-app-media', sigUrl);
+            }
+        }
+        const cleanUserId = String(userId).replace(/\W+/g, '_');
+        await deleteStorageFilesByPrefix('crane-app-media', 'avatars', `avatar_${cleanUserId}`);
+        await deleteStorageFilesByPrefix('crane-app-media', 'signatures', `signature_${cleanUserId}`);
+    } catch (e) {
+        console.warn(`Erro ao excluir mídias do usuário ${userId} no Storage:`, e);
+    }
     return dbDelete('users', 'id', userId);
 }
 
@@ -661,9 +764,19 @@ export async function syncAllFromSupabase() {
         if (Array.isArray(dbAllAssets)) {
             const handledIds = new Set();
             const mergedMap = new Map();
+            const invalidAssetsToDelete = [];
+
             dbAllAssets.forEach(a => {
                 if (!a || a.id == null) return;
                 const idStr = String(a.id).trim();
+                const empresaNorm = (a.empresa || '').trim().toLowerCase();
+
+                // Integridade referencial: se o ativo não pertencer a nenhuma empresa válida, expurga da nuvem
+                if (empresaNorm && validCompanyNames.size > 0 && !validCompanyNames.has(empresaNorm)) {
+                    invalidAssetsToDelete.push(a);
+                    return;
+                }
+
                 handledIds.add(idStr);
                 const localAsset = (allAssetsList || []).find(l => l && String(l.id).trim() === idStr);
                 mergedMap.set(idStr, {
@@ -688,7 +801,7 @@ export async function syncAllFromSupabase() {
                     motorElevAuxiliarBaixa: a.motorelevauxiliarbaixa || a.motorElevAuxiliarBaixa || (localAsset ? localAsset.motorElevAuxiliarBaixa : ''),
                     motorDirecaoCarro: a.motordirecaocarro || a.motorDirecaoCarro || (localAsset ? localAsset.motorDirecaoCarro : ''),
                     motorTranslacaoPonte: a.motortranslacaoponte || a.motorTranslacaoPonte || (localAsset ? localAsset.motorTranslacaoPonte : ''),
-                    foto: a.foto || (a.custom_fields && a.custom_fields.foto) || (localAsset ? (localAsset.foto || localAsset.photo || localAsset.imagemUrl) : ''),
+                    foto: (typeof a.foto === 'string' ? a.foto : (a.custom_fields && typeof a.custom_fields.foto === 'string' ? a.custom_fields.foto : (localAsset ? (localAsset.foto || localAsset.photo || localAsset.imagemUrl || '') : ''))),
                     template_id: a.template_id || (localAsset ? localAsset.template_id : null),
                     template_name: a.template_name || (localAsset ? localAsset.template_name : null),
                     schema_snapshot: a.schema_snapshot || (localAsset ? localAsset.schema_snapshot : null),
@@ -699,9 +812,18 @@ export async function syncAllFromSupabase() {
                 });
             });
 
-            // Preserva ativos locais que ainda não constem no Supabase (garantindo unicidade)
+            // Remove ativos órfãos da nuvem em segundo plano
+            if (invalidAssetsToDelete.length > 0) {
+                invalidAssetsToDelete.forEach(invA => {
+                    deleteAssetFromCloud(invA.id).catch(() => {});
+                });
+            }
+
+            // Preserva SOMENTE ativos locais pendentes criados offline pertencentes a empresas válidas
             (allAssetsList || []).forEach(local => {
-                if (local && local.id != null) {
+                if (local && local.id != null && (local._isOfflinePending || local.is_provisional)) {
+                    const localEmpresa = (local.empresa || '').trim().toLowerCase();
+                    if (!validCompanyNames.has(localEmpresa)) return;
                     const idStr = String(local.id).trim();
                     if (!handledIds.has(idStr) && !mergedMap.has(idStr)) {
                         handledIds.add(idStr);
@@ -712,6 +834,7 @@ export async function syncAllFromSupabase() {
 
             const merged = Array.from(mergedMap.values());
             updateArrayInPlace(allAssetsList, merged);
+            await fixConflictingAssetIds();
             const tenantKeyAssets = getTenantKey('crane_all_assets');
             try { localStorage.setItem(tenantKeyAssets, JSON.stringify(allAssetsList)); } catch (e) {}
             await setDBValue('crane_all_assets', allAssetsList);
@@ -731,6 +854,7 @@ export async function syncAllFromSupabase() {
                 permission: u.permission || 'TECNICO',
                 cargo: u.cargo || u.role || '',
                 signature: u.signature || u.assinatura || '',
+                avatar: u.avatar || u.foto || '',
                 tenant_code: u.tenant_code || tenant
             })));
             updateArrayInPlace(usersList, mappedUsers);
@@ -782,10 +906,10 @@ export async function syncAllFromSupabase() {
                     tecnico: e.tecnico || ''
                 });
             }
-            // Preserva agendamentos locais criados offline
-            const handledEventIds = new Set(mappedEvents.map(ev => String(ev.id)));
+            // A nuvem é a autoridade absoluta quando conectada.
+            // Preserva apenas agendamentos locais explicitamente marcados como pendentes de sincronização offline
             (eventsList || []).forEach(localEv => {
-                if (localEv && localEv.id && !handledEventIds.has(String(localEv.id))) {
+                if (localEv && localEv._isOfflinePending && !mappedEvents.some(ev => String(ev.id) === String(localEv.id))) {
                     mappedEvents.push(localEv);
                 }
             });
@@ -903,6 +1027,9 @@ export async function syncAllFromSupabase() {
         }
 
         console.log('SUPABASE: Sincronização e migração concluídas com sucesso!');
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('crane:cloud-synced'));
+        }
     } catch (e) {
         console.error('SUPABASE: Erro ao sincronizar dados da nuvem:', e);
     }
@@ -1075,7 +1202,83 @@ export function purgeOrphanLocalData() {
     }
 }
 
-export const DB_SCHEMA_VERSION = 2;
+/**
+ * Detecta e resolve automaticamente colisões de IDs entre ativos de empresas diferentes
+ * (ex: se duas empresas tiverem um ativo com o mesmo ID '#EQP-0001').
+ */
+export async function fixConflictingAssetIds() {
+    if (!Array.isArray(allAssetsList) || allAssetsList.length === 0) return false;
+    const seenIds = new Map(); // cleanId -> asset
+    let hasConflict = false;
+    let maxSeq = 0;
+
+    // 1. Identifica o maior número sequencial existente em toda a lista
+    allAssetsList.forEach(a => {
+        if (!a || !a.id) return;
+        const match = String(a.id).match(/^(?:#?EQP[- ]?)([0-9]+)$/i);
+        if (match && match[1]) {
+            const num = parseInt(match[1], 10);
+            if (num > maxSeq && num <= 9000) maxSeq = num;
+        }
+    });
+
+    // 2. Localiza e resolve colisões de ativos entre empresas distintas
+    for (let i = 0; i < allAssetsList.length; i++) {
+        const asset = allAssetsList[i];
+        if (!asset || !asset.id) continue;
+        const cleanId = String(asset.id).trim().toUpperCase();
+        const assetEmpresa = (asset.empresa || '').trim().toLowerCase();
+
+        if (!seenIds.has(cleanId)) {
+            seenIds.set(cleanId, asset);
+        } else {
+            const firstAsset = seenIds.get(cleanId);
+            const firstEmpresa = (firstAsset.empresa || '').trim().toLowerCase();
+
+            // Se pertencerem a empresas diferentes (ou forem dois ativos distintos com o mesmo ID)
+            if (firstEmpresa !== assetEmpresa || firstAsset !== asset) {
+                hasConflict = true;
+                maxSeq += 1;
+                const newId = `#EQP-${String(maxSeq).padStart(4, '0')}`;
+                const oldId = asset.id;
+                console.warn(`CRANE ASSETS: Colisão de ID detectada! Ativo da empresa "${asset.empresa}" renumerado de ${oldId} para ${newId}`);
+
+                asset.id = newId;
+                seenIds.set(newId, asset);
+
+                // Migra eventos correspondentes daquela empresa
+                (eventsList || []).forEach(ev => {
+                    if (ev && (ev.equipamento === oldId || ev.id === oldId || String(ev.id).startsWith(`${oldId}-`)) &&
+                        ev.empresa && asset.empresa && ev.empresa.trim().toLowerCase() === assetEmpresa) {
+                        ev.equipamento = newId;
+                        if (String(ev.id).includes(oldId)) {
+                            ev.id = String(ev.id).replace(oldId, newId);
+                        }
+                    }
+                });
+
+                // Migra ordens de serviço correspondentes daquela empresa
+                (openOrders || []).forEach(ord => {
+                    if (ord && (ord.equipamentoId === oldId || ord.equipamento === oldId) &&
+                        ord.empresa && asset.empresa && ord.empresa.trim().toLowerCase() === assetEmpresa) {
+                        ord.equipamentoId = newId;
+                        ord.equipamento = newId;
+                    }
+                });
+            }
+        }
+    }
+
+    if (hasConflict) {
+        setAllAssetsList(allAssetsList);
+        setStoredData('crane_events', eventsList, true);
+        setStoredData('crane_open_orders', openOrders, true);
+        return true;
+    }
+    return false;
+}
+
+export const DB_SCHEMA_VERSION = 4;
 
 export async function checkAndApplySchemaVersion() {
     try {
@@ -1083,9 +1286,15 @@ export async function checkAndApplySchemaVersion() {
         const storedVersion = Number(localStorage.getItem('crane_db_schema_version') || 0);
         if (storedVersion < DB_SCHEMA_VERSION) {
             console.log(`CRANE PRO: Atualizando versão de dados local de ${storedVersion} para ${DB_SCHEMA_VERSION}...`);
-            // Limpa chaves de ativos locais obsoletos para forçar sincronização fresca da nuvem
-            ['crane_all_assets', '001_crane_all_assets', 'crane_assets'].forEach(k => {
+            // Limpa chaves de agendamentos e ativos locais obsoletos para forçar sincronização fresca da nuvem
+            const keysToPurge = [
+                'crane_events', '001_crane_events', 'crane_001_events',
+                'crane_all_assets', '001_crane_all_assets', 'crane_001_all_assets',
+                'crane_assets', '001_crane_assets'
+            ];
+            keysToPurge.forEach(k => {
                 try { localStorage.removeItem(k); } catch (e) {}
+                deleteDBValue(k).catch(() => {});
             });
             localStorage.setItem('crane_db_schema_version', String(DB_SCHEMA_VERSION));
         }
@@ -1129,6 +1338,7 @@ export async function loadAllDataFromDB() {
 
     // Higieniza dados órfãos locais imediatamente
     purgeOrphanLocalData();
+    await fixConflictingAssetIds();
 
     // 2. Tenta sincronizar do Supabase em segundo plano (Não-bloqueante)
     if (isSupabaseConfigured) {
@@ -1224,9 +1434,68 @@ export async function migrateAllMediaToSupabase() {
     }
 }
 
+/**
+ * Varre o bucket 'crane-app-media' na pasta 'assets' e exclui imagens órfãs
+ * que não pertençam a nenhum ativo cadastrado atualmente no sistema.
+ */
+export async function cleanStorageOrphanAssets() {
+    if (!isSupabaseConfigured) {
+        console.warn('Supabase não configurado.');
+        return { success: false, reason: 'Supabase não configurado' };
+    }
+    const client = getActiveSupabase();
+    if (!client) return { success: false, reason: 'Cliente Supabase indisponível' };
+
+    try {
+        const { data: fileList, error } = await client.storage.from('crane-app-media').list('assets');
+        if (error || !Array.isArray(fileList)) {
+            console.warn('Falha ao listar arquivos de assets no Storage:', error);
+            return { success: false, error };
+        }
+
+        // Mapeia todas as fotos ativas atualmente no sistema
+        const activePhotos = new Set();
+        (allAssetsList || []).forEach(a => {
+            const p = a.foto || a.photo || a.imagemUrl;
+            if (p && typeof p === 'string') {
+                activePhotos.add(p);
+                const parts = p.split('/');
+                activePhotos.add(parts[parts.length - 1]);
+            }
+        });
+
+        const filesToDelete = [];
+        fileList.forEach(f => {
+            if (!f || !f.name) return;
+            // Se o arquivo não corresponder a nenhuma foto ativa de ativo, marca para exclusão
+            if (!activePhotos.has(f.name)) {
+                filesToDelete.push(`assets/${f.name}`);
+            }
+        });
+
+        if (filesToDelete.length > 0) {
+            console.log(`CRANE PRO STORAGE: Excluindo ${filesToDelete.length} fotos órfãs em assets/...`, filesToDelete);
+            const { error: delError } = await client.storage.from('crane-app-media').remove(filesToDelete);
+            if (delError) {
+                console.warn('Erro ao remover arquivos órfãos no Storage:', delError);
+                return { success: false, error: delError, filesToDelete };
+            }
+        }
+
+        console.log(`CRANE PRO STORAGE: Limpeza concluída. ${filesToDelete.length} arquivos órfãos removidos.`);
+        return { success: true, deletedCount: filesToDelete.length, deletedFiles: filesToDelete };
+    } catch (e) {
+        console.error('Erro em cleanStorageOrphanAssets:', e);
+        return { success: false, error: e };
+    }
+}
+
 if (typeof window !== 'undefined') {
     window.migrateAllMediaToSupabase = migrateAllMediaToSupabase;
     window.purgeOrphanLocalData = purgeOrphanLocalData;
     window.syncAllFromSupabase = syncAllFromSupabase;
+    window.cleanStorageOrphanAssets = cleanStorageOrphanAssets;
+    window.fixConflictingAssetIds = fixConflictingAssetIds;
 }
+
 

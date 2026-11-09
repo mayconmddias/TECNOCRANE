@@ -728,7 +728,7 @@ describe('Reports PDF Module - Geração e Snapshot de Formulários Dinâmicos',
         delete global.window.AndroidPrinter;
     });
 
-    it('Teste 20: Capa do Relatório deve exibir rigorosamente os 6 campos essenciais em ESPECIFICAÇÕES DO EQUIPAMENTO sem inflar com custom fields', () => {
+    it('Teste 20: Capa do Relatório deve exibir rigorosamente os 4 campos fixos de equipamento em ESPECIFICAÇÕES DO EQUIPAMENTO (totalizando os 5 campos fixos do sistema com a Empresa)', () => {
         const report = {
             id: 'REL-0001',
             type: 'PREVENTIVA',
@@ -760,7 +760,7 @@ describe('Reports PDF Module - Geração e Snapshot de Formulários Dinâmicos',
 
         const html = generateReportPrintHTML(report, company, null, [], asset);
 
-        // Valida que os 6 campos oficiais da capa estão presentes
+        // Valida que os 4 campos fixos de equipamento da capa estão presentes
         expect(html).toContain('ID EQUIPAMENTO');
         expect(html).toContain('#EQP-0001');
         expect(html).toContain('TIPO/NOME');
@@ -769,10 +769,10 @@ describe('Reports PDF Module - Geração e Snapshot de Formulários Dinâmicos',
         expect(html).toContain('ARMAZÉM A');
         expect(html).toContain('FABRICANTE');
         expect(html).toContain('TECNOCRANE');
-        expect(html).toContain('CAPAC. PRINCIPAL');
-        expect(html).toContain('32 TON');
-        expect(html).toContain('VÃO PONTE');
-        expect(html).toContain('19.730 MTS');
+
+        // Valida que CAPAC. PRINCIPAL e VÃO PONTE deixaram de ser campos fixos na capa
+        expect(html).not.toContain('CAPAC. PRINCIPAL');
+        expect(html).not.toContain('VÃO PONTE');
 
         // Valida que os campos customizados extras NÃO são injetados na capa
         expect(html).not.toContain('ALIMENTAÇÃO DO EQUIPAMENTO');

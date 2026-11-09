@@ -19,6 +19,8 @@ import {
     SYSTEM_ASSET_TEMPLATE
 } from './templates-module.js';
 import { CHECKLIST_SCHEMA } from '../../checklist-schema.js';
+import { acquireLock, releaseLock } from '../../locks.js';
+import { dbFetchAll, isSupabaseConfigured } from '../../supabase.js';
 
 /**
  * Função utilitária global robusta para auto-expansão dinâmica de textareas.
@@ -203,20 +205,12 @@ function drawTemplatesUI(container) {
                 </div>
                 <div class="pt-3 border-t border-[#e6d5a8]/60 flex items-center justify-between gap-2">
                     ${isSystem ? `
-                        <div class="grid grid-cols-2 gap-2 w-full">
-                            <button onclick="window.viewAssetTemplateAction(event, '${a.id}')"
-                                class="border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-label-sm font-bold py-1.5 px-3 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer"
-                                title="Visualizar modelo de ativo padrão">
-                                <span class="material-symbols-outlined text-[16px]">visibility</span>
-                                VISUALIZAR
-                            </button>
-                            <button onclick="window.duplicateAssetTemplateAction(event, '${a.id}')"
-                                class="border border-[#e6d5a8] bg-[#fff8e0] hover:bg-[#fff0c2] text-[#1f1f1f] text-label-sm font-bold py-1.5 px-3 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer"
-                                title="Duplicar modelo de ativo">
-                                <span class="material-symbols-outlined text-[16px]">content_copy</span>
-                                DUPLICAR
-                            </button>
-                        </div>
+                        <button onclick="window.viewAssetTemplateAction(event, '${a.id}')"
+                            class="w-full border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-label-sm font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                            title="Visualizar modelo de ativo padrão">
+                            <span class="material-symbols-outlined text-[18px]">visibility</span>
+                            VISUALIZAR
+                        </button>
                     ` : `
                         <div class="flex items-center gap-2">
                             <button onclick="window.editAssetTemplateAction(event, '${a.id}')"
@@ -245,8 +239,8 @@ function drawTemplatesUI(container) {
 
     container.innerHTML = `
         <div class="w-full max-w-full overflow-x-hidden pb-28 md:pb-6">
-            <!-- Navegação por Abas (Ativos vs Inspeção) e Botão '+' no canto direito -->
-            <div class="flex border-b border-outline-variant items-center justify-between gap-1.5 sm:gap-2 w-full max-w-full">
+            <!-- Navegação por Abas (Ativos vs Inspeção) e Botão '+' no canto direito (VISÍVEL APENAS NO MOBILE) -->
+            <div class="flex md:hidden border-b border-outline-variant items-center justify-between gap-1.5 sm:gap-2 w-full max-w-full">
                 <!-- Abas com largura flexível para telas mobile: Ativos à esquerda, Inspeção à direita -->
                 <div class="flex items-center gap-1 sm:gap-2 flex-1 min-w-0">
                     <button type="button" onclick="window.switchTemplatesTab('assets')"
@@ -272,23 +266,58 @@ function drawTemplatesUI(container) {
             </div>
 
             <!-- Grade Responsiva de Cards de Formulários -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 mt-stack_md">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 mt-stack_md md:mt-4">
                 ${isInspections ? inspectionsCardsHtml : assetCardsHtml}
             </div>
         </div>
     `;
+
+    // Sincroniza abas e contadores no cabeçalho superior (desktop)
+    const headerAssetsCount = document.getElementById('header-templates-assets-count');
+    const headerInspectionsCount = document.getElementById('header-templates-inspections-count');
+    const headerTabAssets = document.getElementById('header-tab-templates-assets');
+    const headerTabInspections = document.getElementById('header-tab-templates-inspections');
+
+    if (headerAssetsCount) headerAssetsCount.textContent = assetTemplates.length;
+    if (headerInspectionsCount) headerInspectionsCount.textContent = templates.length;
+
+    if (headerTabAssets && headerTabInspections) {
+        if (!isInspections) {
+            headerTabAssets.className = 'h-full px-3 font-bold uppercase text-xs transition-all flex items-center gap-2 border-b-2 cursor-pointer border-primary text-primary';
+            headerTabInspections.className = 'h-full px-3 font-bold uppercase text-xs transition-all flex items-center gap-2 border-b-2 cursor-pointer border-transparent text-[#6a6a6a] hover:text-[#1f1f1f]';
+        } else {
+            headerTabAssets.className = 'h-full px-3 font-bold uppercase text-xs transition-all flex items-center gap-2 border-b-2 cursor-pointer border-transparent text-[#6a6a6a] hover:text-[#1f1f1f]';
+            headerTabInspections.className = 'h-full px-3 font-bold uppercase text-xs transition-all flex items-center gap-2 border-b-2 cursor-pointer border-primary text-primary';
+        }
+    }
 }
 
+
+let currentInspectionTemplateLockKey = null;
 
 /**
  * Abre o modal de criação ou edição de modelo
  */
-export function openTemplateModal(templateId = null, isReadOnly = false) {
-    const modal = document.getElementById('template-editor-modal');
-    if (!modal) return;
-
+export async function openTemplateModal(templateId = null, isReadOnly = false) {
     const isSystem = templateId === SYSTEM_INSPECTION_TEMPLATE_ID;
     const readOnlyMode = isReadOnly || isSystem;
+
+    // Adquire trava exclusiva para edição de modelo existente (evita sobrescrita concorrente)
+    if (templateId && !readOnlyMode) {
+        const lockKey = `template:${templateId}`;
+        const lockRes = await acquireLock(lockKey);
+        if (!lockRes.success) {
+            window.showAlert(`🔒 MODELO EM EDIÇÃO POR "${lockRes.lockedBy.toUpperCase()}". AGUARDE A CONCLUSÃO.`, 'warning');
+            return;
+        }
+        if (currentInspectionTemplateLockKey && currentInspectionTemplateLockKey !== lockKey) {
+            releaseLock(currentInspectionTemplateLockKey);
+        }
+        currentInspectionTemplateLockKey = lockKey;
+    }
+
+    const modal = document.getElementById('template-editor-modal');
+    if (!modal) return;
 
     if (templateId) {
         const existing = getTemplateById(templateId);
@@ -321,6 +350,10 @@ export function openTemplateModal(templateId = null, isReadOnly = false) {
  * Fecha o modal de modelo
  */
 export function closeTemplateModal() {
+    if (currentInspectionTemplateLockKey) {
+        releaseLock(currentInspectionTemplateLockKey);
+        currentInspectionTemplateLockKey = null;
+    }
     const modal = document.getElementById('template-editor-modal');
     if (modal) {
         modal.classList.add('hidden');
@@ -837,7 +870,42 @@ if (typeof window !== 'undefined') {
             if (!draftTemplate) return;
 
             const nameInput = document.getElementById('template-name-input');
-            if (nameInput) draftTemplate.nome = nameInput.value;
+            const nomeTrimmed = (nameInput?.value || '').trim();
+            if (!nomeTrimmed) {
+                return window.showAlert('Informe o nome do modelo de inspeção.', 'warning');
+            }
+            draftTemplate.nome = nomeTrimmed;
+
+            const currentTId = draftTemplate.id;
+            const tNameUpper = nomeTrimmed.toUpperCase();
+
+            // Validação de duplicidade local
+            const localTemplates = getTemplates() || [];
+            const localTConflict = localTemplates.find(t => 
+                String(t.id) !== String(currentTId) && 
+                (t.nome || '').trim().toUpperCase() === tNameUpper
+            );
+            if (localTConflict) {
+                return window.showAlert(`⚠️ JÁ EXISTE UM MODELO DE INSPEÇÃO COM O NOME "${tNameUpper}".`, 'warning');
+            }
+
+            // Validação de duplicidade na nuvem Supabase em tempo real
+            if (isSupabaseConfigured) {
+                try {
+                    const dbTemplates = await dbFetchAll('crane_templates');
+                    if (Array.isArray(dbTemplates)) {
+                        const cloudConflict = dbTemplates.find(t => 
+                            String(t.id) !== String(currentTId) && 
+                            (t.nome || '').trim().toUpperCase() === tNameUpper
+                        );
+                        if (cloudConflict) {
+                            return window.showAlert(`⚠️ JÁ EXISTE UM MODELO DE INSPEÇÃO COM O NOME "${tNameUpper}".`, 'warning');
+                        }
+                    }
+                } catch (err) {
+                    console.warn('CRANE PRO: Erro ao verificar duplicidade de template de inspeção na nuvem:', err);
+                }
+            }
 
             try {
                 await saveTemplate(draftTemplate);
@@ -885,19 +953,21 @@ if (typeof window !== 'undefined') {
     };
 
     window.deleteTemplateAction = function(evt, id) {
-        executeWithAntiDoubleClick(evt, async () => {
-            const template = getTemplateById(id);
-            if (!template) return;
+        if (!id || String(id) === SYSTEM_INSPECTION_TEMPLATE_ID) {
+            return window.showAlert('O Formulario modelo Inspeção padrão não pode ser excluído.', 'warning');
+        }
+        const template = getTemplateById(id);
+        if (!template) return;
 
-            const confirmMsg = `Excluir o modelo "${template.nome}"?\n\nEssa ação excluirá o modelo, mas não excluirá inspeções já realizadas utilizando este modelo.`;
-            if (confirm(confirmMsg)) {
-                try {
-                    await deleteTemplate(id);
-                    window.showAlert('Modelo excluído com sucesso.', 'success');
-                    renderTemplatesView();
-                } catch (err) {
-                    window.showAlert('Erro ao excluir modelo.', 'error');
-                }
+        const confirmMsg = `DESEJA EXCLUIR O MODELO "${template.nome.toUpperCase()}"?\n\nEssa ação excluirá o modelo, mas não excluirá inspeções já realizadas.`;
+        window.showAlert(confirmMsg, 'warning', async () => {
+            try {
+                await deleteTemplate(id);
+                window.showAlert('MODELO EXCLUÍDO COM SUCESSO.', 'success');
+                renderTemplatesView();
+            } catch (err) {
+                console.error('Erro ao excluir modelo:', err);
+                window.showAlert('ERRO AO EXCLUIR MODELO.', 'error');
             }
         });
     };
@@ -956,6 +1026,7 @@ if (typeof window !== 'undefined') {
     };
 
     window.duplicateAssetTemplateAction = function(evt, id) {
+        if (!id || String(id) === SYSTEM_ASSET_TEMPLATE_ID) return;
         executeWithAntiDoubleClick(evt, async () => {
             try {
                 await duplicateAssetTemplate(id);
@@ -968,23 +1039,27 @@ if (typeof window !== 'undefined') {
     };
 
     window.deleteAssetTemplateAction = function(evt, id) {
-        executeWithAntiDoubleClick(evt, async () => {
-            const template = getAssetTemplateById(id);
-            if (!template) return;
+        if (!id || String(id) === SYSTEM_ASSET_TEMPLATE_ID) {
+            return window.showAlert('O Formulário modelo Ativo padrão não pode ser excluído.', 'warning');
+        }
+        const template = getAssetTemplateById(id);
+        if (!template) {
+            return window.showAlert('Modelo de ativo não encontrado.', 'warning');
+        }
 
-            if (template.isSystemDefault || String(id) === SYSTEM_ASSET_TEMPLATE_ID) {
-                return window.showAlert('O Formulário modelo Ativo padrão não pode ser excluído.', 'warning');
-            }
+        if (template.isSystemDefault) {
+            return window.showAlert('O Formulário modelo Ativo padrão não pode ser excluído.', 'warning');
+        }
 
-            const confirmMsg = `Excluir o modelo de ativo "${template.nome}"?\n\nATENÇÃO: O formulário de inspeção vinculado a ele também será excluído em cascata.\n(Inspeções e ativos já finalizados não serão alterados).`;
-            if (confirm(confirmMsg)) {
-                try {
-                    await deleteAssetTemplate(id);
-                    window.showAlert('Modelo de ativo e formulário de inspeção vinculado excluídos com sucesso.', 'success');
-                    renderTemplatesView();
-                } catch (err) {
-                    window.showAlert('Erro ao excluir modelo de ativo.', 'error');
-                }
+        const confirmMsg = `DESEJA EXCLUIR O MODELO DE ATIVO "${template.nome.toUpperCase()}"?\n\nO formulário de inspeção vinculado a ele também será excluído em cascata.`;
+        window.showAlert(confirmMsg, 'warning', async () => {
+            try {
+                await deleteAssetTemplate(id);
+                window.showAlert('MODELO DE ATIVO EXCLUÍDO COM SUCESSO.', 'success');
+                renderTemplatesView();
+            } catch (err) {
+                console.error('Erro ao excluir modelo de ativo:', err);
+                window.showAlert('ERRO AO EXCLUIR MODELO DE ATIVO.', 'error');
             }
         });
     };
@@ -1007,11 +1082,13 @@ if (typeof window !== 'undefined') {
 // ============================================================================
 
 export const DEFAULT_ASSET_FIELDS_CATALOG = [
+    { label: 'CAPACIDADE PRINCIPAL', type: 'text' },
+    { label: 'VÃO', type: 'text' },
     { label: 'ALIMENTAÇÃO DO EQUIPAMENTO', type: 'text' },
     { label: 'DIÂMETRO DO CABO DE AÇO PRINCIPAL', type: 'text' },
-    { label: 'CAPACIDADE DE PESO AUXILIAR', type: 'number' },
+    { label: 'CAPACIDADE AUXILIAR', type: 'text' },
     { label: 'DIÂMETRO DO CABO DE AÇO AUXILIAR', type: 'text' },
-    { label: 'ALTURA DE ELEVAÇÃO', type: 'number' },
+    { label: 'ALTURA DE ELEVAÇÃO', type: 'text' },
     { label: 'TENSÃO DE ALIMENTAÇÃO', type: 'text' },
     { label: 'TENSÃO DE COMANDO', type: 'text' },
     { label: 'MOTOR ELEVAÇÃO PRINCIPAL (VEL. ALTA)', type: 'text' },
@@ -1026,12 +1103,28 @@ export const DEFAULT_ASSET_FIELDS_CATALOG = [
 // MODAL DE MODELO DE ATIVO
 // ============================================================================
 
-export function openAssetTemplateModal(templateId = null, isReadOnly = false) {
-    const modal = document.getElementById('asset-template-editor-modal');
-    if (!modal) return;
+let currentAssetTemplateLockKey = null;
 
+export async function openAssetTemplateModal(templateId = null, isReadOnly = false) {
     const isSystem = templateId === SYSTEM_ASSET_TEMPLATE_ID;
     const readOnlyMode = isReadOnly || isSystem;
+
+    // Adquire trava exclusiva para edição de modelo de ativo existente (evita sobrescrita concorrente)
+    if (templateId && !readOnlyMode) {
+        const lockKey = `asset_template:${templateId}`;
+        const lockRes = await acquireLock(lockKey);
+        if (!lockRes.success) {
+            window.showAlert(`🔒 MODELO EM EDIÇÃO POR "${lockRes.lockedBy.toUpperCase()}". AGUARDE A CONCLUSÃO.`, 'warning');
+            return;
+        }
+        if (currentAssetTemplateLockKey && currentAssetTemplateLockKey !== lockKey) {
+            releaseLock(currentAssetTemplateLockKey);
+        }
+        currentAssetTemplateLockKey = lockKey;
+    }
+
+    const modal = document.getElementById('asset-template-editor-modal');
+    if (!modal) return;
 
     if (templateId) {
         const existing = getAssetTemplateById(templateId);
@@ -1070,6 +1163,10 @@ export function openAssetTemplateModal(templateId = null, isReadOnly = false) {
 }
 
 export function closeAssetTemplateModal() {
+    if (currentAssetTemplateLockKey) {
+        releaseLock(currentAssetTemplateLockKey);
+        currentAssetTemplateLockKey = null;
+    }
     const modal = document.getElementById('asset-template-editor-modal');
     if (modal) modal.classList.add('hidden');
     draftAssetTemplate = null;
@@ -1131,15 +1228,20 @@ function renderAssetModalContent() {
         } else {
             nameInput.classList.remove('opacity-80', 'cursor-not-allowed', 'bg-surface-container');
         }
+        // Sincronização em tempo real com tipoInput (Tipo de Equipamento Padrão)
+        nameInput.oninput = () => {
+            if (tipoInput) {
+                tipoInput.value = nameInput.value;
+            }
+        };
     }
     if (tipoInput) {
-        tipoInput.value = (draftAssetTemplate && draftAssetTemplate.tipoEquipamento) || '';
-        tipoInput.disabled = isReadOnly;
-        if (isReadOnly) {
-            tipoInput.classList.add('opacity-80', 'cursor-not-allowed', 'bg-surface-container');
-        } else {
-            tipoInput.classList.remove('opacity-80', 'cursor-not-allowed', 'bg-surface-container');
-        }
+        // Campo somente visualização com a mesma informação do nome do modelo
+        const syncedVal = (nameInput && nameInput.value) ? nameInput.value : ((draftAssetTemplate && (draftAssetTemplate.nome || draftAssetTemplate.tipoEquipamento)) || '');
+        tipoInput.value = syncedVal;
+        tipoInput.disabled = true;
+        tipoInput.readOnly = true;
+        tipoInput.classList.add('opacity-85', 'cursor-not-allowed', 'bg-surface-container');
     }
 
     if (!container) return;
@@ -1163,7 +1265,7 @@ function renderAssetModalContent() {
         container.appendChild(createAssetFieldRowElement(f, idx));
     });
 
-    // Ajusta a altura dinâmica de todos os textareas de rótulo para que todo o texto fique visível
+    // Ajusta a altura dinâmica de eventuais textareas remanescentes
     const adjustAssetLabels = () => {
         container.querySelectorAll('textarea.field-label').forEach(ta => {
             autoResizeTextarea(ta);
@@ -1180,7 +1282,7 @@ function createAssetFieldRowElement(field, idx) {
     row.innerHTML = `
         <div class="flex-1 min-w-[260px]">
             <label class="text-label-sm text-on-surface-variant uppercase font-bold">RÓTULO DO CAMPO *</label>
-            <textarea ${isReadOnly ? 'disabled readonly' : ''} rows="1" class="field-label w-full bg-surface-container-low border border-outline rounded-xl py-2 px-3 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-colors resize-none overflow-hidden leading-snug ${isReadOnly ? 'cursor-default select-text' : ''}" style="min-height: 42px;" placeholder="EX: TIPO DE FREIO" oninput="window.autoResizeTextarea(this)" onfocus="window.autoResizeTextarea(this)">${escapeHTML(field.label || '')}</textarea>
+            <input type="text" ${isReadOnly ? 'disabled readonly' : ''} class="field-label w-full bg-surface-container-low border border-outline rounded-xl py-2.5 px-4 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-all ${isReadOnly ? 'cursor-default select-text' : ''}" placeholder="EX: TIPO DE FREIO" value="${escapeHTML(field.label || '')}">
         </div>
         <div class="w-[130px] shrink-0">
             <label class="text-label-sm text-on-surface-variant uppercase font-bold">TIPO</label>
@@ -1230,10 +1332,12 @@ export function addAssetTemplateFieldRow(fieldData = null) {
     const defaultField = fieldData || { label: '', type: 'text' };
     const row = createAssetFieldRowElement(defaultField, container.children.length);
     container.appendChild(row);
-    const ta = row.querySelector('textarea.field-label');
-    if (ta) {
-        autoResizeTextarea(ta);
-        setTimeout(() => ta.focus(), 50);
+    const input = row.querySelector('.field-label');
+    if (input) {
+        if (typeof autoResizeTextarea === 'function' && input.tagName === 'TEXTAREA') {
+            autoResizeTextarea(input);
+        }
+        setTimeout(() => input.focus(), 50);
     }
 }
 
@@ -1319,6 +1423,37 @@ async function saveAssetTemplateFromModal() {
         return window.showAlert('Informe o nome do modelo de ativo.', 'warning');
     }
 
+    const currentDraftId = draftAssetTemplate ? draftAssetTemplate.id : null;
+    const nameUpper = nome.toUpperCase();
+
+    // Validação de duplicidade local
+    const localTemplates = getAssetTemplates() || [];
+    const localConflict = localTemplates.find(t => 
+        String(t.id) !== String(currentDraftId) && 
+        (t.nome || '').trim().toUpperCase() === nameUpper
+    );
+    if (localConflict) {
+        return window.showAlert(`⚠️ JÁ EXISTE UM MODELO DE ATIVO CADASTRADO COM O NOME "${nameUpper}".`, 'warning');
+    }
+
+    // Validação de duplicidade em tempo real na nuvem Supabase
+    if (isSupabaseConfigured) {
+        try {
+            const dbTemplates = await dbFetchAll('crane_asset_templates');
+            if (Array.isArray(dbTemplates)) {
+                const cloudConflict = dbTemplates.find(t => 
+                    String(t.id) !== String(currentDraftId) && 
+                    (t.nome || '').trim().toUpperCase() === nameUpper
+                );
+                if (cloudConflict) {
+                    return window.showAlert(`⚠️ JÁ EXISTE UM MODELO DE ATIVO CADASTRADO COM O NOME "${nameUpper}".`, 'warning');
+                }
+            }
+        } catch (err) {
+            console.warn('CRANE PRO: Erro ao verificar duplicidade de template na nuvem:', err);
+        }
+    }
+
     const customFields = [];
     rows.forEach((row, idx) => {
         const label = (row.querySelector('.field-label')?.value || '').trim();
@@ -1336,7 +1471,7 @@ async function saveAssetTemplateFromModal() {
     const payload = {
         id: draftAssetTemplate ? draftAssetTemplate.id : null,
         nome: nome.toUpperCase(),
-        tipoEquipamento: (tipoInput?.value || 'PONTE ROLANTE').trim().toUpperCase(),
+        tipoEquipamento: (nome || tipoInput?.value || 'PONTE ROLANTE').trim().toUpperCase(),
         customFields
     };
 

@@ -3,20 +3,23 @@ import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay, hashPasswor
 import { renderCompanies as renderCompaniesUI, renderAssetsTable, getDefaultAssetImage, getDefaultCompanyLogo } from './ui-render.js';
 import { renderObservationBlock, renderNode, renderCustomChecklistItemRow, renderResponsibleCard } from './checklist-render.js';
 import { mountChecklistForm, getFormRoot, collectFormData } from './checklist-ui.js';
-import { createInspectionDocument, validateBeforeSend, mergeLegacyReport } from './checklist-state.js';
+import { createInspectionDocument, validateBeforeSend, validateTechniciansSelected, mergeLegacyReport } from './checklist-state.js';
 import { acquireLock, releaseLock, getCurrentUser, setCurrentUser } from './locks.js';
-import { getTenantCode, isSupabaseConfigured } from './supabase.js';
+import { getTenantCode, isSupabaseConfigured, getActiveSupabase } from './supabase.js';
 import { CHECKLIST_SCHEMA } from './checklist-schema.js';
 import { showPrintLoadingOverlay, hidePrintLoadingOverlay, collectAllReportImageUrls, preloadImageUrls, printReportPDF, getChecklistPrintHTML } from './modules/reports/reports-pdf.js';
-import { filterReports, formatReportNumber, normalizeComp as normCompReports, normalizeAssetId as normAssetReports } from './modules/reports/reports-service.js';
+import { filterReports, formatReportNumber, normalizeComp as normCompReports, normalizeAssetId as normAssetReports, getReportTechniciansDisplay, getNextAvailableReportId } from './modules/reports/reports-service.js';
 import { renderTemplatesView, populateAssetTemplateDropdown, openCorretivaItemsPicker, autoResizeTextarea } from './modules/templates/templates-ui.js';
 import { getTemplates, getTemplateById, convertTemplateToChecklistSchema, loadTemplates, getAssetTemplates, getAssetTemplateById, loadAssetTemplates, SYSTEM_INSPECTION_TEMPLATE_ID } from './modules/templates/templates-module.js';
-import { reserveNextAssetId, prepareAssetPayload, parseAssetSequenceNumber } from './modules/assets/assets-service.js';
+import { reserveNextAssetId, prepareAssetPayload, parseAssetSequenceNumber, getAssetTechnicalFields } from './modules/assets/assets-service.js';
 import { generateNextOrderId, saveDraftOrder, deleteDraftOrder, saveFastLocalDraft, getFastLocalDraft, clearFastLocalDraft } from './modules/orders/orders-service.js';
 import { initNativeFeatures } from './native.js';
-import { calculateRecurringDate, buildScheduledEventId, filterEventsOnSingleDelete, filterEventsOnGroupDelete, getEventCloudIdsToDelete, generateScheduledEvents } from './modules/scheduling/scheduling-service.js';
+import { calculateRecurringDate, buildScheduledEventId, filterEventsOnSingleDelete, filterEventsOnGroupDelete, getEventCloudIdsToDelete, generateScheduledEvents, formatCompanyAddress, formatDateCardDisplay } from './modules/scheduling/scheduling-service.js';
 
 window.calculateRecurringDate = calculateRecurringDate;
+window.formatCompanyAddress = formatCompanyAddress;
+window.formatDateCardDisplay = formatDateCardDisplay;
+window.getAssetTechnicalFields = getAssetTechnicalFields;
 
 window.hidePrintLoadingOverlay = hidePrintLoadingOverlay;
 window.getChecklistPrintHTML = getChecklistPrintHTML;
@@ -178,7 +181,7 @@ window.renderCompanies = renderCompanies;
 // --- TOGGLE VISIBILIDADE DO CALENDÁRIO OPERACIONAL ---
 window.toggleCalendarVisibility = function(isVisible) {
     const calendarSection = document.getElementById('calendar-card-section');
-    const assetsCardSection = document.getElementById('operational-assets-card-section');
+    const assetsContainer = document.getElementById('assets-desktop-container') || document.getElementById('operational-assets-card-section');
     const checkbox = document.getElementById('toggle-calendar-checkbox');
 
     if (checkbox && checkbox.checked !== isVisible) {
@@ -193,13 +196,13 @@ window.toggleCalendarVisibility = function(isVisible) {
         }
     }
 
-    if (assetsCardSection) {
+    if (assetsContainer) {
         if (isVisible) {
-            assetsCardSection.classList.remove('max-h-[calc(100vh-140px)]');
-            assetsCardSection.classList.add('max-h-[calc(100vh-420px)]');
+            assetsContainer.classList.remove('max-h-[calc(100vh-100px)]');
+            assetsContainer.classList.add('max-h-[calc(100vh-340px)]');
         } else {
-            assetsCardSection.classList.remove('max-h-[calc(100vh-420px)]');
-            assetsCardSection.classList.add('max-h-[calc(100vh-140px)]');
+            assetsContainer.classList.remove('max-h-[calc(100vh-340px)]');
+            assetsContainer.classList.add('max-h-[calc(100vh-100px)]');
         }
     }
 
@@ -327,6 +330,77 @@ window.switchView = function(view) {
         mobileNavs[view].classList.remove('text-slate-400');
     }
 
+    const headerDashLeft = document.getElementById('header-dashboard-controls-left');
+    const headerDashRight = document.getElementById('header-dashboard-controls-right');
+    const headerReportsTitles = document.getElementById('header-reports-titles');
+    if (headerDashLeft) {
+        if (view === 'dashboard') {
+            headerDashLeft.classList.remove('md:hidden');
+            headerDashLeft.classList.add('md:flex');
+        } else {
+            headerDashLeft.classList.remove('md:flex');
+            headerDashLeft.classList.add('md:hidden');
+        }
+    }
+    if (headerDashRight) {
+        if (view === 'dashboard') {
+            headerDashRight.classList.remove('md:hidden');
+            headerDashRight.classList.add('md:flex');
+        } else {
+            headerDashRight.classList.remove('md:flex');
+            headerDashRight.classList.add('md:hidden');
+        }
+    }
+    const headerAssetsControls = document.getElementById('header-assets-controls');
+    const headerUsersControls = document.getElementById('header-users-controls');
+    if (headerReportsTitles) {
+        if (view === 'reports') {
+            headerReportsTitles.classList.remove('hidden');
+            headerReportsTitles.classList.add('md:flex');
+        } else {
+            headerReportsTitles.classList.remove('md:flex');
+            headerReportsTitles.classList.add('hidden');
+        }
+    }
+    if (headerAssetsControls) {
+        if (view === 'assets') {
+            headerAssetsControls.classList.remove('hidden');
+            headerAssetsControls.classList.add('md:flex');
+        } else {
+            headerAssetsControls.classList.remove('md:flex');
+            headerAssetsControls.classList.add('hidden');
+        }
+    }
+    const headerTemplatesControls = document.getElementById('header-templates-controls');
+    if (headerUsersControls) {
+        if (view === 'users') {
+            headerUsersControls.classList.remove('hidden');
+            headerUsersControls.classList.add('md:flex');
+        } else {
+            headerUsersControls.classList.remove('md:flex');
+            headerUsersControls.classList.add('hidden');
+        }
+    }
+    const headerOrdersControls = document.getElementById('header-orders-controls');
+    if (headerTemplatesControls) {
+        if (view === 'templates') {
+            headerTemplatesControls.classList.remove('hidden');
+            headerTemplatesControls.classList.add('md:flex');
+        } else {
+            headerTemplatesControls.classList.remove('md:flex');
+            headerTemplatesControls.classList.add('hidden');
+        }
+    }
+    if (headerOrdersControls) {
+        if (view === 'open-orders') {
+            headerOrdersControls.classList.remove('hidden');
+            headerOrdersControls.classList.add('md:flex');
+        } else {
+            headerOrdersControls.classList.remove('md:flex');
+            headerOrdersControls.classList.add('hidden');
+        }
+    }
+
     if (view === 'dashboard') {
         renderAssets();
         renderCalendar();
@@ -379,6 +453,23 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 
+// Re-renderiza as visões ativas com os dados frescos do Supabase assim que a sincronização em segundo plano é concluída
+window.addEventListener('crane:cloud-synced', () => {
+    runMigrationsAndSync();
+    if (currentView === 'dashboard') {
+        if (typeof renderAssets === 'function') renderAssets();
+        if (typeof window.renderCalendar === 'function') window.renderCalendar();
+    } else if (currentView === 'assets') {
+        if (typeof renderAtivosView === 'function') renderAtivosView();
+    } else if (currentView === 'reports') {
+        if (typeof renderReportsView === 'function') renderReportsView();
+    } else if (currentView === 'open-orders') {
+        if (typeof renderOpenOrders === 'function') renderOpenOrders();
+    } else if (currentView === 'users') {
+        if (typeof renderUsers === 'function') renderUsers();
+    }
+});
+
 window.toggleSidebar = function() {
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebar-overlay');
@@ -408,43 +499,15 @@ window.openInspecaoModal = function() {
     }
     window.updateInspecaoEquipments();
 
-    // Popula seleção de modelos imediatamente e atualiza assincronamente (exclusivamente modelos criados por usuários)
-    const modeloSelect = document.getElementById('inspecao-modelo');
-    if (modeloSelect) {
-        const populateOptions = (list) => {
-            const userList = (list || []).filter(t => 
-                String(t.id) !== SYSTEM_INSPECTION_TEMPLATE_ID && !t.isSystemDefault
-            );
-            userList.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
-
-            let optionsHtml = '';
-            if (userList.length === 0) {
-                optionsHtml = '<option value="">NENHUM FORMULÁRIO DE INSPEÇÃO CADASTRADO</option>';
-            } else {
-                optionsHtml = userList.map(t => `<option value="${t.id}">${(t.nome || '').toUpperCase()}</option>`).join('');
-            }
-            modeloSelect.innerHTML = optionsHtml;
-            if (window.selectedInspectionTemplate) {
-                modeloSelect.value = window.selectedInspectionTemplate.id;
-            } else if (typeof window.syncInspectionModelWithSelectedAsset === 'function') {
-                window.syncInspectionModelWithSelectedAsset();
-            }
-        };
-
-        // 1. População síncrona imediata a partir da memória
-        populateOptions(getTemplates());
-
-        // 2. Atualização assíncrona da nuvem
-        loadTemplates().then(templates => {
-            populateOptions(templates || getTemplates() || []);
-            if (window.selectedInspectionTemplate) {
-                modeloSelect.value = window.selectedInspectionTemplate.id;
-                window.selectedInspectionTemplate = null;
-            } else if (typeof window.syncInspectionModelWithSelectedAsset === 'function') {
-                window.syncInspectionModelWithSelectedAsset();
-            }
-        });
+    // Sincroniza formulário vinculado ao ativo selecionado
+    if (typeof window.syncInspectionModelWithSelectedAsset === 'function') {
+        window.syncInspectionModelWithSelectedAsset();
     }
+    loadTemplates().then(() => {
+        if (typeof window.syncInspectionModelWithSelectedAsset === 'function') {
+            window.syncInspectionModelWithSelectedAsset();
+        }
+    });
 
     const tipoVal = document.getElementById('inspecao-tipo')?.value || 'PREVENTIVA';
     window.onInspecaoTipoChange(tipoVal);
@@ -605,27 +668,41 @@ window.updateInspecaoEquipments = function() {
 
 window.syncInspectionModelWithSelectedAsset = function() {
     const equipSelect = document.getElementById('inspecao-equipamento');
-    const modeloSelect = document.getElementById('inspecao-modelo');
-    if (!equipSelect || !modeloSelect) return;
+    const modeloInput = document.getElementById('inspecao-modelo');
+    const modeloNomeInput = document.getElementById('inspecao-modelo-nome');
+    if (!equipSelect || !modeloInput) return;
 
     const equipId = equipSelect.value;
-    if (!equipId) return;
+    if (!equipId) {
+        modeloInput.value = '';
+        if (modeloNomeInput) modeloNomeInput.value = '';
+        return;
+    }
 
     const list = allAssetsList || [];
     const asset = list.find(a => a && String(a.id) === String(equipId));
-    if (!asset) return;
+    if (!asset) {
+        modeloInput.value = '';
+        if (modeloNomeInput) modeloNomeInput.value = '';
+        return;
+    }
 
     const templates = (getTemplates() || []).filter(t => 
         String(t.id) !== SYSTEM_INSPECTION_TEMPLATE_ID && !t.isSystemDefault
     );
-    if (!templates.length) return;
+    if (!templates.length) {
+        modeloInput.value = '';
+        if (modeloNomeInput) modeloNomeInput.value = 'NENHUM MODELO DISPONÍVEL';
+        return;
+    }
 
     // 1. Tentar vínculo direto por ID do template se o ativo possuir
     if (asset.template_id || asset.templateId || asset.inspection_template_id) {
         const targetId = String(asset.template_id || asset.templateId || asset.inspection_template_id);
         const matchById = templates.find(t => String(t.id) === targetId);
         if (matchById) {
-            modeloSelect.value = matchById.id;
+            modeloInput.value = matchById.id;
+            if (modeloNomeInput) modeloNomeInput.value = (matchById.nome || '').toUpperCase();
             return;
         }
     }
@@ -655,7 +732,11 @@ window.syncInspectionModelWithSelectedAsset = function() {
     }
 
     if (matched) {
-        modeloSelect.value = matched.id;
+        modeloInput.value = matched.id;
+        if (modeloNomeInput) modeloNomeInput.value = (matched.nome || '').toUpperCase();
+    } else {
+        modeloInput.value = '';
+        if (modeloNomeInput) modeloNomeInput.value = 'NENHUM FORMULÁRIO VINCULADO';
     }
 };
 
@@ -663,7 +744,11 @@ window.startChecklist = function() {
     const empresa = document.getElementById('inspecao-empresa')?.value;
     const equipamentoId = document.getElementById('inspecao-equipamento')?.value;
     const tipo = document.getElementById('inspecao-tipo')?.value || 'PREVENTIVA';
-    const modeloId = document.getElementById('inspecao-modelo')?.value;
+    let modeloId = document.getElementById('inspecao-modelo')?.value;
+    if (!modeloId && typeof window.syncInspectionModelWithSelectedAsset === 'function') {
+        window.syncInspectionModelWithSelectedAsset();
+        modeloId = document.getElementById('inspecao-modelo')?.value;
+    }
     const preenchimento = document.getElementById('inspecao-preenchimento')?.value;
 
     if (!empresa || !equipamentoId) {
@@ -680,7 +765,7 @@ window.startChecklist = function() {
             templateName = tpl.nome;
             customSchema = convertTemplateToChecklistSchema(tpl);
             if (!customSchema || customSchema.length === 0) {
-                return window.showAlert('O MODELO SELECIONADO NÃO POSSUI ITENS DE VERIFICAÇÃO CADASTRADOS. EDITE O MODELO OU SELECIONE OUTRO.', 'warning');
+                return window.showAlert('O MODELO VINCULADO NÃO POSSUI ITENS DE VERIFICAÇÃO CADASTRADOS. EDITE O MODELO.', 'warning');
             }
         }
     }
@@ -710,7 +795,11 @@ window.startChecklist = function() {
     }
 
     if (tipo === 'PREVENTIVA' && preenchimento === 'ULTIMA') {
-        const matchingReports = (finalizedReports || []).filter(r => r.equipamentoId === equipamentoId || r.equipamento === equipamentoId);
+        const matchingReports = (finalizedReports || []).filter(r => {
+            const isEquipMatch = (r.equipamentoId === equipamentoId || r.equipamento === equipamentoId);
+            const repType = String(r.type || r.tipo || 'PREVENTIVA').trim().toUpperCase();
+            return isEquipMatch && repType === 'PREVENTIVA';
+        });
         if (matchingReports.length > 0) {
             matchingReports.sort((a, b) => {
                 const dateA = new Date(a.createdAt || a.updatedAt || parseAssetDate(a.date));
@@ -722,7 +811,7 @@ window.startChecklist = function() {
             window.openImportLastInspectionModal(context, customSchema, lastReport);
             return;
         } else {
-            window.showAlert('NENHUMA INSPEÇÃO ANTERIOR ENCONTRADA PARA ESTE ATIVO. INICIANDO DO ZERO.', 'warning');
+            window.showAlert('NENHUMA INSPEÇÃO PREVENTIVA ANTERIOR ENCONTRADA PARA ESTE ATIVO. INICIANDO DO ZERO.', 'warning');
         }
     }
 
@@ -826,15 +915,9 @@ async function openChecklistForm(context, savedDoc = null) {
         }
     }
 
-    // Reabilitar o botão de Enviar
-    const sendBtn = document.querySelector('button[onclick="window.generateWorkOrder()"]');
-    if (sendBtn) {
-        sendBtn.disabled = false;
-        sendBtn.classList.remove('opacity-50', 'pointer-events-none');
-    }
-
     window.usersList = usersList;
     if (formRoot) mountChecklistForm(formRoot, doc);
+    window.updateChecklistSendButtonState?.();
 
     modal.classList.remove('hidden');
     setTimeout(() => {
@@ -999,6 +1082,17 @@ window.openEditModal = async function(eventOrId, id) {
     const tipoName = (event && event.tipo) || (assetObj && (assetObj.tipo || assetObj.nome)) || "N/A";
     const localName = (assetObj && assetObj.local) || (event && event.local) || "---";
 
+    // Busca os dados da empresa cadastrada para obter o endereço completo
+    const normComp = (empresaName || '').trim().toLowerCase();
+    const companyObj = (companies || []).find(c => {
+        if (!c) return false;
+        if (typeof c === 'string') return c.trim().toLowerCase() === normComp;
+        const cName = (c.name || '').trim().toLowerCase();
+        const cId = (c.id || '').trim().toLowerCase();
+        return cName === normComp || cId === normComp;
+    });
+    const enderecoFormatted = formatCompanyAddress(companyObj);
+
     const els = {
         id: document.getElementById('edit-asset-id'),
         date: document.getElementById('edit-asset-date'),
@@ -1007,7 +1101,8 @@ window.openEditModal = async function(eventOrId, id) {
         idVal: document.getElementById('edit-asset-id-val'),
         empresaVal: document.getElementById('edit-asset-empresa-val'),
         tipoVal: document.getElementById('edit-asset-tipo-val'),
-        localVal: document.getElementById('edit-asset-local-val')
+        localVal: document.getElementById('edit-asset-local-val'),
+        enderecoVal: document.getElementById('edit-asset-endereco-val')
     };
 
     if (els.id) els.id.innerText = `${cleanEquipId} | ${empresaName}`;
@@ -1018,6 +1113,7 @@ window.openEditModal = async function(eventOrId, id) {
     if (els.empresaVal) els.empresaVal.innerText = empresaName;
     if (els.tipoVal) els.tipoVal.innerText = tipoName;
     if (els.localVal) els.localVal.innerText = localName;
+    if (els.enderecoVal) els.enderecoVal.innerText = enderecoFormatted;
 
     let curTec1 = '';
     let curTec2 = '';
@@ -1487,10 +1583,43 @@ window.savePartialInspection = async function() {
     renderOpenOrders();
 };
 
-window.generateWorkOrder = function() {
+window.updateChecklistSendButtonState = function() {
+    const formRoot = getFormRoot() || document.getElementById('checklist-form-root');
+    const sendBtn = document.getElementById('checklist-send-btn') || document.querySelector('button[onclick="window.generateWorkOrder()"]');
+    if (!sendBtn) return;
+
+    if (!formRoot) {
+        sendBtn.disabled = true;
+        sendBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        sendBtn.classList.remove('hover:brightness-110');
+        sendBtn.title = "Selecione ao menos 1 técnico responsável para enviar a inspeção.";
+        return;
+    }
+
+    const hasTechnician = validateTechniciansSelected(formRoot);
+    if (hasTechnician) {
+        sendBtn.disabled = false;
+        sendBtn.classList.remove('opacity-50', 'cursor-not-allowed', 'pointer-events-none');
+        sendBtn.classList.add('hover:brightness-110');
+        sendBtn.title = "";
+    } else {
+        sendBtn.disabled = true;
+        sendBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        sendBtn.classList.remove('hover:brightness-110');
+        sendBtn.title = "Selecione ao menos 1 técnico responsável para enviar a inspeção.";
+    }
+};
+
+window.generateWorkOrder = async function() {
     if (isSavingOrSendingChecklist) return;
     const formRoot = getFormRoot() || document.getElementById('checklist-form-root');
     if (!formRoot || !currentChecklistContext) return;
+
+    const hasTechnician = validateTechniciansSelected(formRoot);
+    if (!hasTechnician) {
+        window.updateChecklistSendButtonState?.();
+        return window.showAlert('SELECIONE AO MENOS O TÉCNICO PRINCIPAL PARA FINALIZAR A INSPEÇÃO.', 'warning');
+    }
 
     const validationErrors = validateBeforeSend(formRoot);
     if (validationErrors.length > 0) {
@@ -1498,31 +1627,15 @@ window.generateWorkOrder = function() {
     }
 
     isSavingOrSendingChecklist = true;
-    const btn = document.querySelector('button[onclick="window.generateWorkOrder()"]');
+    const btn = document.getElementById('checklist-send-btn') || document.querySelector('button[onclick="window.generateWorkOrder()"]');
     if (btn) {
         btn.disabled = true;
         btn.classList.add('opacity-50', 'pointer-events-none');
     }
 
-    function generateNextReportId() {
-        let maxNum = 0;
-        const allReports = finalizedReports || [];
-        allReports.forEach(r => {
-            if (r && r.id) {
-                const match = String(r.id).match(/\d+/);
-                if (match) {
-                    const num = parseInt(match[0], 10);
-                    if (num > maxNum) maxNum = num;
-                }
-            }
-        });
-        const nextNum = maxNum + 1;
-        return `REL - ${String(nextNum).padStart(2, '0')}`;
-    }
-
     const formData = collectFormData(formRoot);
     const isEditingRel = editingOrderId && (String(editingOrderId).startsWith('REL-') || String(editingOrderId).startsWith('REL - '));
-    const reportId = isEditingRel ? editingOrderId : generateNextReportId();
+    const reportId = isEditingRel ? editingOrderId : await getNextAvailableReportId(finalizedReports, getActiveSupabase);
 
     const loggedUser = getCurrentUser();
     const userName = loggedUser?.name || document.getElementById('user-name-display')?.innerText || "MAYCON DIAS";
@@ -1531,6 +1644,8 @@ window.generateWorkOrder = function() {
         : (editingOrderId ? openOrders.find(o => String(o.id) === String(editingOrderId)) : null);
 
     const resolvedSchema = currentChecklistContext?.schema_snapshot || currentChecklistContext?.schema || existing?.schema_snapshot || existing?.schema || null;
+
+    const techDisplayName = getReportTechniciansDisplay({ responsaveis: formData.responsaveis }, usersList) || userName;
 
     const newReport = createInspectionDocument(currentChecklistContext, {
         ...(existing || {}),
@@ -1549,7 +1664,7 @@ window.generateWorkOrder = function() {
         equipamentoNome: currentChecklistContext.equipamentoNome,
         assetInfo: currentChecklistContext.assetInfo,
         equipamento: currentChecklistContext.equipamentoNome,
-        tecnico: userName,
+        tecnico: techDisplayName,
     });
 
     const tempReports = [...finalizedReports];
@@ -1586,6 +1701,7 @@ window.generateWorkOrder = function() {
         return window.showAlert('ERRO AO SALVAR O RELATÓRIO.', 'warning');
     }
 
+    isSavingOrSendingChecklist = false;
     window.closeChecklistModal();
     renderOpenOrders();
     renderReportsView();
@@ -1597,23 +1713,25 @@ window.generateWorkOrder = function() {
 function renderUsers(searchTerm = '') {
     const tbody = document.getElementById('users-tbody');
     const mobileContainer = document.getElementById('users-mobile-container');
+    const desktopContainer = document.getElementById('users-desktop-container');
 
     if (tbody) tbody.innerHTML = '';
     if (mobileContainer) mobileContainer.innerHTML = '';
+    if (desktopContainer) desktopContainer.innerHTML = '';
 
     const filtered = searchTerm ? usersList.filter(u => u.name.toLowerCase().includes(searchTerm)) : [...usersList];
     filtered.sort((a, b) => a.name.localeCompare(b.name));
 
     if (filtered.length === 0) {
         if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM USUÁRIO ENCONTRADO</td></tr>`;
-        if (mobileContainer) {
-            mobileContainer.innerHTML = `
-                <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-md text-zinc-600">
-                    <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">person_off</span>
-                    <p class="font-bold text-sm text-zinc-900 uppercase">Nenhum usuário cadastrado</p>
-                </div>
-            `;
-        }
+        const emptyHtml = `
+            <div class="col-span-full bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-sm text-zinc-600">
+                <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">person_off</span>
+                <p class="font-bold text-sm text-zinc-900 uppercase">Nenhum usuário cadastrado</p>
+            </div>
+        `;
+        if (mobileContainer) mobileContainer.innerHTML = emptyHtml;
+        if (desktopContainer) desktopContainer.innerHTML = emptyHtml;
         return;
     }
 
@@ -1624,7 +1742,7 @@ function renderUsers(searchTerm = '') {
         const permBadgeClass = permRaw === 'ADMINISTRADOR' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-zinc-100 text-zinc-700 border-zinc-300';
         const initials = user.name.split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('') || 'U';
 
-        // Desktop Table
+        // Desktop Table (retrocompatibilidade)
         if (tbody) {
             const tr = document.createElement('tr');
             tr.className = "hover:bg-zinc-50 transition-colors group";
@@ -1648,7 +1766,7 @@ function renderUsers(searchTerm = '') {
             card.className = "bg-white text-zinc-900 rounded-2xl p-4 shadow-md border border-zinc-200/90 flex items-center justify-between gap-3";
             card.innerHTML = `
                 <div class="flex items-center gap-3.5 min-w-0">
-                    <div class="w-12 h-12 rounded-full bg-zinc-900 text-amber-400 flex items-center justify-center font-extrabold text-sm border-2 border-zinc-300 flex-shrink-0 overflow-hidden">
+                    <div class="w-12 h-12 rounded-full bg-primary text-white flex items-center justify-center font-extrabold text-sm border-2 border-primary/20 flex-shrink-0 overflow-hidden">
                         ${user.avatar || user.foto ? `<img src="${user.avatar || user.foto}" class="w-full h-full object-cover" />` : initials}
                     </div>
                     <div class="min-w-0">
@@ -1664,6 +1782,33 @@ function renderUsers(searchTerm = '') {
                 </button>
             `;
             mobileContainer.appendChild(card);
+        }
+
+        // Desktop Card
+        if (desktopContainer) {
+            const card = document.createElement('div');
+            card.className = "bg-white text-zinc-900 rounded-2xl p-4 shadow-sm border border-zinc-200/90 flex flex-col justify-between gap-3 hover:shadow-md transition-shadow";
+            card.innerHTML = `
+                <div class="flex items-center gap-3.5 min-w-0">
+                    <div class="w-12 h-12 rounded-full bg-primary text-white flex items-center justify-center font-extrabold text-sm border-2 border-primary/20 flex-shrink-0 overflow-hidden">
+                        ${user.avatar || user.foto ? `<img src="${user.avatar || user.foto}" class="w-full h-full object-cover" />` : initials}
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <div class="font-extrabold text-zinc-950 text-sm uppercase leading-tight truncate">${user.name}</div>
+                        <div class="text-zinc-500 text-xs font-mono lowercase truncate mt-0.5">${user.email}</div>
+                        <div class="mt-1">
+                            <span class="px-2 py-0.5 ${permBadgeClass} text-[10px] font-bold border rounded">${permLabel}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="pt-2 border-t border-zinc-100 flex items-center justify-end">
+                    <button onclick="window.openEditUserModal('${user.id}')" class="py-1.5 px-3 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl border border-zinc-200 transition-all flex items-center gap-1.5 text-xs font-bold cursor-pointer" title="Editar Usuário">
+                        <span class="material-symbols-outlined text-[16px]">edit</span>
+                        <span>Editar</span>
+                    </button>
+                </div>
+            `;
+            desktopContainer.appendChild(card);
         }
     });
 }
@@ -1858,39 +2003,43 @@ window.handleUserRegistrationTypeChange = function() {
     const fieldsUsuario = document.getElementById('fields-usuario-container');
     const fieldsInterno = document.getElementById('fields-cadastro-interno-container');
     const footerUsuario = document.getElementById('user-footer-buttons');
-    const footerInterno = document.getElementById('interno-footer-buttons');
+    const btnDelete = document.getElementById('btn-user-delete');
     
     const modal = document.getElementById('user-modal');
-    const panel = modal.querySelector('.relative');
+    const panel = modal ? modal.querySelector('.relative') : null;
     
-    const isEdit = document.getElementById('user-id-input').value !== '';
+    const isEdit = document.getElementById('user-id-input')?.value !== '';
 
     if (type === 'USUARIO') {
         if (fieldsUsuario) fieldsUsuario.classList.remove('hidden');
         if (fieldsInterno) fieldsInterno.classList.add('hidden');
         if (footerUsuario) footerUsuario.classList.remove('hidden');
-        if (footerInterno) footerInterno.classList.add('hidden');
+        if (btnDelete) btnDelete.style.display = isEdit ? 'block' : 'none';
         
         if (panel) {
             panel.classList.remove('max-w-3xl');
             panel.classList.add('max-w-md');
         }
         
-        document.getElementById('user-modal-title').innerText = isEdit ? 'EDITAR USUÁRIO' : 'CADASTRO DE USUÁRIO';
-        document.getElementById('user-modal-subtitle').innerText = 'CONFIGURAÇÕES DE ACESSO';
+        const titleEl = document.getElementById('user-modal-title');
+        const subTitleEl = document.getElementById('user-modal-subtitle');
+        if (titleEl) titleEl.innerText = isEdit ? 'EDITAR USUÁRIO' : 'CADASTRO DE USUÁRIO';
+        if (subTitleEl) subTitleEl.innerText = 'CONFIGURAÇÕES DE ACESSO';
     } else {
         if (fieldsUsuario) fieldsUsuario.classList.add('hidden');
         if (fieldsInterno) fieldsInterno.classList.remove('hidden');
-        if (footerUsuario) footerUsuario.classList.add('hidden');
-        if (footerInterno) footerInterno.classList.remove('hidden');
+        if (footerUsuario) footerUsuario.classList.remove('hidden');
+        if (btnDelete) btnDelete.style.display = 'none';
         
         if (panel) {
             panel.classList.remove('max-w-md');
             panel.classList.add('max-w-3xl');
         }
         
-        document.getElementById('user-modal-title').innerText = 'CENTRAL DE CADASTRO';
-        document.getElementById('user-modal-subtitle').innerText = 'SISTEMA INTEGRADO DE GESTÃO';
+        const titleEl = document.getElementById('user-modal-title');
+        const subTitleEl = document.getElementById('user-modal-subtitle');
+        if (titleEl) titleEl.innerText = 'CENTRAL DE CADASTRO';
+        if (subTitleEl) subTitleEl.innerText = 'SISTEMA INTEGRADO DE GESTÃO';
     }
 };
 
@@ -1993,7 +2142,7 @@ window.saveCadastroInterno = function() {
         }
         if (typeof events !== 'undefined') {
             events = events.map(e => e.empresa.toLowerCase() === oldName.toLowerCase() ? { ...e, empresa: newCompany.name } : e);
-            setStoredData('crane_events', events);
+            setStoredData('crane_events', events, false);
         }
         if (typeof finalizedReports !== 'undefined') {
             updateArrayInPlace(finalizedReports, finalizedReports.map(r => r.empresa.toLowerCase() === oldName.toLowerCase() ? { ...r, empresa: newCompany.name } : r));
@@ -2059,6 +2208,33 @@ window.saveUserFromForm = async function() {
     
     const hashedPassword = await hashPassword(password);
 
+    const emailLower = email.toLowerCase();
+
+    // 1. Validação de duplicidade de e-mail na memória local
+    const localEmailConflict = usersList.some(u => (!idVal || String(u.id) !== String(idVal)) && (u.email || '').toLowerCase() === emailLower);
+    if (localEmailConflict) {
+        return window.showAlert('ESTE E-MAIL JÁ ESTÁ CADASTRADO POR OUTRO USUÁRIO.', 'warning');
+    }
+
+    // 2. Consulta remota no Supabase para validar unicidade de e-mail e obter IDs globais em tempo real
+    let cloudUsers = [];
+    if (isSupabaseConfigured) {
+        try {
+            const client = getActiveSupabase();
+            if (client) {
+                const { data } = await client.from('users').select('id, email');
+                if (Array.isArray(data)) cloudUsers = data;
+            }
+        } catch (e) {
+            console.warn('CRANE PRO: Erro ao consultar usuários remotos:', e);
+        }
+    }
+
+    const cloudEmailConflict = cloudUsers.some(u => (!idVal || String(u.id) !== String(idVal)) && (u.email || '').toLowerCase() === emailLower);
+    if (cloudEmailConflict) {
+        return window.showAlert('ESTE E-MAIL JÁ ESTÁ CADASTRADO POR OUTRO USUÁRIO.', 'warning');
+    }
+
     let updatedList = [];
     let savedUser = null;
     if (idVal) {
@@ -2068,7 +2244,7 @@ window.saveUserFromForm = async function() {
                     ...u,
                     name: name.toUpperCase(),
                     cargo: cargo.toUpperCase(),
-                    email: email.toLowerCase(),
+                    email: emailLower,
                     password: hashedPassword,
                     permission: permission,
                     avatar: window.currentUserPhotoBase64 !== null ? window.currentUserPhotoBase64 : (u.avatar || u.foto || ""),
@@ -2080,12 +2256,15 @@ window.saveUserFromForm = async function() {
             return u;
         });
     } else {
-        const nextId = usersList.length > 0 ? Math.max(...usersList.map(u => Number(u.id) || 0)) + 1 : 1;
+        const maxLocalId = usersList.length > 0 ? Math.max(...usersList.map(u => Number(u.id) || 0)) : 0;
+        const maxCloudId = cloudUsers.length > 0 ? Math.max(...cloudUsers.map(u => Number(u.id) || 0)) : 0;
+        const nextId = Math.max(maxLocalId, maxCloudId) + 1;
+
         savedUser = {
             id: nextId,
             name: name.toUpperCase(),
             cargo: cargo.toUpperCase(),
-            email: email.toLowerCase(),
+            email: emailLower,
             password: hashedPassword,
             permission: permission,
             avatar: window.currentUserPhotoBase64 || "",
@@ -2134,20 +2313,23 @@ window.deleteUserFromForm = function() {
 function renderOpenOrders() {
     const tbody = document.getElementById('open-orders-tbody');
     const mobileContainer = document.getElementById('open-orders-mobile-container');
+    const desktopContainer = document.getElementById('open-orders-desktop-container');
+
     if (tbody) tbody.innerHTML = '';
     if (mobileContainer) mobileContainer.innerHTML = '';
+    if (desktopContainer) desktopContainer.innerHTML = '';
 
     if (openOrders.length === 0) {
         if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUMA ORDEM EM ABERTO</td></tr>`;
-        if (mobileContainer) {
-            mobileContainer.innerHTML = `
-                <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-md text-zinc-600">
-                    <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">assignment_turned_in</span>
-                    <p class="font-bold text-sm text-zinc-900 uppercase">Nenhuma ordem em aberto</p>
-                    <p class="text-xs text-zinc-500 mt-1">Todas as ordens de serviço foram finalizadas.</p>
-                </div>
-            `;
-        }
+        const emptyHtml = `
+            <div class="col-span-full bg-white rounded-2xl p-8 text-center border border-zinc-200 shadow-sm text-zinc-600">
+                <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">assignment_turned_in</span>
+                <p class="font-bold text-sm text-zinc-900 uppercase">Nenhuma ordem em aberto</p>
+                <p class="text-xs text-zinc-500 mt-1">Todas as ordens de serviço foram finalizadas.</p>
+            </div>
+        `;
+        if (mobileContainer) mobileContainer.innerHTML = emptyHtml;
+        if (desktopContainer) desktopContainer.innerHTML = emptyHtml;
         return;
     }
 
@@ -2156,7 +2338,7 @@ function renderOpenOrders() {
         const equip = order.equipamentoNome || parts[0] || '---';
         const emp = order.empresa || parts[1] || '---';
 
-        // Desktop Table
+        // Desktop Table (retrocompatibilidade)
         if (tbody) {
             const tr = document.createElement('tr');
             tr.className = "hover:bg-zinc-50 transition-colors group";
@@ -2203,6 +2385,33 @@ function renderOpenOrders() {
                 </div>
             `;
             mobileContainer.appendChild(card);
+        }
+
+        // Desktop Card
+        if (desktopContainer) {
+            const card = document.createElement('div');
+            card.className = "bg-white text-zinc-900 rounded-2xl p-4 shadow-sm border border-zinc-200/90 flex flex-col justify-between gap-3 hover:shadow-md transition-shadow";
+            card.innerHTML = `
+                <div class="flex items-center justify-between border-b border-zinc-100 pb-2">
+                    <span class="font-mono font-extrabold text-sm text-amber-600">${order.id}</span>
+                    <span class="px-2.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-black uppercase rounded border border-amber-300">EM ABERTO</span>
+                </div>
+                <div class="text-[12px] space-y-1 text-zinc-700 font-semibold">
+                    <div>🏢 Empresa: <span class="text-zinc-900 font-bold uppercase">${emp}</span></div>
+                    <div>⚙️ Equipamento: <span class="text-zinc-900 font-bold uppercase">${equip}</span></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-100">
+                    <button onclick="window.openChecklistModal('${order.id}')" class="bg-primary hover:brightness-105 text-on-primary font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs shadow-sm transition-all cursor-pointer">
+                        <span class="material-symbols-outlined text-[18px]">edit_note</span>
+                        Retomar
+                    </button>
+                    <button onclick="window.deleteOpenOrder('${order.id}')" class="bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs border border-red-200 transition-all cursor-pointer">
+                        <span class="material-symbols-outlined text-[18px]">delete</span>
+                        Excluir
+                    </button>
+                </div>
+            `;
+            desktopContainer.appendChild(card);
         }
     });
 }
@@ -2262,9 +2471,9 @@ function renderReportsView() {
         if (comTbody) comTbody.innerHTML = `<tr><td class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUMA EMPRESA CADASTRADA</td></tr>`;
         if (assTbody) assTbody.innerHTML = `<tr><td colspan="3" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM ATIVO TÉCNICO ENCONTRADO</td></tr>`;
         if (repTbody) repTbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUM RELATÓRIO ENCONTRADO</td></tr>`;
-        if (desktopComContainer) desktopComContainer.innerHTML = `<div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-sm text-zinc-600"><p class="font-bold text-sm text-zinc-900 uppercase">NENHUMA EMPRESA CADASTRADA</p></div>`;
-        if (desktopAssContainer) desktopAssContainer.innerHTML = `<div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-sm text-zinc-600"><p class="font-bold text-sm text-zinc-900 uppercase">NENHUM ATIVO TÉCNICO ENCONTRADO</p></div>`;
-        if (desktopRepContainer) desktopRepContainer.innerHTML = `<div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-sm text-zinc-600"><p class="font-bold text-sm text-zinc-900 uppercase">NENHUM RELATÓRIO ENCONTRADO</p></div>`;
+        if (desktopComContainer) desktopComContainer.innerHTML = `<div class="bg-white rounded-xl p-6 text-center border border-[#e6d5a8] shadow-sm text-zinc-600"><p class="font-bold text-sm text-zinc-900 uppercase">NENHUMA EMPRESA CADASTRADA</p></div>`;
+        if (desktopAssContainer) desktopAssContainer.innerHTML = `<div class="bg-white rounded-xl p-6 text-center border border-[#e6d5a8] shadow-sm text-zinc-600"><p class="font-bold text-sm text-zinc-900 uppercase">NENHUM ATIVO TÉCNICO ENCONTRADO</p></div>`;
+        if (desktopRepContainer) desktopRepContainer.innerHTML = `<div class="bg-white rounded-xl p-6 text-center border border-[#e6d5a8] shadow-sm text-zinc-600"><p class="font-bold text-sm text-zinc-900 uppercase">NENHUM RELATÓRIO ENCONTRADO</p></div>`;
         if (mobileCompaniesList) {
             mobileCompaniesList.innerHTML = `
                 <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-md text-zinc-600">
@@ -2299,7 +2508,7 @@ function renderReportsView() {
             const isSelected = normCompReports(compName) === normCompReports(reportsSelectedCompany);
 
             const card = document.createElement('div');
-            card.className = `bg-white text-zinc-900 rounded-2xl p-3.5 shadow-sm border ${isSelected ? 'border-2 border-[#fa520f] shadow-md ring-1 ring-[#fa520f]/20' : 'border-zinc-200/90 hover:border-orange-300'} flex items-center justify-between gap-3 cursor-pointer transition-all active:scale-[0.99] select-none`;
+            card.className = `bg-white text-[#1f1f1f] rounded-xl p-3.5 shadow-sm border ${isSelected ? 'border-2 border-[#fa520f] shadow-md ring-1 ring-[#fa520f]/20 bg-[#fffdf7]' : 'border-[#e6d5a8] hover:border-[#fa520f]'} flex items-center justify-between gap-3.5 cursor-pointer transition-all active:scale-[0.99] select-none min-h-[152px] h-[152px]`;
             card.onclick = () => {
                 reportsSelectedCompany = compName;
                 reportsSelectedAssetId = null;
@@ -2307,10 +2516,10 @@ function renderReportsView() {
             };
 
             const leftCol = document.createElement('div');
-            leftCol.className = "flex items-center gap-3 min-w-0";
+            leftCol.className = "flex items-center gap-3.5 min-w-0 flex-1";
 
             const logoBox = document.createElement('div');
-            logoBox.className = "w-14 h-14 rounded-xl bg-white border border-zinc-200 shadow-xs flex-shrink-0 flex items-center justify-center overflow-hidden p-1";
+            logoBox.className = "w-20 h-20 rounded-lg bg-white border border-[#e6d5a8] shadow-xs flex-shrink-0 flex items-center justify-center overflow-hidden p-1.5";
             const imgEl = document.createElement('img');
             imgEl.alt = compName;
             imgEl.className = "w-full h-full object-contain";
@@ -2322,12 +2531,13 @@ function renderReportsView() {
             logoBox.appendChild(imgEl);
 
             const infoBox = document.createElement('div');
-            infoBox.className = "flex-1 min-w-0";
+            infoBox.className = "flex-1 min-w-0 text-left text-[12px] leading-tight space-y-1.5 text-[#4a4a4a]";
             infoBox.innerHTML = `
-                <div class="font-extrabold text-zinc-950 text-sm truncate uppercase tracking-tight">${compName}</div>
-                <div class="mt-1">
-                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 bg-orange-50 text-orange-800 border border-orange-200 rounded-md text-[11px] font-bold">
-                        <span class="material-symbols-outlined text-[14px] text-orange-600">folder</span>
+                <div class="font-bold text-[#1f1f1f] text-[13px] truncate leading-tight uppercase tracking-tight">${compName}</div>
+                <div class="text-[#4a4a4a] text-[11px] font-medium">Relatórios Emitidos:</div>
+                <div class="pt-0.5">
+                    <span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-[#fff0c2] text-[#fa520f] border border-[#e6d5a8] rounded text-[11px] font-bold">
+                        <span class="material-symbols-outlined text-[14px]">folder</span>
                         ${totalCompReports} ${totalCompReports === 1 ? 'RELATÓRIO' : 'RELATÓRIOS'}
                     </span>
                 </div>
@@ -2362,11 +2572,15 @@ function renderReportsView() {
             return String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true });
         });
 
+    if (!reportsSelectedAssetId && filteredAssets.length > 0) {
+        reportsSelectedAssetId = filteredAssets[0].id;
+    }
+
     if (desktopAssContainer) {
         desktopAssContainer.innerHTML = '';
         if (filteredAssets.length === 0) {
             desktopAssContainer.innerHTML = `
-                <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-sm text-zinc-600">
+                <div class="bg-white rounded-xl p-6 text-center border border-[#e6d5a8] shadow-sm text-zinc-600">
                     <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">precision_manufacturing</span>
                     <p class="font-bold text-sm text-zinc-900 uppercase">Nenhum ativo encontrado</p>
                 </div>
@@ -2374,19 +2588,23 @@ function renderReportsView() {
         } else {
             filteredAssets.forEach(a => {
                 const displayTipo = a.tipo || a.nome || 'Equipamento';
-                const fotoUrl = a.foto || a.imagemUrl || getDefaultAssetImage(displayTipo);
+                const fotoUrl = (typeof a.foto === 'string' && a.foto.trim() !== '' ? a.foto : null) ||
+                                (a.custom_fields && typeof a.custom_fields.foto === 'string' && a.custom_fields.foto.trim() !== '' ? a.custom_fields.foto : null) ||
+                                (typeof a.photo === 'string' && a.photo.trim() !== '' ? a.photo : null) ||
+                                (typeof a.imagemUrl === 'string' && a.imagemUrl.trim() !== '' ? a.imagemUrl : null) ||
+                                getDefaultAssetImage(displayTipo);
                 const assetReports = filterReports(finalizedReports, reportsSelectedCompany, a.id, allAssetsList);
                 const isSelected = reportsSelectedAssetId && (a.id === reportsSelectedAssetId || normAssetReports(a.id) === normAssetReports(reportsSelectedAssetId));
 
                 const card = document.createElement('div');
-                card.className = `bg-white text-zinc-900 rounded-2xl p-3 shadow-sm border ${isSelected ? 'border-2 border-[#fa520f] shadow-md ring-1 ring-[#fa520f]/20' : 'border-zinc-200/90 hover:border-orange-300'} flex gap-3.5 items-center cursor-pointer transition-all active:scale-[0.99] select-none`;
+                card.className = `bg-white text-[#1f1f1f] rounded-xl p-3.5 shadow-sm border ${isSelected ? 'border-2 border-[#fa520f] shadow-md ring-1 ring-[#fa520f]/20 bg-[#fffdf7]' : 'border-[#e6d5a8] hover:border-[#fa520f]'} flex gap-3.5 items-center cursor-pointer transition-all active:scale-[0.99] select-none min-h-[152px] h-[152px]`;
                 card.onclick = () => {
                     reportsSelectedAssetId = a.id;
                     renderReportsView();
                 };
 
                 const imgBox = document.createElement('div');
-                imgBox.className = "w-20 h-20 rounded-xl bg-zinc-100 flex-shrink-0 overflow-hidden flex items-center justify-center border border-zinc-200";
+                imgBox.className = "w-20 h-20 rounded-lg bg-[#fff8e0] flex-shrink-0 overflow-hidden flex items-center justify-center border border-[#e6d5a8]";
                 const imgEl = document.createElement('img');
                 imgEl.alt = displayTipo;
                 imgEl.className = "w-full h-full object-cover";
@@ -2398,14 +2616,14 @@ function renderReportsView() {
                 imgBox.appendChild(imgEl);
 
                 const infoBox = document.createElement('div');
-                infoBox.className = "flex-1 min-w-0 text-left text-[12px] leading-tight space-y-0.5 text-zinc-800";
+                infoBox.className = "flex-1 min-w-0 text-left text-[12px] leading-tight space-y-1 text-[#4a4a4a]";
                 infoBox.innerHTML = `
-                    <div class="font-extrabold text-zinc-950 text-sm truncate leading-snug">${(a.nome || a.tipo || 'EQUIPAMENTO').toUpperCase()}</div>
-                    <div class="text-zinc-900 font-bold">ID: <span class="font-mono font-extrabold text-orange-600">${a.id}</span></div>
-                    <div class="text-zinc-700 truncate font-semibold">Local: <span class="text-zinc-900 font-bold">${(a.local || 'N/A').toUpperCase()}</span></div>
-                    <div class="pt-1">
-                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 bg-orange-50 text-orange-800 border border-orange-200 rounded-md text-[11px] font-bold">
-                            <span class="material-symbols-outlined text-[14px] text-orange-600">description</span>
+                    <div class="font-bold text-[#1f1f1f] text-[13px] truncate leading-tight">${(a.nome || a.tipo || 'EQUIPAMENTO').toUpperCase()}</div>
+                    <div class="text-[#1f1f1f] font-semibold flex items-center gap-1.5">ID: <span class="font-mono font-bold text-[#fa520f] bg-[#fff0c2] px-1.5 py-0.5 rounded border border-[#e6d5a8] text-[11px] leading-none">${a.id}</span></div>
+                    <div class="text-[#4a4a4a] truncate font-medium">Local: <span class="text-[#1f1f1f] font-semibold">${(a.local || 'N/A').toUpperCase()}</span></div>
+                    <div class="pt-0.5">
+                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-[#fff0c2] text-[#fa520f] border border-[#e6d5a8] rounded text-[11px] font-bold">
+                            <span class="material-symbols-outlined text-[14px]">description</span>
                             ${assetReports.length} ${assetReports.length === 1 ? 'RELATÓRIO' : 'RELATÓRIOS'}
                         </span>
                     </div>
@@ -2437,10 +2655,10 @@ function renderReportsView() {
         desktopRepContainer.innerHTML = '';
         if (filteredReports.length === 0) {
             desktopRepContainer.innerHTML = `
-                <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-sm text-zinc-600">
+                <div class="bg-white rounded-xl p-6 text-center border border-[#e6d5a8] shadow-sm text-zinc-600">
                     <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">description</span>
                     <p class="font-bold text-sm text-zinc-900 uppercase">Nenhum relatório finalizado</p>
-                    <p class="text-xs text-zinc-500 mt-1">Selecione um ativo técnico para visualizar seus relatórios.</p>
+                    <p class="text-xs text-zinc-500 mt-1">Este equipamento ainda não possui relatórios finalizados.</p>
                 </div>
             `;
         } else {
@@ -2448,26 +2666,49 @@ function renderReportsView() {
                 const repNumber = formatReportNumber(report, index);
                 const isCorretiva = (report.type || '').toUpperCase() === 'CORRETIVA';
                 const typeLabel = isCorretiva ? 'CORRETIVA' : 'PREVENTIVA';
-                const typeBadgeClass = isCorretiva ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-green-100 text-green-800 border-green-200';
-                const techName = formatTechnicianName(report.tecnico || 'MAYCON DIAS');
+                const typeBadgeClass = isCorretiva ? 'bg-purple-100 text-purple-800 border-purple-300' : 'bg-green-100 text-green-800 border-green-300';
+                const techName = getReportTechniciansDisplay(report, usersList);
+
+                const matchingAsset = (allAssetsList || []).find(a => a && (String(a.id) === String(report.equipamentoId) || String(a.id) === String(report.equipamento)));
+                const displayTipo = matchingAsset?.tipo || matchingAsset?.nome || report.equipamentoNome || 'EQUIPAMENTO';
+                const fotoUrl = (matchingAsset && typeof matchingAsset.foto === 'string' && matchingAsset.foto.trim() !== '' ? matchingAsset.foto : null) ||
+                                (matchingAsset && typeof matchingAsset.photo === 'string' && matchingAsset.photo.trim() !== '' ? matchingAsset.photo : null) ||
+                                (matchingAsset && typeof matchingAsset.imagemUrl === 'string' && matchingAsset.imagemUrl.trim() !== '' ? matchingAsset.imagemUrl : null) ||
+                                getDefaultAssetImage(displayTipo);
 
                 const card = document.createElement('div');
-                card.className = "bg-white text-zinc-900 rounded-2xl p-4 shadow-sm border border-zinc-200/90 flex flex-col gap-2.5 hover:shadow-md transition-shadow";
-                card.innerHTML = `
-                    <div class="flex items-center justify-between border-b border-zinc-100 pb-2">
-                        <span class="font-mono font-black text-sm text-zinc-950">${repNumber}</span>
-                        <div class="flex items-center gap-2">
-                            <span class="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase border ${typeBadgeClass}">${typeLabel}</span>
-                            <button onclick="window.toggleActionMenu(event, '${report.id}')" class="text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 p-1 rounded-lg transition-colors cursor-pointer flex items-center justify-center" title="Ações">
-                                <span class="material-symbols-outlined text-[20px] pointer-events-none">more_vert</span>
-                            </button>
-                        </div>
+                card.className = "bg-white text-[#1f1f1f] rounded-xl p-3.5 shadow-sm border border-[#e6d5a8] hover:border-[#fa520f] flex gap-3.5 items-center hover:shadow-md transition-all min-h-[152px] h-[152px] select-none";
+
+                const imgBox = document.createElement('div');
+                imgBox.className = "w-20 h-20 rounded-lg bg-[#fff8e0] flex-shrink-0 overflow-hidden flex items-center justify-center border border-[#e6d5a8]";
+                const imgEl = document.createElement('img');
+                imgEl.alt = displayTipo;
+                imgEl.className = "w-full h-full object-cover";
+                imgEl.src = fotoUrl;
+                imgEl.onerror = function() {
+                    this.onerror = null;
+                    this.src = getDefaultAssetImage(displayTipo);
+                };
+                imgBox.appendChild(imgEl);
+
+                const infoBox = document.createElement('div');
+                infoBox.className = "flex-1 min-w-0 text-left text-[12px] leading-tight space-y-1 text-[#4a4a4a]";
+                infoBox.innerHTML = `
+                    <div class="flex items-center justify-between gap-1">
+                        <span class="font-mono font-bold text-[#fa520f] bg-[#fff0c2] px-1.5 py-0.5 rounded border border-[#e6d5a8] text-[11px] leading-none">${repNumber}</span>
+                        <button onclick="window.toggleActionMenu(event, '${report.id}')" class="text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 p-1 rounded-lg transition-colors cursor-pointer flex items-center justify-center border border-zinc-200" title="Ações">
+                            <span class="material-symbols-outlined text-[18px] pointer-events-none">more_vert</span>
+                        </button>
                     </div>
-                    <div class="text-[12px] space-y-1 text-zinc-700 font-semibold">
-                        <div>📅 Data: <span class="text-zinc-900 font-bold">${report.date || '---'}</span></div>
-                        <div>👷 Técnico: <span class="text-zinc-900 font-bold uppercase">${techName}</span></div>
+                    <div class="text-[#4a4a4a] truncate font-medium pt-0.5 flex items-center gap-1.5">
+                        Tipo: <span class="px-2 py-0.5 rounded text-[10px] font-black uppercase border leading-none ${typeBadgeClass}">${typeLabel}</span>
                     </div>
+                    <div class="text-[#4a4a4a] truncate font-medium">Data: <span class="text-[#1f1f1f] font-semibold">${report.date || '---'}</span></div>
+                    <div class="text-[#4a4a4a] truncate font-medium">Técnico: <span class="text-[#1f1f1f] font-semibold uppercase">${techName}</span></div>
                 `;
+
+                card.appendChild(imgBox);
+                card.appendChild(infoBox);
                 desktopRepContainer.appendChild(card);
             });
         }
@@ -2480,7 +2721,7 @@ function renderReportsView() {
             const repNumber = formatReportNumber(report, index);
             const isCorretiva = (report.type || '').toUpperCase() === 'CORRETIVA';
             const typeLabel = isCorretiva ? 'CORRETIVA' : 'PREVENTIVA';
-            const techName = formatTechnicianName(report.tecnico || 'MAYCON DIAS');
+            const techName = getReportTechniciansDisplay(report, usersList);
 
             tr.innerHTML = `
                 <td class="px-card_padding py-3 text-label-md font-bold text-zinc-900">${repNumber}</td>
@@ -2540,8 +2781,8 @@ function renderReportsView() {
                     const repNumber = formatReportNumber(report, index);
                     const isCorretiva = (report.type || '').toUpperCase() === 'CORRETIVA';
                     const typeLabel = isCorretiva ? 'CORRETIVA' : 'PREVENTIVA';
-                    const typeBadgeClass = isCorretiva ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-green-100 text-green-800 border-green-200';
-                    const techName = formatTechnicianName(report.tecnico || 'TÉCNICO');
+                    const typeBadgeClass = isCorretiva ? 'bg-purple-100 text-purple-800 border-purple-300' : 'bg-green-100 text-green-800 border-green-300';
+                    const techName = getReportTechniciansDisplay(report, usersList);
 
                     const card = document.createElement('div');
                     card.className = "bg-white text-zinc-900 rounded-2xl p-4 shadow-md border border-zinc-200/90 flex flex-col gap-3";
@@ -2605,7 +2846,11 @@ function renderReportsView() {
             } else {
                 filteredAssets.forEach(a => {
                     const displayTipo = a.tipo || a.nome || 'Equipamento';
-                    const fotoUrl = a.foto || a.imagemUrl || getDefaultAssetImage(displayTipo);
+                    const fotoUrl = (typeof a.foto === 'string' && a.foto.trim() !== '' ? a.foto : null) ||
+                                    (a.custom_fields && typeof a.custom_fields.foto === 'string' && a.custom_fields.foto.trim() !== '' ? a.custom_fields.foto : null) ||
+                                    (typeof a.photo === 'string' && a.photo.trim() !== '' ? a.photo : null) ||
+                                    (typeof a.imagemUrl === 'string' && a.imagemUrl.trim() !== '' ? a.imagemUrl : null) ||
+                                    getDefaultAssetImage(displayTipo);
                     const assetReports = filterReports(finalizedReports, reportsSelectedCompany, a.id, allAssetsList);
 
                     const card = document.createElement('div');
@@ -2758,8 +3003,9 @@ window.toggleActionMenu = function(event, id) {
     if (event) event.stopPropagation();
     const menu = document.getElementById('global-action-menu');
     if (!menu) return;
-    if (menu.style.display === 'block' && menu.getAttribute('data-current-id') == id) {
+    if ((menu.style.display === 'block' || !menu.classList.contains('hidden')) && menu.getAttribute('data-current-id') == id) {
         menu.style.display = 'none';
+        menu.classList.add('hidden');
         return;
     }
     menu.setAttribute('data-current-id', id);
@@ -2770,6 +3016,7 @@ window.toggleActionMenu = function(event, id) {
     menu.style.top = top + 'px';
     menu.style.left = left + 'px';
     menu.style.display = 'block';
+    menu.classList.remove('hidden');
     const closeMenu = (e) => {
         if (!menu.contains(e.target)) {
             menu.style.display = 'none';
@@ -2781,8 +3028,12 @@ window.toggleActionMenu = function(event, id) {
 };
 
 window.execMenuAction = async function(action) {
-    const id = document.getElementById('global-action-menu').getAttribute('data-current-id');
-    document.getElementById('global-action-menu').style.display = 'none';
+    const menu = document.getElementById('global-action-menu');
+    const id = menu ? menu.getAttribute('data-current-id') : null;
+    if (menu) {
+        menu.style.display = 'none';
+        menu.classList.add('hidden');
+    }
     if (action === 'edit') await editReport(id);
     if (action === 'pdf') {
         await window.printReportPDF(id);
@@ -2794,6 +3045,49 @@ window.execMenuAction = async function(action) {
 
 window.printReportPDF = async function(reportId) {
     return await printReportPDF(reportId, { finalizedReports, companies, allAssetsList, usersList });
+};
+
+window.toggleDashboardActionMenu = function(event) {
+    if (event) event.stopPropagation();
+    const menu = document.getElementById('dashboard-action-menu');
+    if (!menu) return;
+    if (menu.style.display === 'block' || !menu.classList.contains('hidden')) {
+        menu.style.display = 'none';
+        menu.classList.add('hidden');
+        return;
+    }
+    const btn = (event && event.currentTarget) || document.getElementById('dashboard-action-menu-btn');
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    let left = rect.right - 192; // 192px = w-48 (alinhado à direita do botão)
+    let top = rect.bottom + 8;
+    if (left < 10) left = 10;
+    menu.style.top = top + 'px';
+    menu.style.left = left + 'px';
+    menu.style.display = 'block';
+    menu.classList.remove('hidden');
+
+    const closeMenu = (e) => {
+        if (!menu.contains(e.target) && !btn.contains(e.target)) {
+            menu.style.display = 'none';
+            menu.classList.add('hidden');
+            document.removeEventListener('mousedown', closeMenu);
+        }
+    };
+    setTimeout(() => document.addEventListener('mousedown', closeMenu), 50);
+};
+
+window.execDashboardMenuAction = function(action) {
+    const menu = document.getElementById('dashboard-action-menu');
+    if (menu) {
+        menu.style.display = 'none';
+        menu.classList.add('hidden');
+    }
+    if (action === 'programacao') {
+        window.openProgModal();
+    } else if (action === 'exportar') {
+        window.exportOperationalDashboardData();
+    }
 };
 
 window.toggleAssetActionMenu = function(event, id) {
@@ -3327,15 +3621,27 @@ function renderAtivosView() {
     const mobileAssetsList = document.getElementById('assets-mobile-assets-list');
     const mobileSelectedCompanyTitle = document.getElementById('assets-mobile-selected-company-title');
 
+    const desktopCompaniesList = document.getElementById('assets-desktop-companies-list');
+    const desktopAssetsList = document.getElementById('assets-desktop-assets-list');
+    const desktopSelectedCompanyTitle = document.getElementById('assets-desktop-selected-company-title');
+
     const currentList = companies || [];
     if (currentList.length === 0) {
         if (compTbody) renderCompaniesUI('assets-view-companies-tbody', [], '', () => {});
         if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-on-surface-variant uppercase font-bold text-label-md">NENHUMA EMPRESA OU ATIVO CADASTRADO</td></tr>`;
-        if (mobileCompaniesList) {
-            mobileCompaniesList.innerHTML = `
-                <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-md text-zinc-600">
-                    <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">domain_disabled</span>
-                    <p class="font-bold text-sm text-zinc-900 uppercase">Nenhuma empresa cadastrada</p>
+        const emptyComp = `
+            <div class="bg-white rounded-2xl p-6 text-center border border-zinc-200 shadow-md text-zinc-600">
+                <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">domain_disabled</span>
+                <p class="font-bold text-sm text-zinc-900 uppercase">Nenhuma empresa cadastrada</p>
+            </div>
+        `;
+        if (mobileCompaniesList) mobileCompaniesList.innerHTML = emptyComp;
+        if (desktopCompaniesList) desktopCompaniesList.innerHTML = emptyComp;
+        if (desktopAssetsList) {
+            desktopAssetsList.innerHTML = `
+                <div class="col-span-full bg-white rounded-2xl p-8 text-center border border-zinc-200 shadow-sm text-zinc-600">
+                    <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">precision_manufacturing</span>
+                    <p class="font-bold text-sm text-zinc-900 uppercase">Nenhum ativo cadastrado</p>
                 </div>
             `;
         }
@@ -3352,7 +3658,7 @@ function renderAtivosView() {
         selectedCompany = typeof firstComp === 'string' ? firstComp : (firstComp?.name || "");
     }
 
-    // Sidebar de empresas na vista desktop
+    // Sidebar de empresas na vista desktop (fallback)
     if (compTbody) {
         renderCompaniesUI('assets-view-companies-tbody', companies, selectedCompany, (company) => {
             selectedCompany = company;
@@ -3369,7 +3675,232 @@ function renderAtivosView() {
             return String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true });
         });
 
-    // Renderiza Desktop Table
+    // 1. Render Desktop Cards - Coluna 1: Empresas (Padronizado com Rótulos Fixos e Dimensões Preservadas)
+    if (desktopCompaniesList) {
+        desktopCompaniesList.innerHTML = '';
+        currentList.forEach(company => {
+            const compName = typeof company === 'string' ? company : (company.name || '');
+            const cnpj = (typeof company === 'object' && company.cnpj && String(company.cnpj).trim()) ? String(company.cnpj).trim() : 'NÃO CADASTRADO';
+            const endereco = (typeof company === 'object' && company.endereco && String(company.endereco).trim()) 
+                ? `${company.endereco}${company.numero ? ', ' + company.numero : ''}` 
+                : 'NÃO CADASTRADO';
+            const bairro = (typeof company === 'object' && company.bairro && String(company.bairro).trim()) ? String(company.bairro).trim() : 'NÃO CADASTRADO';
+            const cidade = (typeof company === 'object' && company.cidade && String(company.cidade).trim()) ? String(company.cidade).trim() : 'NÃO CADASTRADO';
+            const estado = (typeof company === 'object' && company.estado && String(company.estado).trim()) ? String(company.estado).trim() : 'NÃO CADASTRADO';
+            const cep = (typeof company === 'object' && company.cep && String(company.cep).trim()) ? String(company.cep).trim() : 'NÃO CADASTRADO';
+            const logoUrl = (typeof company === 'object' && company.logo) ? company.logo : getDefaultCompanyLogo();
+            const countAssets = allAssetsList.filter(a => a.empresa && a.empresa.toLowerCase() === compName.toLowerCase()).length;
+            const isSelected = selectedCompany && compName.toLowerCase() === selectedCompany.toLowerCase();
+
+            const card = document.createElement('div');
+            card.className = `bg-white text-[#1f1f1f] rounded-xl p-3 shadow-sm border ${isSelected ? 'border-2 border-[#fa520f] shadow-md ring-1 ring-[#fa520f]/20 bg-[#fffdf7]' : 'border-[#e6d5a8] hover:border-[#fa520f]'} flex gap-3 items-center cursor-pointer transition-all active:scale-[0.99] select-none min-h-[152px] h-[152px] max-h-[152px]`;
+            card.onclick = () => {
+                selectedCompany = compName;
+                renderAtivosView();
+            };
+
+            const logoBox = document.createElement('div');
+            logoBox.className = "w-20 h-20 rounded-lg bg-white border border-[#e6d5a8] shadow-xs flex-shrink-0 flex items-center justify-center overflow-hidden p-1.5 self-center";
+            const imgEl = document.createElement('img');
+            imgEl.alt = compName;
+            imgEl.className = "w-full h-full object-contain";
+            imgEl.src = logoUrl;
+            imgEl.onerror = function() {
+                this.onerror = null;
+                this.src = getDefaultCompanyLogo();
+            };
+            logoBox.appendChild(imgEl);
+
+            const infoBox = document.createElement('div');
+            infoBox.className = "flex-1 min-w-0 text-left text-[10.5px] leading-tight space-y-1 text-[#4a4a4a] py-0.5";
+            infoBox.innerHTML = `
+                <div class="flex items-center justify-between gap-1.5 leading-none mb-1">
+                    <div class="text-[12px] truncate flex-1 min-w-0" title="${compName}">
+                        <span class="text-zinc-500 font-bold uppercase text-[9.5px]">Empresa:</span>
+                        <span class="font-extrabold text-[#1f1f1f] uppercase ml-1">${compName}</span>
+                    </div>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-[#fff0c2] text-[#fa520f] border border-[#e6d5a8] rounded text-[10px] font-bold">
+                            <span class="material-symbols-outlined text-[13px]">precision_manufacturing</span>
+                            ${countAssets} ${countAssets === 1 ? 'ATIVO' : 'ATIVOS'}
+                        </span>
+                        <button onclick="event.stopPropagation(); window.openEditCompanyModal('${compName}')" class="text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 p-1 rounded-lg transition-colors cursor-pointer flex items-center justify-center border border-zinc-200" title="Editar Empresa">
+                            <span class="material-symbols-outlined text-[18px] pointer-events-none">more_vert</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="text-[#1f1f1f] truncate leading-tight">
+                    <span class="text-zinc-500 font-bold uppercase text-[9.5px]">CNPJ:</span>
+                    <span class="font-semibold font-mono text-[10.5px] ml-1">${cnpj}</span>
+                </div>
+                <div class="text-[#4a4a4a] truncate leading-tight" title="${endereco}">
+                    <span class="text-zinc-500 font-bold uppercase text-[9.5px]">Endereço:</span>
+                    <span class="text-[#1f1f1f] font-semibold text-[10.5px] ml-1">${endereco}</span>
+                </div>
+                <div class="text-[#4a4a4a] truncate leading-tight" title="${bairro}">
+                    <span class="text-zinc-500 font-bold uppercase text-[9.5px]">Bairro:</span>
+                    <span class="text-[#1f1f1f] font-semibold text-[10.5px] ml-1">${bairro}</span>
+                </div>
+                <div class="flex items-center gap-2 truncate leading-tight">
+                    <div class="truncate">
+                        <span class="text-zinc-500 font-bold uppercase text-[9.5px]">Cidade:</span>
+                        <span class="text-[#1f1f1f] font-semibold text-[10.5px] ml-1">${cidade}</span>
+                    </div>
+                    <div class="shrink-0">
+                        <span class="text-zinc-500 font-bold uppercase text-[9.5px]">Estado:</span>
+                        <span class="text-[#1f1f1f] font-semibold text-[10.5px] ml-1">${estado}</span>
+                    </div>
+                </div>
+                <div class="text-[#4a4a4a] truncate leading-tight">
+                    <span class="text-zinc-500 font-bold uppercase text-[9.5px]">CEP:</span>
+                    <span class="text-[#1f1f1f] font-semibold text-[10.5px] ml-1">${cep}</span>
+                </div>
+            `;
+
+            card.appendChild(logoBox);
+            card.appendChild(infoBox);
+            desktopCompaniesList.appendChild(card);
+        });
+    }
+
+    // 2. Render Desktop Cards - Coluna 2: Ativos da Empresa Selecionada (Coluna Única Full-Width e Todos os Campos)
+    if (desktopSelectedCompanyTitle) {
+        desktopSelectedCompanyTitle.innerText = `ATIVOS: ${selectedCompany.toUpperCase()} (${filteredAssets.length})`;
+    }
+    const headerAssetsTitle = document.getElementById('header-assets-selected-company-title');
+    if (headerAssetsTitle) {
+        headerAssetsTitle.innerText = `ATIVOS: ${selectedCompany.toUpperCase()} (${filteredAssets.length})`;
+    }
+
+    if (desktopAssetsList) {
+        desktopAssetsList.innerHTML = '';
+        if (filteredAssets.length === 0) {
+            desktopAssetsList.innerHTML = `
+                <div class="col-span-full bg-white rounded-xl p-8 text-center border border-[#e6d5a8] shadow-sm text-zinc-600">
+                    <span class="material-symbols-outlined text-4xl text-zinc-400 mb-2">precision_manufacturing</span>
+                    <p class="font-bold text-sm text-zinc-900 uppercase">Nenhum ativo cadastrado</p>
+                    <p class="text-xs text-zinc-500 mt-1">Esta empresa ainda não possui equipamentos cadastrados.</p>
+                </div>
+            `;
+        } else {
+            filteredAssets.forEach(a => {
+                const displayTipo = a.tipo || a.nome || 'Equipamento';
+                const fotoUrl = (typeof a.foto === 'string' && a.foto.trim() !== '' ? a.foto : null) ||
+                                (a.custom_fields && typeof a.custom_fields.foto === 'string' && a.custom_fields.foto.trim() !== '' ? a.custom_fields.foto : null) ||
+                                (typeof a.photo === 'string' && a.photo.trim() !== '' ? a.photo : null) ||
+                                (typeof a.imagemUrl === 'string' && a.imagemUrl.trim() !== '' ? a.imagemUrl : null) ||
+                                getDefaultAssetImage(displayTipo);
+
+                const card = document.createElement('div');
+                card.className = "bg-white text-[#1f1f1f] rounded-xl p-3 shadow-sm border border-[#e6d5a8] hover:border-[#fa520f] flex gap-3 items-center transition-all select-none min-h-[152px] h-[152px] max-h-[152px]";
+
+                const imgBox = document.createElement('div');
+                imgBox.className = "w-20 h-20 rounded-lg bg-white border border-[#e6d5a8] shadow-xs flex-shrink-0 flex items-center justify-center overflow-hidden p-1.5 self-center";
+                const imgEl = document.createElement('img');
+                imgEl.alt = displayTipo;
+                imgEl.className = "w-full h-full object-contain";
+                imgEl.src = fotoUrl;
+                imgEl.onerror = function() {
+                    this.onerror = null;
+                    this.src = getDefaultAssetImage(displayTipo);
+                };
+                imgBox.appendChild(imgEl);
+
+                const technicalFields = getAssetTechnicalFields(a, {
+                    getTemplateById: getAssetTemplateById,
+                    templates: (typeof getAssetTemplates === 'function' ? getAssetTemplates() : []),
+                    excludeHeaderFields: true
+                });
+
+                const FIELD_ORDER_PRIORITY = [
+                    // Coluna 1: Dimensões e Elevação Principal
+                    'CAPAC. PRINCIPAL',
+                    'VÃO',
+                    'ALT. ELEVAÇÃO',
+                    'CABO PRINCIPAL',
+                    'ALIMENTAÇÃO',
+                    // Coluna 2: Auxiliar e Elétrica
+                    'CAPAC. AUXILIAR',
+                    'CABO AUXILIAR',
+                    'TENSÃO ALIM.',
+                    'TENSÃO CMD.',
+                    'MOT. ELEV. PRINC. (V. ALTA)',
+                    // Coluna 3: Motores
+                    'MOT. ELEV. PRINC. (V. BAIXA)',
+                    'MOT. ELEV. AUX. (V. ALTA)',
+                    'MOT. ELEV. AUX. (V. BAIXA)',
+                    'MOT. DIR. CARRO',
+                    'MOT. TRANS. PONTE'
+                ];
+
+                const sortedFields = [...technicalFields].sort((x, y) => {
+                    const normX = (x.displayLabel || x.fullLabel || '').toUpperCase();
+                    const normY = (y.displayLabel || y.fullLabel || '').toUpperCase();
+                    const idxX = FIELD_ORDER_PRIORITY.findIndex(p => normX.includes(p) || p.includes(normX));
+                    const idxY = FIELD_ORDER_PRIORITY.findIndex(p => normY.includes(p) || p.includes(normY));
+                    const rankX = idxX >= 0 ? idxX : 999;
+                    const rankY = idxY >= 0 ? idxY : 999;
+                    return rankX - rankY;
+                });
+
+                const col1 = [];
+                const col2 = [];
+                const col3 = [];
+                const totalFields = sortedFields.length;
+                const col1Limit = Math.ceil(totalFields / 3);
+                const col2Limit = col1Limit + Math.ceil((totalFields - col1Limit) / 2);
+
+                sortedFields.forEach((f, idx) => {
+                    if (idx < col1Limit) col1.push(f);
+                    else if (idx < col2Limit) col2.push(f);
+                    else col3.push(f);
+                });
+
+                const renderColItems = (items) => items.map(f => `
+                    <div class="truncate text-[10.5px] leading-tight flex items-baseline gap-1" title="${f.fullLabel}: ${f.value}">
+                        <span class="text-zinc-500 font-bold uppercase text-[9px] shrink-0">${f.displayLabel}:</span>
+                        <span class="text-[#1f1f1f] font-semibold uppercase text-[10px] truncate">${f.value}</span>
+                    </div>
+                `).join('');
+
+                const contentBox = document.createElement('div');
+                contentBox.className = "flex-1 min-w-0 flex flex-col justify-start h-full py-0.5 gap-1.5";
+                contentBox.innerHTML = `
+                    <div class="flex items-center justify-between gap-2 border-b border-[#f0e6cc] pb-1.5 shrink-0 leading-none">
+                        <div class="flex items-center gap-2.5 truncate min-w-0 flex-wrap">
+                            <div class="flex items-center gap-1 shrink-0">
+                                <span class="text-zinc-500 font-bold uppercase text-[9.5px]">Ativo:</span>
+                                <span class="font-extrabold text-[#1f1f1f] text-[12px] uppercase truncate max-w-[220px]" title="${displayTipo}">${displayTipo}</span>
+                            </div>
+                            <span class="font-mono font-bold text-[#fa520f] bg-[#fff0c2] px-1.5 py-0.5 rounded border border-[#e6d5a8] text-[10px] leading-none shrink-0">ID: ${a.id}</span>
+                            <div class="flex items-center gap-1 shrink-0">
+                                <span class="text-zinc-500 font-bold uppercase text-[9.5px]">Fabricante:</span>
+                                <span class="font-bold text-[#1f1f1f] text-[11px] uppercase truncate max-w-[150px]" title="${(a.fabricante || 'N/A').toUpperCase()}">${(a.fabricante || 'N/A').toUpperCase()}</span>
+                            </div>
+                            <div class="flex items-center gap-1 shrink-0">
+                                <span class="text-zinc-500 font-bold uppercase text-[9.5px]">Localização:</span>
+                                <span class="font-bold text-[#1f1f1f] text-[11px] uppercase truncate max-w-[150px]" title="${(a.local || 'N/A').toUpperCase()}">${(a.local || 'N/A').toUpperCase()}</span>
+                            </div>
+                        </div>
+                        <button onclick="event.stopPropagation(); window.openEditAssetModal('${a.id}', '${selectedCompany}')" class="text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 p-1 rounded-lg transition-colors cursor-pointer flex items-center justify-center border border-zinc-200 shrink-0" title="Editar Ativo">
+                            <span class="material-symbols-outlined text-[17px] pointer-events-none">more_vert</span>
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-1 py-0.5 overflow-y-auto max-h-[96px] content-start">
+                        <div class="flex flex-col gap-1 min-w-0">${renderColItems(col1)}</div>
+                        <div class="flex flex-col gap-1 min-w-0">${renderColItems(col2)}</div>
+                        <div class="flex flex-col gap-1 min-w-0">${renderColItems(col3)}</div>
+                    </div>
+                `;
+
+                card.appendChild(imgBox);
+                card.appendChild(contentBox);
+                desktopAssetsList.appendChild(card);
+            });
+        }
+    }
+
+    // Renderiza Desktop Table (retrocompatibilidade)
     if (tbody) {
         tbody.innerHTML = filteredAssets.map(a => {
             const customFields = a.custom_fields || a.customFields || {};
@@ -3442,7 +3973,11 @@ function renderAtivosView() {
                     }
 
                     const displayTipo = a.tipo || a.nome || 'Equipamento';
-                    const fotoUrl = a.foto || a.imagemUrl || getDefaultAssetImage(displayTipo);
+                    const fotoUrl = (typeof a.foto === 'string' && a.foto.trim() !== '' ? a.foto : null) ||
+                                    (a.custom_fields && typeof a.custom_fields.foto === 'string' && a.custom_fields.foto.trim() !== '' ? a.custom_fields.foto : null) ||
+                                    (typeof a.photo === 'string' && a.photo.trim() !== '' ? a.photo : null) ||
+                                    (typeof a.imagemUrl === 'string' && a.imagemUrl.trim() !== '' ? a.imagemUrl : null) ||
+                                    getDefaultAssetImage(displayTipo);
 
                     const card = document.createElement('div');
                     card.className = "bg-white text-zinc-900 rounded-2xl p-3.5 shadow-md border border-zinc-200/90 flex gap-3.5 items-center";
@@ -3558,9 +4093,67 @@ function renderAtivosView() {
 
 window.renderAtivosView = renderAtivosView;
 
+window.editingCompanyName = null;
+
+window.openEditCompanyModal = function(compName) {
+    if (!compName) return;
+    const comp = (companies || []).find(c => {
+        const name = typeof c === 'string' ? c : (c?.name || "");
+        return name.toLowerCase() === compName.toLowerCase();
+    });
+    if (!comp) return;
+
+    window.openUnifiedRegistrationModal();
+    window.editingCompanyName = compName;
+    const typeSelect = document.getElementById('reg-type-select');
+    if (typeSelect) {
+        typeSelect.value = 'empresa';
+        window.handleRegistrationTypeChange();
+    }
+
+    const cObj = typeof comp === 'string' ? { name: comp } : comp;
+    if (document.getElementById('reg-empresa-name')) document.getElementById('reg-empresa-name').value = cObj.name || '';
+    if (document.getElementById('reg-empresa-cnpj')) document.getElementById('reg-empresa-cnpj').value = cObj.cnpj || '';
+    if (document.getElementById('reg-empresa-endereco')) document.getElementById('reg-empresa-endereco').value = cObj.endereco || '';
+    if (document.getElementById('reg-empresa-numero')) document.getElementById('reg-empresa-numero').value = cObj.numero || '';
+    if (document.getElementById('reg-empresa-bairro')) document.getElementById('reg-empresa-bairro').value = cObj.bairro || '';
+    if (document.getElementById('reg-empresa-cep')) document.getElementById('reg-empresa-cep').value = cObj.cep || '';
+    if (document.getElementById('reg-empresa-cidade')) document.getElementById('reg-empresa-cidade').value = cObj.cidade || '';
+    if (document.getElementById('reg-empresa-estado')) document.getElementById('reg-empresa-estado').value = cObj.estado || '';
+    if (document.getElementById('reg-empresa-referencia')) document.getElementById('reg-empresa-referencia').value = cObj.referencia || '';
+
+    if (cObj.logo) {
+        window.currentLogoBase64 = cObj.logo;
+        const logoPreview = document.getElementById('logo-preview-container');
+        if (logoPreview) logoPreview.innerHTML = `<img src="${cObj.logo}" class="w-full h-full object-contain" />`;
+    }
+};
+
+window.openEditAssetModal = function(assetId, compName) {
+    if (!assetId) return;
+    window.openUnifiedRegistrationModal();
+    window.editingCompanyName = null;
+    const typeSelect = document.getElementById('reg-type-select');
+    if (typeSelect) {
+        typeSelect.value = 'edit-ativo';
+        window.handleRegistrationTypeChange(true);
+    }
+    const selectEditEmpresa = document.getElementById('reg-edit-empresa');
+    if (selectEditEmpresa && compName) {
+        selectEditEmpresa.value = compName;
+        window.updateEditAssetList();
+    }
+    const selectEditAtivo = document.getElementById('reg-edit-ativo-id');
+    if (selectEditAtivo) {
+        selectEditAtivo.value = assetId;
+        window.loadAssetDataForEdit();
+    }
+};
+
 // --- UNIFIED REGISTRATION ---
 
 window.openUnifiedRegistrationModal = async function() {
+    window.editingCompanyName = null;
     const modal = document.getElementById('modal-unified-registration');
     const panel = modal.querySelector('.relative');
     const typeSelect = document.getElementById('reg-type-select');
@@ -3834,6 +4427,23 @@ window.handleAssetTemplateChange = function(prefilledValues = null) {
                     const labelKey = Object.keys(prefilledValues).find(k => k.toLowerCase() === f.label.toLowerCase() || k.toLowerCase().replace(/[^a-z0-9]/g, '_') === fieldId);
                     if (labelKey && prefilledValues[labelKey] !== undefined) val = prefilledValues[labelKey];
                 }
+
+                // Fallback para campos canônicos do ativo caso não mapeados por ID explícito
+                if (val === '' || val === undefined || val === null) {
+                    const normLabel = (f.label || '').toLowerCase();
+                    const normId = String(fieldId).toLowerCase();
+                    const check = (term) => normId.includes(term) || normLabel.includes(term);
+
+                    if (check('capacidade') && !check('auxiliar')) {
+                        val = prefilledValues.capacidade || prefilledValues.capacidadePrincipal || prefilledValues.cf_2_cap_principal || '';
+                    } else if (check('capacidade') && check('auxiliar')) {
+                        val = prefilledValues.capacidadeAuxiliar || prefilledValues.capacidadeauxiliar || prefilledValues.cf_4_cap_auxiliar || '';
+                    } else if (check('vao')) {
+                        val = prefilledValues.vao || prefilledValues.vaoPonte || prefilledValues.cf_7_vao_ponte || '';
+                    } else if (check('altura')) {
+                        val = prefilledValues.altura || prefilledValues.alturaElevacao || prefilledValues.cf_6_altura_elevacao || '';
+                    }
+                }
             }
 
             let inputHtml = '';
@@ -3851,8 +4461,13 @@ window.handleAssetTemplateChange = function(prefilledValues = null) {
                 `;
             }
 
+            const cleanLabel = (f.label || '')
+                .replace(/CAPACIDADE DE PESO PRINCIPAL/gi, 'CAPACIDADE PRINCIPAL')
+                .replace(/CAPACIDADE DE PESO AUXILIAR/gi, 'CAPACIDADE AUXILIAR')
+                .replace(/VÃO DA PONTE/gi, 'VÃO');
+
             fieldDiv.innerHTML = `
-                <label class="text-label-md text-on-surface-variant uppercase font-bold">${f.label}</label>
+                <label class="text-label-md text-on-surface-variant uppercase font-bold">${cleanLabel}</label>
                 ${inputHtml}
             `;
             container.appendChild(fieldDiv);
@@ -3971,13 +4586,13 @@ window.loadAssetDataForEdit = function() {
             }
         }
 
-        // Remove sufixos para o input numérico e preenche
-        document.getElementById('reg-ativo-capacidade-principal').value = (asset.capacidade || asset.capacidadePrincipal || "").replace(/[^\d.]/g, '');
+        // Preenche campos técnicos preservando texto digitado
+        document.getElementById('reg-ativo-capacidade-principal').value = asset.capacidade || asset.capacidadePrincipal || "";
         document.getElementById('reg-ativo-cabo-principal').value = asset.caboPrincipal || asset.caboprincipal || '';
-        document.getElementById('reg-ativo-capacidade-auxiliar').value = (asset.capacidadeAuxiliar || asset.capacidadeauxiliar || "").replace(/[^\d.]/g, '');
+        document.getElementById('reg-ativo-capacidade-auxiliar').value = asset.capacidadeAuxiliar || asset.capacidadeauxiliar || "";
         document.getElementById('reg-ativo-cabo-auxiliar').value = asset.caboAuxiliar || asset.caboauxiliar || '';
-        document.getElementById('reg-ativo-altura-elevacao').value = (asset.altura || asset.alturaElevacao || "").replace(/[^\d.]/g, '');
-        document.getElementById('reg-ativo-vao-ponte').value = (asset.vao || asset.vaoPonte || "").replace(/[^\d.]/g, '');
+        document.getElementById('reg-ativo-altura-elevacao').value = asset.altura || asset.alturaElevacao || "";
+        document.getElementById('reg-ativo-vao-ponte').value = asset.vao || asset.vaoPonte || "";
         
         document.getElementById('reg-ativo-tensao-alimentacao').value = asset.tensaoAlimentacao || asset.tensaoalimentacao || '';
         document.getElementById('reg-ativo-tensao-comando').value = asset.tensaoComando || asset.tensaocomando || '';
@@ -4012,7 +4627,7 @@ window.loadAssetDataForEdit = function() {
             tplSelect.value = targetTemplateId || '';
 
             if (targetTemplateId) {
-                window.handleAssetTemplateChange(asset.custom_fields || asset.customFields || asset);
+                window.handleAssetTemplateChange({ ...(asset.custom_fields || asset.customFields || {}), ...asset });
             } else {
                 window.handleAssetTemplateChange();
             }
@@ -4037,12 +4652,68 @@ window.saveUnifiedRegistration = async function() {
 
         if (!name) return window.showAlert('O NOME DA EMPRESA É OBRIGATÓRIO.', 'warning');
 
+        if (window.editingCompanyName) {
+            const editIdx = companies.findIndex(c => {
+                const cName = typeof c === 'string' ? c : (c?.name || "");
+                return cName.toLowerCase() === window.editingCompanyName.toLowerCase();
+            });
+            if (editIdx !== -1) {
+                const oldComp = typeof companies[editIdx] === 'string' ? { name: companies[editIdx] } : companies[editIdx];
+                const updatedComp = {
+                    ...oldComp,
+                    name,
+                    cnpj,
+                    endereco,
+                    numero,
+                    bairro,
+                    cep,
+                    cidade,
+                    estado,
+                    referencia,
+                    logo: logo || oldComp.logo || ""
+                };
+                const newComps = [...companies];
+                newComps[editIdx] = updatedComp;
+                setCompanies(newComps);
+                selectedCompany = name;
+                window.editingCompanyName = null;
+                window.showAlert('DADOS DA EMPRESA ATUALIZADOS COM SUCESSO!', 'success');
+                const modal = document.getElementById('modal-unified-registration');
+                if (modal) modal.classList.add('hidden');
+                renderAtivosView();
+                return;
+            }
+        }
+
+        let isCloudCompConflict = false;
+        if (isSupabaseConfigured) {
+            try {
+                const client = getActiveSupabase();
+                if (client) {
+                    const { data: cloudComps } = await client.from('companies').select('name, cnpj');
+                    if (Array.isArray(cloudComps)) {
+                        isCloudCompConflict = cloudComps.some(cc => {
+                            const matchName = cc.name && cc.name.trim().toLowerCase() === name.toLowerCase();
+                            const matchCnpj = cnpj && cc.cnpj && cc.cnpj.replace(/\D+/g, '') !== '' && cc.cnpj.replace(/\D+/g, '') === cnpj.replace(/\D+/g, '');
+                            return matchName || matchCnpj;
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn('CRANE PRO: Erro ao checar duplicidade de empresa na nuvem:', e);
+            }
+        }
+
         const existingComp = companies.find(c => {
             const cName = typeof c === 'string' ? c : (c?.name || "");
-            return cName.toLowerCase() === name.toLowerCase();
+            const cCnpj = typeof c === 'object' && c?.cnpj ? c.cnpj.replace(/\D+/g, '') : '';
+            const matchName = cName.toLowerCase() === name.toLowerCase();
+            const matchCnpj = cnpj && cCnpj && cCnpj === cnpj.replace(/\D+/g, '');
+            return matchName || matchCnpj;
         });
-        if (existingComp) {
-            return window.showAlert(`⚠️ A EMPRESA "${name.toUpperCase()}" JÁ ESTÁ CADASTRADA. CASO DESEJE ALTERAR SEUS DADOS, UTILIZE A OPÇÃO EDITAR.`, 'warning');
+
+        if (existingComp || isCloudCompConflict) {
+            return window.showAlert(`⚠️ A EMPRESA "${name.toUpperCase()}" (OU CNPJ INFORMADO) JÁ ESTÁ CADASTRADA. CASO DESEJE ALTERAR SEUS DADOS, UTILIZE A OPÇÃO EDITAR.`, 'warning');
         }
 
         const id = 'comp_' + (cnpj ? cnpj.replace(/\D+/g, '') : (Date.now() + '_' + name.toLowerCase().replace(/\W+/g, '_')));
@@ -4057,7 +4728,7 @@ window.saveUnifiedRegistration = async function() {
         const oldId = isEdit ? document.getElementById('reg-edit-ativo-id').value : null;
         if (isEdit && !oldId) return window.showAlert('SELECIONE O ATIVO A SER EDITADO.', 'warning');
         const empresa = isEdit ? document.getElementById('reg-edit-empresa').value : document.getElementById('reg-ativo-empresa').value;
-        const id = document.getElementById('reg-ativo-id').value.trim();
+        let id = document.getElementById('reg-ativo-id').value.trim();
         const tipo = document.getElementById('reg-ativo-tipo').value.trim();
         const local = document.getElementById('reg-ativo-local').value.trim();
         const fabricante = document.getElementById('reg-ativo-fabricante').value.trim();
@@ -4081,26 +4752,71 @@ window.saveUnifiedRegistration = async function() {
 
         if (!empresa || !id || !tipo) return window.showAlert('PREENCHA TODOS OS CAMPOS OBRIGATÓRIOS.', 'warning');
 
-        // Bloqueio rigoroso contra duplicidade de ID na criação de novo ativo
+        // Bloqueio rigoroso contra duplicidade de ID na criação de novo ativo (Local + Nuvem em Tempo Real)
         if (!isEdit) {
-            const existingAsset = allAssetsList.find(a => {
-                if (!a || !a.id) return false;
-                const parseA = parseAssetSequenceNumber(a.id);
-                const parseCurr = parseAssetSequenceNumber(id);
-                if (parseA && parseCurr && parseA === parseCurr) return true;
-                return String(a.id).trim().toUpperCase() === String(id).trim().toUpperCase();
-            });
+            let finalId = id;
+            let isCollision = false;
+            let occupyingEmpresa = '';
+            let occupyingEquip = '';
 
-            if (existingAsset) {
-                return window.showAlert(`⚠️ O ID "${id}" JÁ ESTÁ CADASTRADO PARA O EQUIPAMENTO "${(existingAsset.nome || existingAsset.tipo).toUpperCase()}" DA EMPRESA "${(existingAsset.empresa).toUpperCase()}". POR FAVOR, UTILIZE OUTRO NÚMERO DE ID.`, 'warning');
+            const checkMatch = (asset) => {
+                if (!asset || !asset.id) return false;
+                const parseA = parseAssetSequenceNumber(asset.id);
+                const parseCurr = parseAssetSequenceNumber(finalId);
+                if (parseA && parseCurr && parseA === parseCurr) return true;
+                return String(asset.id).trim().toUpperCase() === String(finalId).trim().toUpperCase();
+            };
+
+            // 1. Checagem em memória local
+            const localExisting = allAssetsList.find(checkMatch);
+            if (localExisting) {
+                isCollision = true;
+                occupyingEmpresa = localExisting.empresa || '';
+                occupyingEquip = localExisting.nome || localExisting.tipo || '';
             }
+
+            // 2. Checagem remota em tempo real no Supabase (evita colisão entre usuários simultâneos)
+            if (!isCollision && isSupabaseConfigured) {
+                try {
+                    const client = getActiveSupabase();
+                    if (client) {
+                        const { data: cloudAssets } = await client.from('all_assets').select('id, empresa, nome, tipo');
+                        if (Array.isArray(cloudAssets)) {
+                            const cloudExisting = cloudAssets.find(checkMatch);
+                            if (cloudExisting) {
+                                isCollision = true;
+                                occupyingEmpresa = cloudExisting.empresa || '';
+                                occupyingEquip = cloudExisting.nome || cloudExisting.tipo || '';
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.warn('CRANE PRO: Falha ao verificar colisão remota de ativo:', err);
+                }
+            }
+
+            if (isCollision) {
+                // Aloca automaticamente o próximo ID livre na sequência global
+                const res = await reserveNextAssetId();
+                if (res && res.id && res.id !== finalId) {
+                    const oldRequestedId = finalId;
+                    finalId = res.id;
+                    const idInputEl = document.getElementById('reg-ativo-id');
+                    if (idInputEl) idInputEl.value = finalId;
+                    console.log(`CRANE PRO: ID "${oldRequestedId}" já ocupado por "${occupyingEmpresa}". Alocado automaticamente novo ID: "${finalId}"`);
+                    window.showAlert(`O ID "${oldRequestedId}" foi registrado simultaneamente por outro usuário. O equipamento foi registrado com o ID sequencial "${finalId}".`, 'info');
+                } else {
+                    return window.showAlert(`⚠️ O ID "${id}" JÁ ESTÁ CADASTRADO PARA O EQUIPAMENTO "${occupyingEquip.toUpperCase()}" DA EMPRESA "${occupyingEmpresa.toUpperCase()}".`, 'warning');
+                }
+            }
+            id = finalId;
         }
 
-        // Formata com sufixos
-        const capacidade = capPrincipalRaw ? `${capPrincipalRaw} TON` : "";
-        const vao = vaoRaw ? `${vaoRaw} MTS` : "";
-        const altura = alturaRaw ? `${alturaRaw} MTS` : "";
-        const capacidadeAuxiliar = capAuxiliarRaw ? `${capAuxiliarRaw} TON` : "";
+        // Valores técnicos conforme digitados pelo usuário (sem sufixos automáticos)
+        const capacidade = capPrincipalRaw || "";
+        const vao = vaoRaw || "";
+        const altura = alturaRaw || "";
+        const capacidadeAuxiliar = capAuxiliarRaw || "";
 
         // Coleta campos customizados do template
         const templateSelect = document.getElementById('reg-ativo-template-select');
@@ -4117,13 +4833,37 @@ window.saveUnifiedRegistration = async function() {
         });
 
         const searchId = (isEdit && oldId) ? oldId : id;
-        const existingAsset = allAssetsList.find(a => a.id === searchId);
+        const existingAsset = allAssetsList.find(a => (isEdit && oldId ? a.id === oldId : a.id === id) && (!a.empresa || !empresa || a.empresa.toLowerCase() === empresa.toLowerCase()))
+            || allAssetsList.find(a => a.id === searchId);
         const fotoVal = window.currentAssetFotoBase64 !== null ? window.currentAssetFotoBase64 : (existingAsset?.foto || existingAsset?.photo || existingAsset?.imagemUrl || "");
+
+        // Sincroniza campos dinâmicos preenchidos no template para as propriedades base do ativo
+        let resolvedCapacidade = capPrincipalRaw || "";
+        let resolvedVao = vaoRaw || "";
+        let resolvedAltura = alturaRaw || "";
+        let resolvedCapAux = capAuxiliarRaw || "";
+
+        if (dynamicInputs.length > 0) {
+            dynamicInputs.forEach(input => {
+                const fId = input.getAttribute('data-field-id') || '';
+                const fVal = input.value.trim();
+                if (!fVal) return;
+                const normId = fId.toLowerCase();
+                const parentDiv = input.closest('div');
+                const labelText = parentDiv ? (parentDiv.querySelector('label')?.textContent || '').toLowerCase() : '';
+                const check = (term) => normId.includes(term) || labelText.includes(term);
+
+                if (check('capacidade') && !check('auxiliar')) resolvedCapacidade = fVal;
+                else if (check('capacidade') && check('auxiliar')) resolvedCapAux = fVal;
+                else if (check('vao')) resolvedVao = fVal;
+                else if (check('altura')) resolvedAltura = fVal;
+            });
+        }
 
         const baseAsset = { 
             id, empresa, nome: tipo, tipo, local, fabricante,
-            capacidade, caboPrincipal, capacidadeAuxiliar, caboAuxiliar,
-            altura, vao, tensaoAlimentacao, tensaoComando, alimentacaoEquipamento,
+            capacidade: resolvedCapacidade, caboPrincipal, capacidadeAuxiliar: resolvedCapAux, caboAuxiliar,
+            altura: resolvedAltura, vao: resolvedVao, tensaoAlimentacao, tensaoComando, alimentacaoEquipamento,
             motorElevPrincipalAlta, motorElevPrincipalBaixa, motorElevAuxiliarAlta, motorElevAuxiliarBaixa,
             motorDirecaoCarro, motorTranslacaoPonte,
             foto: fotoVal
@@ -4131,9 +4871,12 @@ window.saveUnifiedRegistration = async function() {
 
         const assetData = prepareAssetPayload(baseAsset, selectedTemplate, customFields, false);
         assetData.foto = fotoVal;
+        if (assetData.custom_fields) {
+            assetData.custom_fields.foto = fotoVal;
+        }
 
         // 1. Lista Técnica Principal
-        const existingIdx = allAssetsList.findIndex(a => a.id === searchId);
+        const existingIdx = allAssetsList.findIndex(a => (isEdit && oldId ? a.id === oldId : a.id === id) && (!a.empresa || !empresa || a.empresa.toLowerCase() === empresa.toLowerCase()));
         if (existingIdx !== -1) {
             allAssetsList[existingIdx] = assetData;
             setAllAssetsList(allAssetsList);
@@ -4143,7 +4886,7 @@ window.saveUnifiedRegistration = async function() {
 
         // 2. Sincronização com Dashboard (Gestão Operacional)
         // Atualiza tanto o array 'assets' quanto o array 'events'
-        const dashIdx = assets.findIndex(a => a.id === searchId);
+        const dashIdx = assets.findIndex(a => a.id === searchId && (!a.empresa || !empresa || a.empresa.toLowerCase() === empresa.toLowerCase()));
         if (dashIdx !== -1) {
             assets[dashIdx] = { ...assets[dashIdx], id: id, empresa, local, tipo, foto: fotoVal };
         } else {
@@ -4152,8 +4895,9 @@ window.saveUnifiedRegistration = async function() {
         
         // Sincronizar também os eventos existentes mantendo seus IDs únicos
         events.forEach((ev, idx) => {
-            const isMatch = String(ev.equipamento || ev.id || '').trim().toUpperCase() === String(searchId || '').trim().toUpperCase() ||
-                            String(ev.id || '').startsWith(`${searchId}-`);
+            const isMatch = (String(ev.equipamento || ev.id || '').trim().toUpperCase() === String(searchId || '').trim().toUpperCase() ||
+                            String(ev.id || '').startsWith(`${searchId}-`)) &&
+                            (!ev.empresa || !empresa || ev.empresa.toLowerCase() === empresa.toLowerCase());
             if (isMatch) {
                 const newId = (oldId && oldId !== id && ev.id && ev.id.startsWith(`${oldId}-`))
                     ? ev.id.replace(oldId, id)
@@ -4197,7 +4941,7 @@ window.saveUnifiedRegistration = async function() {
         }
 
         setStoredData('crane_assets', assets);
-        setStoredData('crane_events', events);
+        setStoredData('crane_events', events, false);
         
         window.showAlert(isEdit ? 'ATIVO ATUALIZADO COM SUCESSO!' : 'NOVO ATIVO CADASTRADO COM SUCESSO!', 'success');
     }
@@ -4436,7 +5180,7 @@ window.saveCompanyChange = async function() {
             if (e.empresa && e.empresa.toLowerCase() === oldName.toLowerCase()) return { ...e, empresa: newName };
             return e;
         });
-        setStoredData('crane_events', events);
+        setStoredData('crane_events', events, false);
 
         // Atualiza relatórios finalizados
         setFinalizedReports(finalizedReports.map(r => {
@@ -4897,6 +5641,7 @@ window.addResponsibleBlock = function(respId = '') {
     container.insertAdjacentHTML('beforeend', html);
     const added = container.lastElementChild;
     added?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    window.updateChecklistSendButtonState?.();
 };
 
 window.handleUserSignatureUpload = function(event) {

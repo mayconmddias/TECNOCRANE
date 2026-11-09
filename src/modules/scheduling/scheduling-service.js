@@ -159,6 +159,81 @@ export function generateScheduledEvents({
     return result;
 }
 
+/**
+ * Formata o endereço completo de uma empresa a partir dos dados de cadastro.
+ * Componentes: Rua/Logradouro, Número, Bairro, Cidade e Estado.
+ * 
+ * @param {Object} company - Objeto de cadastro da empresa
+ * @returns {string} - Endereço formatado ou mensagem padrão
+ */
+export function formatCompanyAddress(company) {
+    if (!company || typeof company !== 'object') {
+        return 'ENDEREÇO NÃO CADASTRADO';
+    }
+
+    const rua = (company.endereco || '').trim();
+    const numero = (company.numero !== undefined && company.numero !== null && String(company.numero).trim() !== '') 
+        ? String(company.numero).trim() 
+        : '';
+    const bairro = (company.bairro || '').trim();
+    const cidade = (company.cidade || '').trim();
+    const estado = (company.estado || '').trim();
+
+    const parts = [];
+
+    if (rua) {
+        parts.push(numero ? `${rua}, Nº ${numero}` : rua);
+    } else if (numero) {
+        parts.push(`Nº ${numero}`);
+    }
+
+    if (bairro) {
+        parts.push(bairro);
+    }
+
+    if (cidade && estado) {
+        parts.push(`${cidade} - ${estado}`);
+    } else if (cidade) {
+        parts.push(cidade);
+    } else if (estado) {
+        parts.push(estado);
+    }
+
+    if (parts.length === 0) {
+        return 'ENDEREÇO NÃO CADASTRADO';
+    }
+
+    return parts.join(' - ').toUpperCase();
+}
+
+/**
+ * Formata a data e o dia da semana para o card operacional de agendamento no padrão visual do sistema.
+ * Exemplo de retorno: { dateFormatted: '09-10-2026', weekday: 'Sexta' }
+ * 
+ * @param {string|Date} dateInput 
+ * @returns {{ dateFormatted: string, weekday: string }}
+ */
+export function formatDateCardDisplay(dateInput) {
+    if (!dateInput) {
+        return { dateFormatted: '--/--/----', weekday: '---' };
+    }
+    const d = typeof dateInput === 'string' ? new Date(dateInput + 'T12:00:00') : new Date(dateInput);
+    if (isNaN(d.getTime())) {
+        return { dateFormatted: '--/--/----', weekday: '---' };
+    }
+
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+    const weekday = dayNames[d.getDay()] || '';
+
+    return {
+        dateFormatted: `${day}-${month}-${year}`,
+        weekday
+    };
+}
+
 if (typeof window !== 'undefined') {
     window.calculateRecurringDate = calculateRecurringDate;
     window.buildScheduledEventId = buildScheduledEventId;
@@ -166,5 +241,7 @@ if (typeof window !== 'undefined') {
     window.filterEventsOnGroupDelete = filterEventsOnGroupDelete;
     window.getEventCloudIdsToDelete = getEventCloudIdsToDelete;
     window.generateScheduledEvents = generateScheduledEvents;
+    window.formatCompanyAddress = formatCompanyAddress;
+    window.formatDateCardDisplay = formatDateCardDisplay;
 }
 

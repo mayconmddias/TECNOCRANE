@@ -1201,38 +1201,22 @@ export function generateReportPrintHTML(report, company = {}, internalCompany = 
                     <div class="footer-meta-asset-cell">
                         <h3>ESPECIFICAÇÕES DO EQUIPAMENTO</h3>
                         <div class="meta-subgrid">
-                            ${(() => {
-                                const customFieldsMap = asset.custom_fields || asset.customFields || {};
-                                const capacVal = asset.capacidade || customFieldsMap['cf_2_cap_principal'] || customFieldsMap['cf_2_capacidade_de_peso_principal'] || customFieldsMap['capacidade'] || '---';
-                                const vaoVal = asset.vao || customFieldsMap['cf_7_vao_ponte'] || customFieldsMap['cf_7_v_o_da_ponte'] || customFieldsMap['vao'] || '---';
-
-                                return `
-                                    <div class="meta-subitem">
-                                        <strong>ID EQUIPAMENTO</strong>
-                                        <span>${report.equipamentoId || asset.id || '---'}</span>
-                                    </div>
-                                    <div class="meta-subitem">
-                                        <strong>TIPO/NOME</strong>
-                                        <span>${report.equipamentoNome || report.equipamento || asset.tipo || asset.nome || '---'}</span>
-                                    </div>
-                                    <div class="meta-subitem">
-                                        <strong>LOCALIZAÇÃO</strong>
-                                        <span>${asset.local || '---'}</span>
-                                    </div>
-                                    <div class="meta-subitem">
-                                        <strong>FABRICANTE</strong>
-                                        <span>${asset.fabricante || '---'}</span>
-                                    </div>
-                                    <div class="meta-subitem">
-                                        <strong>CAPAC. PRINCIPAL</strong>
-                                        <span>${capacVal}</span>
-                                    </div>
-                                    <div class="meta-subitem">
-                                        <strong>VÃO PONTE</strong>
-                                        <span>${vaoVal}</span>
-                                    </div>
-                                `;
-                            })()}
+                            <div class="meta-subitem">
+                                <strong>ID EQUIPAMENTO</strong>
+                                <span>${report.equipamentoId || asset.id || '---'}</span>
+                            </div>
+                            <div class="meta-subitem">
+                                <strong>TIPO/NOME</strong>
+                                <span>${report.equipamentoNome || report.equipamento || asset.tipo || asset.nome || '---'}</span>
+                            </div>
+                            <div class="meta-subitem">
+                                <strong>LOCALIZAÇÃO</strong>
+                                <span>${asset.local || '---'}</span>
+                            </div>
+                            <div class="meta-subitem">
+                                <strong>FABRICANTE</strong>
+                                <span>${asset.fabricante || '---'}</span>
+                            </div>
                         </div>
                     </div>
                 </div>

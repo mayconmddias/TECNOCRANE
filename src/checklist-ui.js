@@ -10,6 +10,7 @@ export function mountChecklistForm(container, savedData = null) {
     formRoot = container;
     bindChecklistEvents(container);
     if (savedData) applyFormData(container, savedData);
+    window.updateChecklistSendButtonState?.();
 }
 
 export function getFormRoot() {
@@ -33,6 +34,9 @@ function bindChecklistEvents(root) {
         if (target.matches('.checklist-status-ok, .checklist-status-nok')) {
             const field = target.closest('.checklist-inspectable, .checklist-inspectable-group');
             if (field) markNokState(field, target.value === 'NOK');
+        }
+        if (target.matches('.checklist-responsible-select')) {
+            window.updateChecklistSendButtonState?.();
         }
         notifyChange();
     });

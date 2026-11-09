@@ -2,6 +2,8 @@
  * Crane Pro - Módulo de Relatórios (Lógica de Domínio e Filtragem)
  */
 
+import { formatShortName } from '../../utils.js';
+
 /**
  * Normaliza o nome da empresa para comparação insensível a maiúsculas e espaços
  */
@@ -149,3 +151,100 @@ export function filterReports(reports, selectedCompany, selectedAssetId = null, 
         return numB - numA;
     });
 }
+
+/**
+ * Obtém a representação formatada estrita dos técnicos executantes da inspeção.
+ * Retorna exclusivamente os nomes de até 2 técnicos a partir das assinaturas (report.responsaveis).
+ * Se houver apenas 1, retorna "TÉCNICO 1". Se houver 2, retorna "TÉCNICO 1 / TÉCNICO 2".
+ * Não inclui outros responsáveis além dos dois técnicos principais.
+ * 
+ * @param {Object} report Objeto do relatório
+ * @param {Array} users Lista de usuários cadastrados
+ * @returns {string} Nomes formatados dos até 2 técnicos
+ */
+export function getReportTechniciansDisplay(report, users = null) {
+    if (!report) return "N/A";
+    const userPool = (users && Array.isArray(users) && users.length > 0)
+        ? users
+        : ((typeof window !== 'undefined' && window.usersList && Array.isArray(window.usersList) && window.usersList.length > 0) ? window.usersList : []);
+
+    let responsaveis = report.responsaveis;
+    if (typeof responsaveis === 'string') {
+        try {
+            responsaveis = JSON.parse(responsaveis);
+        } catch (e) {
+            responsaveis = [];
+        }
+    }
+
+    const techNames = [];
+    if (Array.isArray(responsaveis) && responsaveis.length > 0) {
+        // Pega no máximo os dois primeiros técnicos (Técnico 1 e Técnico 2)
+        const topTwo = responsaveis.filter(id => id && String(id).trim() !== '').slice(0, 2);
+        topTwo.forEach(id => {
+            const foundUser = userPool.find(u => String(u.id) === String(id) || (u.name && u.name.trim().toUpperCase() === String(id).trim().toUpperCase()));
+            if (foundUser && foundUser.name) {
+                const short = formatShortName(foundUser.name);
+                if (short && !techNames.includes(short.toUpperCase())) {
+                    techNames.push(short.toUpperCase());
+                }
+            } else if (typeof id === 'string' && isNaN(Number(id))) {
+                const short = formatShortName(id);
+                if (short && !techNames.includes(short.toUpperCase())) {
+                    techNames.push(short.toUpperCase());
+                }
+            }
+        });
+    }
+
+    if (techNames.length > 0) {
+        return techNames.join(' / ');
+    }
+
+    // Fallback para relatórios legados que possuam apenas o campo report.tecnico
+    if (report.tecnico && String(report.tecnico).trim() !== '') {
+        return formatShortName(report.tecnico).toUpperCase();
+    }
+
+    return "N/A";
+}
+
+/**
+ * Gera de forma atômica e resiliente à concorrência o próximo ID sequencial de relatório (ex: 'REL - 01', 'REL - 02')
+ * Consulta o Supabase em tempo real para obter os maiores IDs existentes entre múltiplos usuários.
+ * 
+ * @param {Array} localReports Lista local de relatórios finalizados
+ * @param {Function|null} getSupabaseClient Função para obter o cliente ativo do Supabase
+ * @returns {Promise<string>} Próximo ID no formato 'REL - XX'
+ */
+export async function getNextAvailableReportId(localReports = [], getSupabaseClient = null) {
+    let maxNum = 0;
+    const updateMax = (id) => {
+        if (!id) return;
+        const match = String(id).match(/\d+/);
+        if (match) {
+            const num = parseInt(match[0], 10);
+            if (num > maxNum) maxNum = num;
+        }
+    };
+
+    // 1. Considera relatórios locais
+    (localReports || []).forEach(r => updateMax(r?.id));
+
+    // 2. Consulta nuvem em tempo real (Supabase) para evitar conflitos de concorrência
+    try {
+        const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : null;
+        if (client) {
+            const { data, error } = await client.from('finalized_reports').select('id');
+            if (!error && Array.isArray(data)) {
+                data.forEach(r => updateMax(r?.id));
+            }
+        }
+    } catch (e) {
+        console.warn("Aviso: Falha ao consultar IDs de relatórios na nuvem, usando sequência local:", e);
+    }
+
+    const nextNum = maxNum + 1;
+    return `REL - ${String(nextNum).padStart(2, '0')}`;
+}
+

@@ -75,12 +75,12 @@ export const SYSTEM_INSPECTION_TEMPLATE = {
 
 export const SYSTEM_ASSET_FIELDS = [
     { id: 'cf_1_alimentacao', label: 'ALIMENTAÇÃO DO EQUIPAMENTO', type: 'text' },
-    { id: 'cf_2_cap_principal', label: 'CAPACIDADE DE PESO PRINCIPAL', type: 'number' },
+    { id: 'cf_2_cap_principal', label: 'CAPACIDADE PRINCIPAL', type: 'text' },
     { id: 'cf_3_cabo_principal', label: 'DIÂMETRO DO CABO DE AÇO PRINCIPAL', type: 'text' },
-    { id: 'cf_4_cap_auxiliar', label: 'CAPACIDADE DE PESO AUXILIAR', type: 'number' },
+    { id: 'cf_4_cap_auxiliar', label: 'CAPACIDADE AUXILIAR', type: 'text' },
     { id: 'cf_5_cabo_auxiliar', label: 'DIÂMETRO DO CABO DE AÇO AUXILIAR', type: 'text' },
-    { id: 'cf_6_altura_elevacao', label: 'ALTURA DE ELEVAÇÃO', type: 'number' },
-    { id: 'cf_7_vao_ponte', label: 'VÃO DA PONTE', type: 'text' },
+    { id: 'cf_6_altura_elevacao', label: 'ALTURA DE ELEVAÇÃO', type: 'text' },
+    { id: 'cf_7_vao_ponte', label: 'VÃO', type: 'text' },
     { id: 'cf_8_tensao_alim', label: 'TENSÃO DE ALIMENTAÇÃO', type: 'text' },
     { id: 'cf_9_tensao_cmd', label: 'TENSÃO DE COMANDO', type: 'text' },
     { id: 'cf_10_mot_elev_prin_alta', label: 'MOTOR ELEVAÇÃO PRINCIPAL (VEL. ALTA)', type: 'text' },
@@ -593,11 +593,33 @@ export function convertTemplateToChecklistSchema(template) {
 
 let assetTemplatesList = [];
 
+export function normalizeAssetFieldLabel(label) {
+    if (!label) return '';
+    return String(label)
+        .replace(/CAPACIDADE DE PESO PRINCIPAL/gi, 'CAPACIDADE PRINCIPAL')
+        .replace(/CAPACIDADE DE PESO AUXILIAR/gi, 'CAPACIDADE AUXILIAR')
+        .replace(/VÃO DA PONTE/gi, 'VÃO')
+        .trim();
+}
+
+function normalizeTemplateCustomFields(fields) {
+    if (!Array.isArray(fields)) return [];
+    return fields.map(f => ({
+        ...f,
+        label: normalizeAssetFieldLabel(f.label).toUpperCase()
+    }));
+}
+
 /**
  * Retorna a lista atual de modelos de ativos em memória (sempre incluindo o modelo padrão)
  */
 export function getAssetTemplates() {
-    const listWithoutSystem = assetTemplatesList.filter(t => String(t.id) !== SYSTEM_ASSET_TEMPLATE_ID);
+    const listWithoutSystem = assetTemplatesList
+        .filter(t => String(t.id) !== SYSTEM_ASSET_TEMPLATE_ID)
+        .map(t => ({
+            ...t,
+            customFields: normalizeTemplateCustomFields(t.customFields || t.custom_fields)
+        }));
     return [SYSTEM_ASSET_TEMPLATE, ...listWithoutSystem];
 }
 
@@ -605,9 +627,12 @@ export function getAssetTemplates() {
  * Retorna apenas os modelos de ativos criados por usuários (exclui o modelo padrão do sistema)
  */
 export function getUserAssetTemplates() {
-    return (assetTemplatesList || []).filter(t => 
-        String(t.id) !== SYSTEM_ASSET_TEMPLATE_ID && !t.isSystemDefault
-    );
+    return (assetTemplatesList || [])
+        .filter(t => String(t.id) !== SYSTEM_ASSET_TEMPLATE_ID && !t.isSystemDefault)
+        .map(t => ({
+            ...t,
+            customFields: normalizeTemplateCustomFields(t.customFields || t.custom_fields)
+        }));
 }
 
 /**
@@ -618,7 +643,23 @@ export function getAssetTemplateById(id) {
     if (String(id) === SYSTEM_ASSET_TEMPLATE_ID) {
         return SYSTEM_ASSET_TEMPLATE;
     }
-    return assetTemplatesList.find(t => String(t.id) === String(id)) || null;
+    let found = assetTemplatesList.find(t => String(t.id) === String(id));
+    if (!found && typeof localStorage !== 'undefined') {
+        try {
+            const raw = localStorage.getItem('crane_asset_templates');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    found = parsed.find(t => String(t.id) === String(id));
+                }
+            }
+        } catch (_) {}
+    }
+    if (!found) return null;
+    return {
+        ...found,
+        customFields: normalizeTemplateCustomFields(found.customFields || found.custom_fields)
+    };
 }
 
 export const DEFAULT_ASSET_TEMPLATES = [
@@ -643,6 +684,13 @@ export async function loadAssetTemplates() {
                 if (Array.isArray(parsed) && parsed.length > 0) loaded = parsed;
             } catch (_) {}
         }
+    }
+
+    if (Array.isArray(loaded)) {
+        loaded = loaded.map(t => ({
+            ...t,
+            customFields: normalizeTemplateCustomFields(t.customFields || t.custom_fields)
+        }));
     }
 
     // 2. Se o Supabase estiver disponível, tenta buscar da tabela crane_asset_templates
@@ -720,7 +768,7 @@ export async function saveAssetTemplate(templateData, currentUser = 'Usuário') 
 
     const customFields = (templateData.customFields || []).map((f, idx) => ({
         id: f.id || `cf_${idx + 1}_${(f.label || '').toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
-        label: (f.label || '').trim().toUpperCase(),
+        label: normalizeAssetFieldLabel(f.label || '').toUpperCase(),
         type: (f.type || 'text').toLowerCase() // 'text', 'number', 'date'
     }));
 
@@ -804,9 +852,13 @@ export async function saveAssetTemplate(templateData, currentUser = 'Usuário') 
  * Duplica um modelo de ativo existente mantendo vinculo 1:1 com o checklist correspondente limpo
  */
 export async function duplicateAssetTemplate(templateId, currentUser = 'Usuário') {
+    if (!templateId || String(templateId) === SYSTEM_ASSET_TEMPLATE_ID) {
+        throw new Error('O Formulário modelo Ativo padrão é apenas para visualização e não pode ser duplicado.');
+    }
+
     const original = getAssetTemplateById(templateId);
-    if (!original) {
-        throw new Error('Modelo de ativo original não encontrado.');
+    if (!original || original.isSystemDefault) {
+        throw new Error('O Formulário modelo Ativo padrão é apenas para visualização e não pode ser duplicado.');
     }
 
     const clonedData = {
@@ -830,10 +882,18 @@ export async function deleteAssetTemplate(templateId) {
         return false;
     }
 
+    // Garante que assetTemplatesList esteja carregado da persistência
+    if (!assetTemplatesList || assetTemplatesList.length === 0) {
+        try {
+            const raw = localStorage.getItem('crane_asset_templates');
+            if (raw) assetTemplatesList = JSON.parse(raw);
+        } catch (_) {}
+    }
+
     const assetToDelete = getAssetTemplateById(templateId);
     const assetNome = assetToDelete ? assetToDelete.nome : null;
 
-    assetTemplatesList = assetTemplatesList.filter(t => String(t.id) !== String(templateId));
+    assetTemplatesList = (assetTemplatesList || []).filter(t => String(t.id) !== String(templateId));
     await setDBValue('crane_asset_templates', assetTemplatesList);
     try {
         localStorage.setItem('crane_asset_templates', JSON.stringify(assetTemplatesList));

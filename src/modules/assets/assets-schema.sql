@@ -605,3 +605,9 @@ DROP TRIGGER IF EXISTS trg_protect_report_deletion ON public.finalized_reports;
 CREATE TRIGGER trg_protect_report_deletion
 BEFORE DELETE ON public.finalized_reports
 FOR EACH ROW EXECUTE FUNCTION public.protect_finalized_report_deletion();
+
+-- ============================================================================
+-- 4. ATUALIZAÇÃO DA TABELA users (AVATAR MULTIPLATAFORMA NATIVO)
+-- ============================================================================
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS avatar TEXT DEFAULT NULL;
+

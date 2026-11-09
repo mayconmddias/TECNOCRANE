@@ -214,5 +214,28 @@ describe('Seletor Hierárquico do Checklist Padrão', () => {
         expect(filterSchemaForCorretiva(CHECKLIST_SCHEMA, new Set())).toEqual([]);
         expect(filterSchemaForCorretiva(null, new Set(['5.1.alinhamento']))).toEqual([]);
     });
+
+    it('deve incluir CAPACIDADE PRINCIPAL e VÃO como campos de texto no catálogo de itens padrão de ativos', async () => {
+        const { DEFAULT_ASSET_FIELDS_CATALOG } = await import('./templates-ui.js');
+        expect(DEFAULT_ASSET_FIELDS_CATALOG).toBeDefined();
+
+        const capField = DEFAULT_ASSET_FIELDS_CATALOG.find(f => f.label === 'CAPACIDADE PRINCIPAL');
+        expect(capField).toBeDefined();
+        expect(capField.type).toBe('text');
+
+        const vaoField = DEFAULT_ASSET_FIELDS_CATALOG.find(f => f.label === 'VÃO');
+        expect(vaoField).toBeDefined();
+        expect(vaoField.type).toBe('text');
+
+        // Garante que campos de capacidade e elevação aceitam texto e número
+        const capAuxField = DEFAULT_ASSET_FIELDS_CATALOG.find(f => f.label === 'CAPACIDADE AUXILIAR' || f.label === 'CAPACIDADE DE PESO AUXILIAR');
+        expect(capAuxField).toBeDefined();
+        expect(capAuxField.type).toBe('text');
+
+        const altField = DEFAULT_ASSET_FIELDS_CATALOG.find(f => f.label === 'ALTURA DE ELEVAÇÃO');
+        expect(altField).toBeDefined();
+        expect(altField.type).toBe('text');
+    });
 });
+
 

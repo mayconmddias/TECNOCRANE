@@ -421,11 +421,22 @@ describe('Modelos Padrão do Sistema (Ponte Rolante Viga Dupla)', () => {
         expect(getAssetTemplateById(SYSTEM_ASSET_TEMPLATE_ID)).toBeDefined();
     });
 
-    it('deve permitir duplicar o Formulário modelo Ativo padrão gerando novo ativo com checklist vinculado limpo', async () => {
-        const duplicated = await duplicateAssetTemplate(SYSTEM_ASSET_TEMPLATE_ID, 'Engenheiro');
-        expect(duplicated.id).not.toBe(SYSTEM_ASSET_TEMPLATE_ID);
-        expect(duplicated.nome).toBe('Formulário modelo Ativo (CÓPIA)'.toUpperCase());
-        expect(duplicated.customFields.length).toBe(21);
+    it('deve bloquear qualquer duplicação do Formulário modelo Ativo padrão do sistema', async () => {
+        await expect(duplicateAssetTemplate(SYSTEM_ASSET_TEMPLATE_ID, 'Engenheiro'))
+            .rejects.toThrow('O Formulário modelo Ativo padrão é apenas para visualização e não pode ser duplicado.');
+    });
+
+    it('deve permitir duplicar modelos de ativo de usuários gerando novo ativo com checklist vinculado limpo', async () => {
+        const saved = await saveAssetTemplate({
+            nome: 'TALHA ESPECIAL',
+            tipoEquipamento: 'TALHA',
+            customFields: [{ id: 'cf_test', label: 'CAPACIDADE PRINCIPAL', type: 'text' }]
+        }, 'Engenheiro');
+
+        const duplicated = await duplicateAssetTemplate(saved.id, 'Engenheiro');
+        expect(duplicated.id).not.toBe(saved.id);
+        expect(duplicated.nome).toBe('TALHA ESPECIAL (CÓPIA)');
+        expect(duplicated.customFields.length).toBe(1);
 
         // O checklist vinculado deve existir e vir limpo para o usuário customizar
         const linkedChecklist = getTemplates().find(t => t.nome === duplicated.nome);

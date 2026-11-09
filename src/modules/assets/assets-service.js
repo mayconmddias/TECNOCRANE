@@ -3,6 +3,7 @@
  */
 
 import { supabase, isSupabaseConfigured, getTenantCode } from '../../supabase.js';
+import { SYSTEM_ASSET_TEMPLATE } from '../templates/templates-module.js';
 
 export const ASSET_ID_REGEX = /^(?:#?EQP[- ]?)([0-9]+)$/i;
 
@@ -38,9 +39,10 @@ export function formatAssetId(num) {
  */
 export async function reserveNextAssetId(tenantCode = '001', localDbInstance = null) {
     const tenant = tenantCode || getTenantCode() || '001';
+    let maxFound = 0;
 
-    // 1. Tentativa Online via RPC Server-Side Atômica
-    if (isSupabaseConfigured && supabase) {
+    // 1. Tentativa Online via RPC Server-Side Atômica se configurada
+    if (isSupabaseConfigured && supabase && typeof supabase.rpc === 'function') {
         try {
             const { data, error } = await supabase.rpc('reserve_next_asset_number', {
                 p_tenant_code: tenant
@@ -56,12 +58,27 @@ export async function reserveNextAssetId(tenantCode = '001', localDbInstance = n
                 }
             }
         } catch (e) {
-            console.warn('CRANE ASSETS: Erro de conexão com Supabase, usando alocação offline:', e);
+            console.warn('CRANE ASSETS: Erro ao executar RPC de reserva:', e);
         }
     }
 
-    // 2. Fallback Determinístico (Varre estritamente a lista de ativos técnicos cadastrados)
-    let maxFound = 0;
+    // 2. Consulta em tempo real de todos os IDs gravados na nuvem (Supabase all_assets)
+    if (isSupabaseConfigured && supabase && typeof supabase.from === 'function') {
+        try {
+            const { data: cloudAssets, error: fetchErr } = await supabase.from('all_assets').select('id');
+            if (!fetchErr && Array.isArray(cloudAssets)) {
+                for (const item of cloudAssets) {
+                    if (!item || !item.id) continue;
+                    const num = parseAssetSequenceNumber(String(item.id));
+                    if (num && num > maxFound) maxFound = num;
+                }
+            }
+        } catch (e) {
+            console.warn('CRANE ASSETS: Falha ao consultar IDs remotos na tabela all_assets:', e);
+        }
+    }
+
+    // 3. Varredura completa de todas as fontes locais em memória e armazenamento local
     try {
         const candidates = [];
         
@@ -73,9 +90,16 @@ export async function reserveNextAssetId(tenantCode = '001', localDbInstance = n
             candidates.push(...globalThis.allAssetsList);
         }
 
-        // Do localStorage de ativos
+        // Do localStorage de ativos (todas as chaves históricas e com prefixo de tenant)
         if (typeof localStorage !== 'undefined') {
-            ['crane_all_assets', '001_crane_all_assets'].forEach(k => {
+            [
+                'crane_all_assets',
+                '001_crane_all_assets',
+                'crane_001_all_assets',
+                `crane_${tenant}_all_assets`,
+                'crane_assets',
+                '001_crane_assets'
+            ].forEach(k => {
                 const raw = localStorage.getItem(k);
                 if (raw) {
                     try {
@@ -226,4 +250,149 @@ export function reconcileLocalEntities(oldProvisionalId, newOfficialId, storesOb
     }
 
     return storesObj;
+}
+
+/**
+ * Extrai e normaliza todos os campos técnicos de um ativo para exibição no card
+ * Suporta modelos dinâmicos (ex: Talha com 10 campos) e padrão de sistema (21 campos)
+ * @param {object} asset 
+ * @param {object} [options]
+ * @returns {Array<{ id: string, fullLabel: string, displayLabel: string, value: string }>}
+ */
+export function getAssetTechnicalFields(asset, options = {}) {
+    if (!asset) return [];
+    const customFields = asset.custom_fields || asset.customFields || {};
+    let template = options.template || null;
+
+    // 1. Busca modelo registrado pelo template_id do ativo ou schema_snapshot
+    const tplId = asset.template_id || asset.templateId;
+    if (!template && tplId) {
+        if (typeof options.getTemplateById === 'function') {
+            template = options.getTemplateById(tplId);
+        } else if (typeof globalThis.getAssetTemplateById === 'function') {
+            template = globalThis.getAssetTemplateById(tplId);
+        }
+    }
+
+    if (!template && asset.schema_snapshot && Array.isArray(asset.schema_snapshot.customFields)) {
+        template = asset.schema_snapshot;
+    }
+
+    // 2. Para dados de teste onde template_id possa estar desatualizado ou apontando para a semente de exemplo,
+    // identifica e vincula o modelo de ativo correspondente ao tipo do equipamento
+    const availableTemplates = options.templates || (typeof globalThis.getAssetTemplates === 'function' ? globalThis.getAssetTemplates() : []);
+    const assetTipoNorm = (asset.tipo || asset.nome || '').trim().toLowerCase();
+
+    if (Array.isArray(availableTemplates) && availableTemplates.length > 0) {
+        const isDefaultSeed = template && (template.isSystemDefault || String(template.id) === 'asstpl_default_ponte_viga_dupla' || String(template.id) === 'sys_asset_tpl_default');
+        const isNotPonteRolante = assetTipoNorm && !assetTipoNorm.includes('ponte');
+
+        if (!template || (isDefaultSeed && isNotPonteRolante)) {
+            const matchedTpl = availableTemplates.find(t => {
+                const tNome = (t.nome || '').trim().toLowerCase();
+                const tTipo = (t.tipoEquipamento || '').trim().toLowerCase();
+                return (tNome && tNome === assetTipoNorm) || (tTipo && tTipo === assetTipoNorm) || 
+                       (assetTipoNorm && tNome && (assetTipoNorm.includes(tNome) || tNome.includes(assetTipoNorm)));
+            });
+            if (matchedTpl) {
+                template = matchedTpl;
+            }
+        }
+    }
+
+    // 3. Fallback seguro caso não tenha modelo (utiliza semente de referência da Ponte Rolante)
+    if (!template) {
+        if (typeof options.getTemplateById === 'function') {
+            template = options.getTemplateById('asstpl_default_ponte_viga_dupla');
+        } else if (typeof globalThis.getAssetTemplateById === 'function') {
+            template = globalThis.getAssetTemplateById('asstpl_default_ponte_viga_dupla');
+        }
+        if (!template) {
+            template = SYSTEM_ASSET_TEMPLATE;
+        }
+    }
+
+    const fieldsList = [];
+
+    // Mapeamento de abreviações amigáveis para rótulos muito longos caberem perfeitamente no card desktop
+    const formatDisplayLabel = (lbl) => {
+        const upper = (lbl || '').trim().toUpperCase();
+        if (upper === 'ALIMENTAÇÃO DO EQUIPAMENTO') return 'ALIMENTAÇÃO';
+        if (upper === 'CAPACIDADE PRINCIPAL' || upper === 'CAPACIDADE DE PESO PRINCIPAL' || upper === 'CAPACIDADE DE PESO') return 'CAPAC. PRINCIPAL';
+        if (upper === 'DIÂMETRO DO CABO DE AÇO PRINCIPAL') return 'CABO PRINCIPAL';
+        if (upper === 'CAPACIDADE AUXILIAR' || upper === 'CAPACIDADE DE PESO AUXILIAR') return 'CAPAC. AUXILIAR';
+        if (upper === 'DIÂMETRO DO CABO DE AÇO AUXILIAR') return 'CABO AUXILIAR';
+        if (upper === 'ALTURA DE ELEVAÇÃO') return 'ALT. ELEVAÇÃO';
+        if (upper === 'VÃO' || upper === 'VÃO DA PONTE') return 'VÃO';
+        if (upper === 'TENSÃO DE ALIMENTAÇÃO') return 'TENSÃO ALIM.';
+        if (upper === 'TENSÃO DE COMANDO') return 'TENSÃO CMD.';
+        if (upper === 'MOTOR ELEVAÇÃO PRINCIPAL (VEL. ALTA)' || upper.includes('ELEV') && upper.includes('PRINC') && upper.includes('ALTA')) return 'MOT. ELEV. PRINC. (V. ALTA)';
+        if (upper === 'MOTOR ELEVAÇÃO PRINCIPAL (VEL. BAIXA)' || upper.includes('ELEV') && upper.includes('PRINC') && upper.includes('BAIXA')) return 'MOT. ELEV. PRINC. (V. BAIXA)';
+        if (upper === 'MOTOR ELEVAÇÃO AUXILIAR (VEL. ALTA)' || upper.includes('ELEV') && upper.includes('AUX') && upper.includes('ALTA')) return 'MOT. ELEV. AUX. (V. ALTA)';
+        if (upper === 'MOTOR ELEVAÇÃO AUXILIAR (VEL. BAIXA)' || upper.includes('ELEV') && upper.includes('AUX') && upper.includes('BAIXA')) return 'MOT. ELEV. AUX. (V. BAIXA)';
+        if (upper === 'MOTOR DIREÇÃO CARRO') return 'MOT. DIR. CARRO';
+        if (upper === 'MOTOR TRANSLAÇÃO PONTE') return 'MOT. TRANS. PONTE';
+        if (upper === 'LOCAL / SETOR') return 'LOCAL / SETOR';
+        if (upper === 'NÚMERO DE SÉRIE') return 'Nº SÉRIE';
+        if (upper === 'ANO DE FABRICAÇÃO') return 'ANO FABR.';
+        if (upper === 'CLASSIFICAÇÃO / GRUPO DE TRABALHO') return 'GRUPO TRAB.';
+        if (upper === 'VELOCIDADE DE ELEVAÇÃO') return 'VEL. ELEVAÇÃO';
+        return upper;
+    };
+
+    const tplFields = template ? (template.customFields || template.custom_fields) : null;
+    if (Array.isArray(tplFields) && tplFields.length > 0) {
+        tplFields.forEach(f => {
+            const fId = f.id;
+            const fullLabel = (f.label || fId).toUpperCase();
+            const displayLabel = formatDisplayLabel(fullLabel);
+            let val = customFields[fId];
+            if (val === undefined || val === null || val === '') val = customFields[f.label];
+            if (val === undefined || val === null || val === '') val = asset[fId];
+
+            if (val === undefined || val === null || val === '') {
+                const normId = String(fId).toLowerCase();
+                const normLabel = String(f.label || '').toLowerCase();
+                const check = (term) => normId.includes(term) || normLabel.includes(term);
+
+                if (check('capacidade') && !check('auxiliar')) val = asset.capacidade || asset.capacidadePrincipal;
+                else if (check('capacidade') && check('auxiliar')) val = asset.capacidadeAuxiliar || asset.capacidadeauxiliar;
+                else if (check('vao')) val = asset.vao || asset.vaoPonte;
+                else if (check('altura')) val = asset.altura || asset.alturaElevacao;
+                else if (check('fabricante')) val = asset.fabricante;
+                else if (check('local') || check('setor')) val = asset.local;
+                else if (check('cabo') && !check('auxiliar')) val = asset.caboPrincipal || asset.caboprincipal;
+                else if (check('cabo') && check('auxiliar')) val = asset.caboAuxiliar || asset.caboauxiliar;
+                else if (check('tensao') && check('alim')) val = asset.tensaoAlimentacao || asset.tensaoalimentacao;
+                else if (check('tensao') && check('cmd')) val = asset.tensaoComando || asset.tensaocomando;
+                else if (check('alimentacao')) val = asset.alimentacaoEquipamento || asset.alimentacaoequipamento;
+                else if (check('elev') && check('prin') && check('alta')) val = asset.motorElevPrincipalAlta || asset.motorelevprincipalalta;
+                else if (check('elev') && check('prin') && check('baixa')) val = asset.motorElevPrincipalBaixa || asset.motorelevprincipalbaixa;
+                else if (check('elev') && check('aux') && check('alta')) val = asset.motorElevAuxiliarAlta || asset.motorelevauxiliaralta;
+                else if (check('elev') && check('aux') && check('baixa')) val = asset.motorElevAuxiliarBaixa || asset.motorelevauxiliarbaixa;
+                else if (check('dir_carro') || check('direcaocarro') || check('carro')) val = asset.motorDirecaoCarro || asset.motordirecaocarro;
+                else if (check('trans_ponte') || check('translacaoponte') || check('translacao')) val = asset.motorTranslacaoPonte || asset.motortranslacaoponte;
+                else if (check('serie')) val = asset.numeroSerie || asset.num_serie || asset.numero_serie;
+                else if (check('ano')) val = asset.anoFabricacao || asset.ano_fab || asset.ano_fabricacao;
+                else if (check('grupo') || check('trab')) val = asset.grupoTrabalho || asset.grupo_trab;
+                else if (check('vel_elev') || check('velocidade')) val = asset.velocidadeElevacao || asset.vel_elevacao;
+            }
+
+            fieldsList.push({
+                id: fId,
+                fullLabel,
+                displayLabel,
+                value: (val !== undefined && val !== null && String(val).trim() !== '') ? String(val).trim().toUpperCase() : 'N/A'
+            });
+        });
+    }
+
+    if (options.excludeHeaderFields) {
+        return fieldsList.filter(f => {
+            const norm = (f.displayLabel || f.fullLabel || '').toUpperCase();
+            return !norm.includes('FABRICANTE') && !norm.includes('LOCAL') && !norm.includes('SETOR');
+        });
+    }
+
+    return fieldsList;
 }

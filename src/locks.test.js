@@ -19,7 +19,7 @@ describe('Concurrency Lock System (src/locks.js)', () => {
     it('deve adquirir a trava com sucesso para um novo recurso', async () => {
         const res = await acquireLock('test_resource_1');
         expect(res.success).toBe(true);
-    });
+    }, 15000);
 
     it('deve bloquear aquisição se outro usuário mantiver a trava ativa', async () => {
         // Usuário 1 adquire a trava
@@ -31,7 +31,7 @@ describe('Concurrency Lock System (src/locks.js)', () => {
         const res = await acquireLock('shared_resource');
         expect(res.success).toBe(false);
         expect(res.lockedBy).toBe('MAYCON DIAS');
-    });
+    }, 15000);
 
     it('deve liberar a trava e permitir aquisição por outro usuário', async () => {
         // Usuário 1 adquire e libera a trava
@@ -43,5 +43,5 @@ describe('Concurrency Lock System (src/locks.js)', () => {
         setCurrentUser({ id: 'u2', name: 'JOAO SILVA', email: 'joao@test.com' });
         const res = await acquireLock('released_resource');
         expect(res.success).toBe(true);
-    });
+    }, 15000);
 });

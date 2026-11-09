@@ -95,89 +95,158 @@ export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedC
 
     filtered.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    // Renderiza Mobile Cards (Fundo Branco de Alto Contraste - Padrão Mockup)
-    if (mobileContainer) {
-        if (filtered.length === 0) {
-            mobileContainer.innerHTML = `
-                <div class="bg-white rounded-xl p-6 text-center border border-[#e6d5a8] shadow-sm text-[#4a4a4a]">
-                    <span class="material-symbols-outlined text-3xl text-[#fa520f] mb-2">event_busy</span>
-                    <p class="font-bold text-[13px] text-[#1f1f1f] uppercase">Nenhuma programação encontrada</p>
-                    <p class="text-[12px] text-[#6a6a6a] mt-1">Nenhum ativo agendado para o mês selecionado.</p>
-                </div>
-            `;
-        } else {
-            filtered.forEach(event => {
-                const eventDate = new Date(event.date + 'T00:00:00');
-                eventDate.setHours(0, 0, 0, 0);
-                const diffDays = Math.round((eventDate - today) / (1000 * 60 * 60 * 24));
+    const desktopContainer = document.getElementById('assets-desktop-container');
+    if (desktopContainer) desktopContainer.innerHTML = '';
 
-                let dateColor = "text-[#15803d] font-bold";
-                if (event.status === 'NAO_REALIZADO' || diffDays <= 0) {
-                    dateColor = "text-red-600 font-bold";
-                } else if (diffDays >= 1 && diffDays <= 7) {
-                    dateColor = "text-[#d97706] font-bold";
-                }
+    // Renderiza Mobile e Desktop Cards (Fundo Branco de Alto Contraste - Padrão Mockup)
+    const renderCardElement = (event) => {
+        const eventDate = new Date(event.date + 'T00:00:00');
+        eventDate.setHours(0, 0, 0, 0);
+        const diffDays = Math.round((eventDate - today) / (1000 * 60 * 60 * 24));
 
-                const displayDate = formatDateToDisplay(eventDate);
-                const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-                const dayOfWeek = dayNames[eventDate.getDay()];
+        let dateColor = "text-[#15803d] font-bold";
+        if (event.status === 'NAO_REALIZADO' || diffDays <= 0) {
+            dateColor = "text-red-600 font-bold";
+        } else if (diffDays >= 1 && diffDays <= 7) {
+            dateColor = "text-[#d97706] font-bold";
+        }
 
-                const eqId = String(event.equipamento || event.id || '').trim().toUpperCase();
-                const matchingAsset = (allAssetsList || []).find(a => String(a.id || '').trim().toUpperCase() === eqId) ||
-                                      (typeof assets !== 'undefined' && Array.isArray(assets) ? assets.find(a => String(a.id || '').trim().toUpperCase() === eqId) : null);
-                const displayNome = (matchingAsset?.nome || matchingAsset?.tipo || event.tipo || 'Equipamento').toUpperCase();
-                const displayTipo = (event.tipo && event.tipo !== 'N/A')
-                    ? event.tipo
-                    : (matchingAsset ? (matchingAsset.tipo || matchingAsset.nome || 'N/A') : 'N/A');
-                const displayLocal = (event.local && event.local !== 'SETOR OPERACIONAL')
-                    ? event.local
-                    : (matchingAsset ? (matchingAsset.local || 'SETOR OPERACIONAL') : 'SETOR OPERACIONAL');
+        const dateObj = new Date(event.date + 'T12:00:00');
+        let formattedDateHyphen = '--/--/----';
+        let weekdayName = '---';
+        if (!isNaN(dateObj.getTime())) {
+            const dDay = String(dateObj.getDate()).padStart(2, '0');
+            const dMonth = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const dYear = dateObj.getFullYear();
+            formattedDateHyphen = `${dDay}-${dMonth}-${dYear}`;
+            const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+            weekdayName = dayNames[dateObj.getDay()] || '';
+        }
 
-                let displayTecnicos = event.tecnico || '';
-                if (!displayTecnicos && Array.isArray(event.tecnicos) && event.tecnicos.length > 0) {
-                    displayTecnicos = event.tecnicos.join(' | ');
-                }
-                displayTecnicos = displayTecnicos ? displayTecnicos.toUpperCase() : '---';
+        // Identificação limpa e normalizada do ID do equipamento (ex: '#EQP-0001', 'EQP-0001', ou id composto '#EQP-0001-2026-10-09')
+        let rawEquip = String(event.equipamento || '').trim();
+        if (!rawEquip && event.id) {
+            rawEquip = event.id.includes('-20') ? event.id.substring(0, event.id.lastIndexOf('-20')) : event.id;
+        }
+        const cleanNormId = rawEquip.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const evEmpresa = (event.empresa || '').trim().toLowerCase();
 
-                const fotoUrl = event.foto || matchingAsset?.foto || matchingAsset?.photo || matchingAsset?.imagemUrl || getDefaultAssetImage(displayTipo);
+        // Obtém a lista atualizada de ativos do sistema priorizando o estado global carregado
+        const candidateAssets = (typeof window !== 'undefined' && Array.isArray(window.allAssetsList) && window.allAssetsList.length > 0)
+            ? window.allAssetsList
+            : (Array.isArray(allAssetsList) && allAssetsList.length > 0 ? allAssetsList : (typeof assets !== 'undefined' && Array.isArray(assets) ? assets : []));
 
-                const card = document.createElement('div');
-                card.className = "bg-white text-[#1f1f1f] rounded-xl p-3 shadow-sm border border-[#e6d5a8] flex gap-3.5 items-center cursor-pointer hover:shadow-md transition-all active:scale-[0.99]";
-                card.onclick = (e) => {
-                    if (typeof window.openEditModal === 'function') {
-                        window.openEditModal(e, event.id);
-                    }
-                };
+        // Busca resiliente do ativo cadastrado:
+        // 1ª tentativa: Correspondência por ID normalizado + Empresa
+        let matchingAsset = candidateAssets.find(a => {
+            if (!a || !a.id) return false;
+            const aNormId = String(a.id).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+            const idMatch = (aNormId && cleanNormId && aNormId === cleanNormId) ||
+                            (String(a.id).trim().toUpperCase() === rawEquip.toUpperCase()) ||
+                            (event.id && String(a.id).trim().toUpperCase() === String(event.id).trim().toUpperCase());
+            if (!idMatch) return false;
+            if (!evEmpresa || !a.empresa) return true;
+            return a.empresa.trim().toLowerCase() === evEmpresa;
+        });
 
-                const imgBox = document.createElement('div');
-                imgBox.className = "w-20 h-20 rounded-lg bg-[#fff8e0] flex-shrink-0 overflow-hidden flex items-center justify-center border border-[#e6d5a8]";
-                
-                const imgEl = document.createElement('img');
-                imgEl.alt = displayNome;
-                imgEl.className = "w-full h-full object-cover";
-                imgEl.src = fotoUrl;
-                imgEl.onerror = function() {
-                    this.onerror = null;
-                    this.src = getDefaultAssetImage(displayTipo);
-                };
-                imgBox.appendChild(imgEl);
-
-                const infoBox = document.createElement('div');
-                infoBox.className = "flex-1 min-w-0 text-left text-[12px] leading-tight space-y-1 text-[#4a4a4a]";
-                infoBox.innerHTML = `
-                    <div class="font-bold text-[#1f1f1f] text-[13px] truncate leading-tight">Ativo: ${displayNome}</div>
-                    <div class="text-[#1f1f1f] font-semibold flex items-center gap-1.5">ID: <span class="font-mono font-bold text-[#fa520f] bg-[#fff0c2] px-1.5 py-0.5 rounded border border-[#e6d5a8] text-[11px] leading-none">${event.equipamento || event.id}</span></div>
-                    <div class="text-[#4a4a4a] truncate font-medium">Empresa: <span class="text-[#1f1f1f] font-bold">${event.empresa || '---'}</span></div>
-                    <div class="text-[#4a4a4a] truncate font-medium">Local: <span class="text-[#1f1f1f] font-semibold">${displayLocal}</span></div>
-                    <div class="text-[#4a4a4a] truncate font-medium">Técnicos: <span class="text-[#1f1f1f] font-semibold">${displayTecnicos}</span></div>
-                    <div class="${dateColor} pt-0.5 text-[11px] font-semibold">Data: ${displayDate} - ${dayOfWeek}</div>
-                `;
-
-                card.appendChild(imgBox);
-                card.appendChild(infoBox);
-                mobileContainer.appendChild(card);
+        // 2ª tentativa: Se não encontrou por empresa exata, busca pelo ID único
+        if (!matchingAsset && cleanNormId) {
+            matchingAsset = candidateAssets.find(a => {
+                if (!a || !a.id) return false;
+                const aNormId = String(a.id).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+                return (aNormId && aNormId === cleanNormId) || String(a.id).trim().toUpperCase() === rawEquip.toUpperCase();
             });
         }
+
+        const displayNome = (matchingAsset?.nome || matchingAsset?.tipo || event.tipo || 'Equipamento').toUpperCase();
+        const displayTipo = (event.tipo && event.tipo !== 'N/A')
+            ? event.tipo
+            : (matchingAsset ? (matchingAsset.tipo || matchingAsset.nome || 'N/A') : 'N/A');
+        const displayLocal = (event.local && event.local !== 'SETOR OPERACIONAL')
+            ? event.local
+            : (matchingAsset ? (matchingAsset.local || 'SETOR OPERACIONAL') : 'SETOR OPERACIONAL');
+
+        let displayTecnicos = event.tecnico || '';
+        if (!displayTecnicos && Array.isArray(event.tecnicos) && event.tecnicos.length > 0) {
+            displayTecnicos = event.tecnicos.join(' | ');
+        }
+        displayTecnicos = displayTecnicos ? displayTecnicos.toUpperCase() : '---';
+
+        let fotoUrl = '';
+        if (matchingAsset) {
+            fotoUrl = (typeof matchingAsset.foto === 'string' && matchingAsset.foto.trim() !== '' ? matchingAsset.foto : '') ||
+                      (matchingAsset.custom_fields && typeof matchingAsset.custom_fields.foto === 'string' && matchingAsset.custom_fields.foto.trim() !== '' ? matchingAsset.custom_fields.foto : '') ||
+                      (typeof matchingAsset.photo === 'string' && matchingAsset.photo.trim() !== '' ? matchingAsset.photo : '') ||
+                      (typeof matchingAsset.imagemUrl === 'string' && matchingAsset.imagemUrl.trim() !== '' ? matchingAsset.imagemUrl : '');
+        }
+        if (!fotoUrl && event && typeof event.foto === 'string' && event.foto.trim() !== '') {
+            fotoUrl = event.foto;
+        }
+        if (!fotoUrl) {
+            fotoUrl = getDefaultAssetImage(displayTipo);
+        }
+
+        const card = document.createElement('div');
+        card.className = "bg-white text-[#1f1f1f] rounded-2xl p-3.5 shadow-sm border border-[#e6d5a8] flex gap-3.5 items-center justify-between cursor-pointer hover:shadow-md transition-all active:scale-[0.99] min-h-[148px] h-[148px]";
+        card.onclick = (e) => {
+            if (typeof window.openEditModal === 'function') {
+                window.openEditModal(e, event.id);
+            }
+        };
+
+        const imgBox = document.createElement('div');
+        imgBox.className = "w-20 h-20 rounded-xl bg-[#fff8e0] flex-shrink-0 overflow-hidden flex items-center justify-center border border-[#e6d5a8]";
+        
+        const imgEl = document.createElement('img');
+        imgEl.alt = displayNome;
+        imgEl.className = "w-full h-full object-cover";
+        imgEl.src = fotoUrl;
+        imgEl.onerror = function() {
+            this.onerror = null;
+            this.src = getDefaultAssetImage(displayTipo);
+        };
+        imgBox.appendChild(imgEl);
+
+        const infoBox = document.createElement('div');
+        infoBox.className = "flex-1 min-w-0 text-left text-[12px] leading-tight space-y-1 text-[#4a4a4a]";
+        infoBox.innerHTML = `
+            <div class="font-bold text-[#1f1f1f] text-[13px] truncate leading-tight">Ativo: ${displayNome}</div>
+            <div class="text-[#1f1f1f] font-semibold flex items-center gap-1.5">ID: <span class="font-mono font-bold text-[#fa520f] bg-[#fff0c2] px-1.5 py-0.5 rounded border border-[#e6d5a8] text-[11px] leading-none">${event.equipamento || event.id}</span></div>
+            <div class="text-[#4a4a4a] truncate font-medium">Empresa: <span class="text-[#1f1f1f] font-bold">${event.empresa || '---'}</span></div>
+            <div class="text-[#4a4a4a] truncate font-medium">Local: <span class="text-[#1f1f1f] font-semibold">${displayLocal}</span></div>
+            <div class="text-[#4a4a4a] truncate font-medium">Técnicos: <span class="text-[#1f1f1f] font-semibold">${displayTecnicos}</span></div>
+        `;
+
+        const dateBadge = document.createElement('div');
+        dateBadge.className = "bg-[#fff8e0] border border-[#e6d5a8] rounded-2xl px-3.5 py-3 flex flex-col items-center justify-center shrink-0 min-w-[95px] md:min-w-[105px] shadow-sm select-none text-center";
+        dateBadge.innerHTML = `
+            <span class="text-[11px] font-bold text-zinc-700 leading-none">Data</span>
+            <span class="text-[12px] md:text-[13px] font-black text-zinc-900 leading-tight my-1 tracking-tight">${formattedDateHyphen}</span>
+            <span class="text-[11px] font-bold text-zinc-700 leading-none">${weekdayName}</span>
+        `;
+
+        card.appendChild(imgBox);
+        card.appendChild(infoBox);
+        card.appendChild(dateBadge);
+        return card;
+    };
+
+    const emptyHTML = `
+        <div class="col-span-full bg-white rounded-xl p-6 text-center border border-[#e6d5a8] shadow-sm text-[#4a4a4a]">
+            <span class="material-symbols-outlined text-3xl text-[#fa520f] mb-2">event_busy</span>
+            <p class="font-bold text-[13px] text-[#1f1f1f] uppercase">Nenhuma programação encontrada</p>
+            <p class="text-[12px] text-[#6a6a6a] mt-1">Nenhum ativo agendado para o mês selecionado.</p>
+        </div>
+    `;
+
+    if (filtered.length === 0) {
+        if (mobileContainer) mobileContainer.innerHTML = emptyHTML;
+        if (desktopContainer) desktopContainer.innerHTML = emptyHTML;
+    } else {
+        filtered.forEach(event => {
+            if (mobileContainer) mobileContainer.appendChild(renderCardElement(event));
+            if (desktopContainer) desktopContainer.appendChild(renderCardElement(event));
+        });
     }
 
     // Renderiza Desktop Table

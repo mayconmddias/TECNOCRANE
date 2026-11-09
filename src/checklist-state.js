@@ -430,6 +430,12 @@ export function validateBeforeSend(rootEl) {
     return errors;
 }
 
+export function validateTechniciansSelected(rootEl) {
+    if (!rootEl) return false;
+    const selects = Array.from(rootEl.querySelectorAll('.checklist-responsible-select'));
+    return selects.some(sel => sel && sel.value && sel.value.trim() !== '');
+}
+
 export function markNokState(el, isNok, requireObs = false) {
     if (isNok) {
         el.classList.add('border-l-4', 'border-error', 'bg-error/5');

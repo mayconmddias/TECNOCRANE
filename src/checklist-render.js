@@ -539,7 +539,7 @@ export function renderResponsibleCard(respId = '', providedUsersList = null, car
                 <span class="material-symbols-outlined text-[#EAB308] text-[24px]">badge</span>
                 <span class="text-body-md font-bold uppercase text-on-surface">RESPONSÁVEL / ASSINATURA DIGITAL</span>
             </div>
-            <button type="button" onclick="this.closest('.checklist-responsible-card').remove()" class="text-error hover:opacity-80 p-1 flex items-center justify-center cursor-pointer transition-all shrink-0" title="Remover Responsável">
+            <button type="button" onclick="this.closest('.checklist-responsible-card').remove(); window.updateChecklistSendButtonState?.();" class="text-error hover:opacity-80 p-1 flex items-center justify-center cursor-pointer transition-all shrink-0" title="Remover Responsável">
                 <span class="material-symbols-outlined text-[22px]">delete</span>
             </button>
         </div>

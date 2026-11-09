@@ -50,7 +50,20 @@ export function escapeHTML(str) {
 }
 
 /**
- * Gera um hash SHA-256 para senhas usando a Web Crypto API nativa do navegador
+ * Gera um hash SHA-256 puro (sem salt) para compatibilidade retroativa
+ */
+export async function rawHashPassword(password) {
+    if (!password) return '';
+    if (/^[a-f0-9]{64}$/i.test(password)) return password;
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Gera um hash SHA-256 para senhas usando a Web Crypto API nativa do navegador (com salt padronizado)
  */
 export async function hashPassword(password) {
     if (!password) return '';
@@ -62,6 +75,38 @@ export async function hashPassword(password) {
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Valida a senha contra o hash armazenado suportando:
+ * 1. Hash padrão com salt (_crane_salt_v1)
+ * 2. Hash SHA-256 puro legado (ex: senhas salvas antes da introdução do salt)
+ * 3. Texto plano direto (fallback de compatibilidade legado)
+ */
+export async function verifyPassword(password, storedPassword) {
+    if (!password || !storedPassword) return { valid: false, needsUpgrade: false };
+    const cleanPass = String(password).trim();
+    const cleanStored = String(storedPassword).trim();
+
+    // 1. Plaintext fallback (legado de testes ou registros crus)
+    if (cleanStored === cleanPass) {
+        const salted = await hashPassword(cleanPass);
+        return { valid: true, needsUpgrade: true, upgradedHash: salted };
+    }
+
+    // 2. Hash salgado padrão atual
+    const saltedHash = await hashPassword(cleanPass);
+    if (cleanStored === saltedHash) {
+        return { valid: true, needsUpgrade: false, upgradedHash: saltedHash };
+    }
+
+    // 3. Hash SHA-256 legado puro (sem salt, como senhas criadas no padrão anterior)
+    const rawHash = await rawHashPassword(cleanPass);
+    if (cleanStored === rawHash) {
+        return { valid: true, needsUpgrade: true, upgradedHash: saltedHash };
+    }
+
+    return { valid: false, needsUpgrade: false };
 }
 
 /**

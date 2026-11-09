@@ -1,7 +1,8 @@
 import { usersList, setStoredData, loadAllDataFromDB, syncAllFromSupabase } from './data.js';
 import { isSupabaseConfigured, dbFetchAll } from './supabase.js';
-import { hashPassword } from './utils.js';
+import { hashPassword, verifyPassword } from './utils.js';
 import { setCurrentUser, releaseAllLocks, getStoredLoggedUser } from './locks.js';
+import { validateCredentials, updateUserPasswordInCloud, fetchUsersFromCloud } from './modules/auth/auth-service.js';
 
 console.log('CRANE PRO: Módulo de Autenticação Carregado.');
 
@@ -167,13 +168,19 @@ window.handleSaveNewPassword = async function() {
     const userIdx = usersList.findIndex(u => (u.email || '').trim().toLowerCase() === email);
     if (userIdx === -1) return window.showAlert('USUÁRIO NÃO ENCONTRADO.', 'warning');
     
-    const currentHash = await hashPassword(current);
-    const userPassHash = await hashPassword(usersList[userIdx].password);
+    const verifyResult = await verifyPassword(current, usersList[userIdx].password);
+    if (!verifyResult.valid) return window.showAlert('SENHA ATUAL INCORRETA.', 'warning');
 
-    if (userPassHash !== currentHash) return window.showAlert('SENHA ATUAL INCORRETA.', 'warning');
-
-    usersList[userIdx].password = await hashPassword(newPass);
+    const newHashed = await hashPassword(newPass);
+    usersList[userIdx].password = newHashed;
     setStoredData('crane_users', usersList);
+    
+    // Atualiza imediatamente a senha no Supabase
+    if (usersList[userIdx].id) {
+        updateUserPasswordInCloud(usersList[userIdx].id, newPass).catch(err => {
+            console.warn('AUTH: Aviso ao salvar nova senha no Supabase:', err);
+        });
+    }
     
     window.showAlert('SENHA ALTERADA COM SUCESSO!', 'success', () => {
         if (currentInput) currentInput.value = '';
@@ -192,82 +199,62 @@ window.handleLogin = async function() {
     if (!email || !pass) return window.showAlert('E-MAIL OU SENHA INCORRETO.', 'warning');
 
     // 1. Busca os dados dos usuários diretamente no Supabase em tempo real (ou do IndexedDB/memória local)
-    let candidateUsers = [];
-    if (isSupabaseConfigured) {
-        try {
-            const dbUsers = await dbFetchAll('users');
-            if (dbUsers && Array.isArray(dbUsers) && dbUsers.length > 0) {
-                candidateUsers = dbUsers;
-            }
-        } catch (e) {
-            console.error('SUPABASE: Erro ao buscar usuários no login:', e);
-        }
-    }
+    let candidateUsers = await fetchUsersFromCloud();
 
-    if (candidateUsers.length === 0) {
+    if (!candidateUsers || candidateUsers.length === 0) {
         if (!usersList || usersList.length === 0) {
             await loadAllDataFromDB();
         }
         candidateUsers = usersList || [];
     }
 
-    const passHash = await hashPassword(pass);
-
-    let foundUser = null;
-    for (const u of candidateUsers) {
-        const uEmail = (u.email || '').trim().toLowerCase();
-        if (uEmail === email) {
-            const uPass = u.password || '';
-            const uHash = await hashPassword(uPass);
-            if (uPass === pass || uPass === passHash || uHash === passHash) {
-                foundUser = {
-                    id: u.id,
-                    name: (u.name || '').toUpperCase(),
-                    cargo: (u.cargo || u.role || 'TÉCNICO').toUpperCase(),
-                    email: uEmail,
-                    password: passHash,
-                    permission: u.permission || 'TECNICO',
-                    signature: u.signature || u.assinatura || '',
-                    tenant_code: u.tenant_code || '001'
-                };
-                break;
-            }
-        }
+    const authResult = await validateCredentials(candidateUsers, email, pass);
+    if (!authResult || !authResult.user) {
+        return window.showAlert('E-MAIL OU SENHA INCORRETO.', 'warning');
     }
 
-    if (foundUser) {
-        // Registra o usuário logado no sistema de travas
-        setCurrentUser(foundUser);
+    const foundUser = authResult.user;
 
-        // Atualiza/Sincroniza o usuário encontrado no array local usersList
-        const idx = usersList.findIndex(u => String(u.id) === String(foundUser.id));
-        if (idx !== -1) {
-            usersList[idx] = foundUser;
-        } else {
-            usersList.push(foundUser);
-        }
-        setStoredData('crane_users', usersList);
+    // Se o usuário possuía hash legado (ex: senhas anteriores ao salt), migra de forma transparente
+    if (authResult.needsUpgrade && authResult.upgradedHash) {
+        updateUserPasswordInCloud(foundUser.id, pass).catch(err => {
+            console.warn('AUTH: Aviso ao atualizar hash de segurança no Supabase:', err);
+        });
+    }
 
-        document.getElementById('login-view').classList.add('hidden');
-        document.getElementById('main-app').classList.remove('hidden');
-        
-        // Atualiza perfil na sidebar e no mobile
-        const roleEl = document.getElementById('user-role-display');
-        const nameEl = document.getElementById('user-name-display');
-        if (roleEl) roleEl.innerText = foundUser.permission || 'TECNICO';
-        if (nameEl) nameEl.innerText = foundUser.name || 'USUÁRIO';
-        if (typeof window.updateMobileUserInfo === 'function') {
-            window.updateMobileUserInfo(foundUser);
-        }
-        
-        // Dispara sincronização e renderização completa dos dados atualizados da nuvem
-        if (typeof window.reloadAppDataAndUI === 'function') {
-            await window.reloadAppDataAndUI();
-        } else if (typeof window.renderAssets === 'function') {
-            window.renderAssets();
-        }
+    // Registra o usuário logado no sistema de travas
+    setCurrentUser(foundUser);
+
+    // Atualiza/Sincroniza o usuário encontrado no array local usersList
+    const idx = usersList.findIndex(u => String(u.id) === String(foundUser.id));
+    if (idx !== -1) {
+        usersList[idx] = foundUser;
     } else {
-        window.showAlert('E-MAIL OU SENHA INCORRETO.', 'warning');
+        usersList.push(foundUser);
+    }
+    setStoredData('crane_users', usersList);
+
+    document.getElementById('login-view').classList.add('hidden');
+    document.getElementById('main-app').classList.remove('hidden');
+    
+    // Atualiza perfil na sidebar e no mobile
+    const roleEl = document.getElementById('user-role-display');
+    const nameEl = document.getElementById('user-name-display');
+    if (roleEl) roleEl.innerText = foundUser.permission || 'TECNICO';
+    if (nameEl) nameEl.innerText = foundUser.name || 'USUÁRIO';
+    if (typeof window.updateMobileUserInfo === 'function') {
+        window.updateMobileUserInfo(foundUser);
+    }
+    
+    // Dispara sincronização e renderização completa dos dados atualizados da nuvem
+    if (typeof window.switchView === 'function') {
+        window.switchView('dashboard');
+    } else if (typeof window.renderAssets === 'function') {
+        window.renderAssets();
+    }
+
+    if (typeof window.reloadAppDataAndUI === 'function') {
+        await window.reloadAppDataAndUI();
     }
 };
 

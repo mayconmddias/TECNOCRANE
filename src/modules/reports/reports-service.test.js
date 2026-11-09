@@ -4,7 +4,9 @@ import {
     normalizeAssetId,
     formatReportNumber,
     matchesReportAsset,
-    filterReports
+    filterReports,
+    getReportTechniciansDisplay,
+    getNextAvailableReportId
 } from './reports-service.js';
 
 describe('Reports Service - Normalizações e Identificadores', () => {
@@ -118,3 +120,84 @@ describe('Reports Service - Filtragem e Ordenação', () => {
         expect(resultSas[0].id).toBe('REL-04');
     });
 });
+
+describe('Reports Service - Exibição Estrita de Técnicos (Dual-Technician Display)', () => {
+    const mockUsers = [
+        { id: '101', name: 'MAYCON DE DIAS', cargo: 'ENGENHEIRO' },
+        { id: '102', name: 'CARLOS SILVA', cargo: 'TÉCNICO MECÂNICO' },
+        { id: '103', name: 'JOAO SOUZA', cargo: 'SUPERVISOR' }
+    ];
+
+    it('deve exibir estritamente os dois técnicos quando dois forem informados', () => {
+        const report = {
+            id: 'REL-01',
+            responsaveis: ['101', '102'],
+            tecnico: 'USUARIO LOGADO'
+        };
+        const display = getReportTechniciansDisplay(report, mockUsers);
+        expect(display).toBe('MAYCON DE DIAS / CARLOS SILVA');
+    });
+
+    it('deve exibir apenas um técnico quando somente um responsável for selecionado', () => {
+        const report = {
+            id: 'REL-01',
+            responsaveis: ['101'],
+            tecnico: 'USUARIO LOGADO'
+        };
+        const display = getReportTechniciansDisplay(report, mockUsers);
+        expect(display).toBe('MAYCON DE DIAS');
+    });
+
+    it('deve limitar a exibição a exatamente 2 técnicos mesmo se houver mais de 2 responsáveis', () => {
+        const report = {
+            id: 'REL-01',
+            responsaveis: ['101', '102', '103'],
+            tecnico: 'USUARIO LOGADO'
+        };
+        const display = getReportTechniciansDisplay(report, mockUsers);
+        expect(display).toBe('MAYCON DE DIAS / CARLOS SILVA');
+    });
+
+    it('deve fazer fallback para report.tecnico se responsaveis for vazio', () => {
+        const report = {
+            id: 'REL-01',
+            responsaveis: [],
+            tecnico: 'MAYCON DIAS'
+        };
+        const display = getReportTechniciansDisplay(report, mockUsers);
+        expect(display).toBe('MAYCON DIAS');
+    });
+
+    it('deve retornar N/A se nenhum técnico ou responsável estiver presente', () => {
+        expect(getReportTechniciansDisplay(null)).toBe('N/A');
+        expect(getReportTechniciansDisplay({ responsaveis: [] })).toBe('N/A');
+    });
+});
+
+describe('Reports Service - Geração de Próximo ID Sequencial com Concorrência', () => {
+    it('deve gerar REL - 01 quando não houver relatórios locais nem na nuvem', async () => {
+        const nextId = await getNextAvailableReportId([], () => null);
+        expect(nextId).toBe('REL - 01');
+    });
+
+    it('deve respeitar a sequência local quando a nuvem não tiver relatórios', async () => {
+        const local = [{ id: 'REL - 01' }, { id: 'REL - 04' }];
+        const nextId = await getNextAvailableReportId(local, () => null);
+        expect(nextId).toBe('REL - 05');
+    });
+
+    it('deve consultar a nuvem e evitar colisão se outro usuário já gerou ID maior', async () => {
+        const local = [{ id: 'REL - 01' }];
+        const mockSupabase = {
+            from: () => ({
+                select: async () => ({
+                    data: [{ id: 'REL - 01' }, { id: 'REL - 02' }, { id: 'REL - 05' }],
+                    error: null
+                })
+            })
+        };
+        const nextId = await getNextAvailableReportId(local, () => mockSupabase);
+        expect(nextId).toBe('REL - 06');
+    });
+});
+

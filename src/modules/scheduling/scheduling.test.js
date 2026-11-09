@@ -5,7 +5,9 @@ import {
     filterEventsOnSingleDelete,
     filterEventsOnGroupDelete,
     getEventCloudIdsToDelete,
-    generateScheduledEvents
+    generateScheduledEvents,
+    formatCompanyAddress,
+    formatDateCardDisplay
 } from './scheduling-service.js';
 
 describe('Módulo de Agendamento - calculateRecurringDate', () => {
@@ -135,6 +137,56 @@ describe('Módulo de Agendamento - Gestão e Exclusão de Eventos', () => {
         expect(generated[0].groupId).not.toBeNull();
         expect(generated[0].groupId).toBe(generated[1].groupId);
         expect(generated[1].id).toBe('#EQP-0005-2026-11-13'); // Domingo ajustado para Sexta
+    });
+});
+
+describe('Módulo de Agendamento - formatCompanyAddress', () => {
+    it('deve formatar endereço completo com rua, número, bairro, cidade e estado', () => {
+        const company = {
+            name: 'DJT FOCUS',
+            endereco: 'Rua das Indústrias',
+            numero: '450',
+            bairro: 'Distrito Industrial',
+            cidade: 'Campinas',
+            estado: 'SP'
+        };
+        expect(formatCompanyAddress(company)).toBe('RUA DAS INDÚSTRIAS, Nº 450 - DISTRITO INDUSTRIAL - CAMPINAS - SP');
+    });
+
+    it('deve formatar sem número quando não preenchido', () => {
+        const company = {
+            name: 'DJT FOCUS',
+            endereco: 'Avenida Brasil',
+            bairro: 'Centro',
+            cidade: 'São Paulo',
+            estado: 'SP'
+        };
+        expect(formatCompanyAddress(company)).toBe('AVENIDA BRASIL - CENTRO - SÃO PAULO - SP');
+    });
+
+    it('deve retornar mensagem padrão quando objeto for nulo ou vazio', () => {
+        expect(formatCompanyAddress(null)).toBe('ENDEREÇO NÃO CADASTRADO');
+        expect(formatCompanyAddress({})).toBe('ENDEREÇO NÃO CADASTRADO');
+    });
+});
+
+describe('Módulo de Agendamento - formatDateCardDisplay', () => {
+    it('deve formatar data no formato DD-MM-YYYY e dia da semana por extenso', () => {
+        // 09-10-2026 é uma Sexta-feira
+        const res = formatDateCardDisplay('2026-10-09');
+        expect(res.dateFormatted).toBe('09-10-2026');
+        expect(res.weekday).toBe('Sexta');
+    });
+
+    it('deve formatar Segunda-feira 12-10-2026', () => {
+        const res = formatDateCardDisplay('2026-10-12');
+        expect(res.dateFormatted).toBe('12-10-2026');
+        expect(res.weekday).toBe('Segunda');
+    });
+
+    it('deve tratar entradas inválidas de forma segura', () => {
+        expect(formatDateCardDisplay('')).toEqual({ dateFormatted: '--/--/----', weekday: '---' });
+        expect(formatDateCardDisplay('invalido')).toEqual({ dateFormatted: '--/--/----', weekday: '---' });
     });
 });
 
