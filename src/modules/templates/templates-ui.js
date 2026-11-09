@@ -157,7 +157,7 @@ function drawTemplatesUI(container) {
                     <div class="text-[12px] text-[#6a6a6a] space-y-0.5 pt-1 border-t border-[#e6d5a8]/60">
                         <div><span class="font-semibold text-[#1f1f1f]">Criado:</span> ${dataCriacao}</div>
                         <div><span class="font-semibold text-[#1f1f1f]">Responsável:</span> ${escapeHTML(criador)}</div>
-                        <div><span class="font-semibold text-[#1f1f1f]">Itens:</span> ${itemsCount} seção(ões)</div>
+                        <div><span class="font-semibold text-[#1f1f1f]">Itens:</span> ${itemsCount}</div>
                     </div>
                 </div>
                 <div class="pt-3 border-t border-[#e6d5a8]/60 flex items-center justify-between gap-2">
@@ -914,6 +914,20 @@ if (typeof window !== 'undefined') {
             }
 
             try {
+                // Sincroniza cada nome de item diretamente dos inputs da tela e higieniza numerações residuais
+                if (Array.isArray(draftTemplate.items)) {
+                    draftTemplate.items.forEach((it, idx) => {
+                        const itemInput = document.getElementById(`item-nome-${idx}`);
+                        if (itemInput) {
+                            const val = itemInput.value.trim();
+                            if (val) it.nome = val;
+                        }
+                        if (it.nome) {
+                            it.nome = it.nome.replace(/^(\d+(?:\.\d+)*\s*[-–.]*\s*)/, '').trim() || it.nome;
+                        }
+                    });
+                }
+
                 const authorName = getActiveUserName();
                 await saveTemplate(draftTemplate, authorName);
                 closeTemplateModal();
@@ -1800,7 +1814,8 @@ export function importSelectedDefaultItems(evt) {
 
         // 1. Processa subseções / tabelas especiais marcadas
         selectedSubCheckboxes.forEach(subChk => {
-            const subTitle = subChk.dataset.subTitle || 'SUBSEÇÃO PADRÃO';
+            const rawSubTitle = subChk.dataset.subTitle || 'SUBSEÇÃO PADRÃO';
+            const subTitle = rawSubTitle.replace(/^(\d+(?:\.\d+)*\s*[-–.]*\s*)/, '').trim() || rawSubTitle;
             const isSpecial = subChk.dataset.isSpecial === 'true';
             const specialType = subChk.dataset.specialType || null;
 
@@ -1835,7 +1850,8 @@ export function importSelectedDefaultItems(evt) {
         selectedFieldCheckboxes.forEach(fieldChk => {
             const subId = fieldChk.dataset.subId;
             if (!subIdsAlreadyProcessed.has(subId)) {
-                const subTitle = fieldChk.dataset.subTitle || 'VERIFICAÇÕES SELECIONADAS';
+                const rawSubTitle = fieldChk.dataset.subTitle || 'VERIFICAÇÕES SELECIONADAS';
+                const subTitle = rawSubTitle.replace(/^(\d+(?:\.\d+)*\s*[-–.]*\s*)/, '').trim() || rawSubTitle;
                 const specialType = fieldChk.dataset.specialType || null;
                 if (!standaloneFieldsMap.has(subTitle)) {
                     standaloneFieldsMap.set(subTitle, { specialType, labels: [] });

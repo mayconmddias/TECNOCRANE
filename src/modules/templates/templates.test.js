@@ -19,6 +19,7 @@ import {
     saveTemplate,
     getTemplates,
     getTemplateById,
+    getTemplateByName,
     duplicateTemplate,
     deleteTemplate,
     convertTemplateToChecklistSchema,
@@ -510,6 +511,49 @@ describe('Modelos Padrão do Sistema (Ponte Rolante Viga Dupla)', () => {
             }, 'MAYCON DIAS');
 
             expect(assetTemplate.createdBy).toBe('MAYCON DIAS');
+        });
+
+        it('deve buscar modelo por nome case-insensitive via getTemplateByName', async () => {
+            const uniqueName = `MODELO NOME BUSCA ${Date.now()}`;
+            await saveTemplate({
+                nome: uniqueName,
+                items: [{ id: 'i1', nome: 'SEÇÃO 1', checklists: [{ id: 'c1', descricao: 'ITEM 1' }] }]
+            }, 'TESTER');
+
+            const found = getTemplateByName(uniqueName.toLowerCase());
+            expect(found).toBeDefined();
+            expect(found.nome).toBe(uniqueName);
+        });
+
+        it('deve converter dinamicamente qualquer quantidade de seções adicionadas ao modelo (ex: 4 e 7 itens)', () => {
+            const template4 = {
+                id: 'tpl_4',
+                nome: 'TALHA 4 ITENS',
+                items: [
+                    { id: 'i1', nome: 'Alimentação', checklists: [{ id: 'c1', descricao: 'Cabo' }] },
+                    { id: 'i2', nome: 'Controle', checklists: [{ id: 'c2', descricao: 'Botoeira' }] },
+                    { id: 'i3', nome: 'Painel', checklists: [{ id: 'c3', descricao: 'Bornes' }] },
+                    { id: 'i4', nome: 'Motores', checklists: [{ id: 'c4', descricao: 'Rolamento' }] }
+                ]
+            };
+            const schema4 = convertTemplateToChecklistSchema(template4);
+            expect(schema4.length).toBe(4);
+
+            const template7 = {
+                id: 'tpl_7',
+                nome: 'TALHA 7 ITENS',
+                items: [
+                    ...template4.items,
+                    { id: 'i5', nome: 'Testes Operacionais', checklists: [{ id: 'c5', descricao: 'Teste Geral' }] },
+                    { id: 'i6', nome: 'Recomendações Primordiais', checklists: [{ id: 'c6', descricao: 'Geral' }] },
+                    { id: 'i7', nome: 'Normas Regulamentadoras', checklists: [{ id: 'c7', descricao: 'NR-11' }] }
+                ]
+            };
+            const schema7 = convertTemplateToChecklistSchema(template7);
+            expect(schema7.length).toBe(7);
+            expect(schema7[4].title).toContain('Testes Operacionais');
+            expect(schema7[5].title).toContain('Recomendações Primordiais');
+            expect(schema7[6].title).toContain('Normas Regulamentadoras');
         });
     });
 });

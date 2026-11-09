@@ -10,7 +10,7 @@ import { CHECKLIST_SCHEMA } from './checklist-schema.js';
 import { showPrintLoadingOverlay, hidePrintLoadingOverlay, collectAllReportImageUrls, preloadImageUrls, printReportPDF, getChecklistPrintHTML } from './modules/reports/reports-pdf.js';
 import { filterReports, formatReportNumber, normalizeComp as normCompReports, normalizeAssetId as normAssetReports, getReportTechniciansDisplay, getNextAvailableReportId } from './modules/reports/reports-service.js';
 import { renderTemplatesView, populateAssetTemplateDropdown, openCorretivaItemsPicker, autoResizeTextarea } from './modules/templates/templates-ui.js';
-import { getTemplates, getTemplateById, convertTemplateToChecklistSchema, loadTemplates, getAssetTemplates, getAssetTemplateById, loadAssetTemplates, SYSTEM_INSPECTION_TEMPLATE_ID } from './modules/templates/templates-module.js';
+import { getTemplates, getTemplateById, getTemplateByName, convertTemplateToChecklistSchema, loadTemplates, getAssetTemplates, getAssetTemplateById, loadAssetTemplates, SYSTEM_INSPECTION_TEMPLATE_ID } from './modules/templates/templates-module.js';
 import { reserveNextAssetId, prepareAssetPayload, parseAssetSequenceNumber, getAssetTechnicalFields } from './modules/assets/assets-service.js';
 import { generateNextOrderId, saveDraftOrder, deleteDraftOrder, saveFastLocalDraft, getFastLocalDraft, clearFastLocalDraft } from './modules/orders/orders-service.js';
 import { initNativeFeatures } from './native.js';
@@ -842,6 +842,66 @@ let targetSectionIdForChecklistModal = null;
 let isSavingOrSendingChecklist = false;
 let currentChecklistLockKey = null;
 
+/**
+ * Reconcilia dinamicamente o documento em edição com a versão viva mais recente
+ * do Modelo de Formulário cadastrado no sistema (Supabase/IndexedDB).
+ * Permite que qualquer quantidade de novas seções/itens adicionados ao modelo apareçam
+ * imediatamente para preenchimento, preservando 100% das respostas já salvas anteriormente.
+ */
+function resolveAndReconcileTemplateForInspection(doc, context) {
+    if (!doc) return;
+
+    const candId = doc.templateId || context?.templateId || doc.responses?.__meta?.templateId;
+    const candName = doc.templateName || context?.templateName || doc.responses?.__meta?.templateName;
+
+    let liveTemplate = null;
+
+    // 1. Busca por templateId
+    if (candId && candId !== 'DEFAULT') {
+        liveTemplate = getTemplateById(candId);
+    }
+
+    // 2. Busca por templateName
+    if (!liveTemplate && candName) {
+        liveTemplate = getTemplateByName(candName);
+    }
+
+    // 3. Busca por Ativo vinculado
+    const equipId = doc.equipamentoId || doc.equipamento || context?.equipamentoId;
+    if (!liveTemplate && equipId && Array.isArray(allAssetsList)) {
+        const asset = allAssetsList.find(a => a && (String(a.id).trim() === String(equipId).trim()));
+        if (asset) {
+            const assetTplId = asset.template_id || asset.templateId || asset.inspection_template_id;
+            if (assetTplId) {
+                liveTemplate = getTemplateById(assetTplId);
+            }
+            if (!liveTemplate) {
+                const assetTplName = asset.template_name || asset.templateName || asset.tipo;
+                if (assetTplName) {
+                    liveTemplate = getTemplateByName(assetTplName);
+                }
+            }
+        }
+    }
+
+    if (liveTemplate) {
+        const liveSchema = convertTemplateToChecklistSchema(liveTemplate);
+        if (Array.isArray(liveSchema) && liveSchema.length > 0) {
+            doc.schema = liveSchema;
+            doc.schema_snapshot = liveSchema;
+            doc.templateId = liveTemplate.id;
+            doc.templateName = liveTemplate.nome;
+
+            if (context) {
+                context.schema = liveSchema;
+                context.schema_snapshot = liveSchema;
+                context.templateId = liveTemplate.id;
+                context.templateName = liveTemplate.nome;
+            }
+        }
+    }
+}
+
 async function openChecklistForm(context, savedDoc = null) {
     currentChecklistContext = context;
     editingOrderId = savedDoc?.id || null;
@@ -887,6 +947,11 @@ async function openChecklistForm(context, savedDoc = null) {
             if (fastDraft.responsaveis && Array.isArray(fastDraft.responsaveis)) doc.responsaveis = fastDraft.responsaveis;
         }
     }
+
+    // Reconciliação Dinâmica Universal: se o documento ou contexto possui um modelo vinculado,
+    // sincroniza a estrutura do formulário com a versão viva mais recente do modelo,
+    // adicionando dinamicamente novas seções/itens mantendo 100% das respostas intactas.
+    resolveAndReconcileTemplateForInspection(doc, context);
 
     currentChecklistContext = {
         ...context,
@@ -1456,6 +1521,8 @@ window.openChecklistModal = async function(id = null) {
     }
     if (order) {
         const resolvedSchema = order.schema_snapshot || order.schema || null;
+        const tplId = order.templateId || order.responses?.__meta?.templateId || null;
+        const tplName = order.templateName || order.responses?.__meta?.templateName || null;
         openChecklistForm({
             tipo: order.type || 'PREVENTIVA',
             empresa: order.empresa || '',
@@ -1464,8 +1531,8 @@ window.openChecklistModal = async function(id = null) {
             assetInfo: order.assetInfo || '',
             schema: resolvedSchema,
             schema_snapshot: resolvedSchema,
-            templateId: order.templateId || null,
-            templateName: order.templateName || null
+            templateId: tplId,
+            templateName: tplName
         }, order);
         return;
     }
@@ -1482,6 +1549,8 @@ window.openChecklistModal = async function(id = null) {
     }
     if (report) {
         const resolvedSchema = report.schema_snapshot || report.schema || null;
+        const tplId = report.templateId || report.responses?.__meta?.templateId || null;
+        const tplName = report.templateName || report.responses?.__meta?.templateName || null;
         openChecklistForm({
             tipo: report.type || 'PREVENTIVA',
             empresa: report.empresa || '',
@@ -1490,8 +1559,8 @@ window.openChecklistModal = async function(id = null) {
             assetInfo: report.assetInfo || '',
             schema: resolvedSchema,
             schema_snapshot: resolvedSchema,
-            templateId: report.templateId || null,
-            templateName: report.templateName || null
+            templateId: tplId,
+            templateName: tplName
         }, report);
     }
 };
@@ -3200,6 +3269,8 @@ async function editReport(id) {
         }
     }
     if (report) {
+        const tplId = report.templateId || report.responses?.__meta?.templateId || null;
+        const tplName = report.templateName || report.responses?.__meta?.templateName || null;
         openChecklistForm({
             tipo: report.type,
             empresa: report.empresa,
@@ -3207,8 +3278,8 @@ async function editReport(id) {
             equipamentoNome: report.equipamentoNome || report.equipamento,
             assetInfo: report.assetInfo,
             schema: report.schema,
-            templateId: report.templateId,
-            templateName: report.templateName
+            templateId: tplId,
+            templateName: tplName
         }, report);
     }
 }

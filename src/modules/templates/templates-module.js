@@ -136,7 +136,36 @@ export function getTemplateById(id) {
     if (String(id) === SYSTEM_INSPECTION_TEMPLATE_ID) {
         return SYSTEM_INSPECTION_TEMPLATE;
     }
-    return templatesList.find(t => String(t.id) === String(id)) || null;
+    let found = templatesList.find(t => String(t.id) === String(id));
+    if (!found && typeof localStorage !== 'undefined') {
+        try {
+            const raw = localStorage.getItem('crane_templates');
+            if (raw) {
+                const list = JSON.parse(raw);
+                if (Array.isArray(list)) found = list.find(t => String(t.id) === String(id));
+            }
+        } catch (_) {}
+    }
+    return found || null;
+}
+
+/**
+ * Busca um modelo por Nome (case-insensitive)
+ */
+export function getTemplateByName(name) {
+    if (!name) return null;
+    const clean = String(name).trim().toUpperCase();
+    let found = templatesList.find(t => t.nome && t.nome.trim().toUpperCase() === clean);
+    if (!found && typeof localStorage !== 'undefined') {
+        try {
+            const raw = localStorage.getItem('crane_templates');
+            if (raw) {
+                const list = JSON.parse(raw);
+                if (Array.isArray(list)) found = list.find(t => t.nome && t.nome.trim().toUpperCase() === clean);
+            }
+        } catch (_) {}
+    }
+    return found || null;
 }
 
 /**
