@@ -287,5 +287,57 @@ export async function deleteStorageFilesByPrefix(bucketName, folderPath, prefix,
     }
 }
 
+/**
+ * Remove cirurgicamente todos os arquivos contidos em uma pasta do Supabase Storage.
+ * No Supabase Storage, ao remover os arquivos de um caminho, a pasta virtual é eliminada.
+ */
+export async function deleteStorageFolder(bucketName, folderPath) {
+    const client = getActiveSupabase();
+    if (!client || !folderPath) return false;
+    try {
+        const cleanFolder = folderPath.trim().replace(/^\/+|\/+$/g, '');
+        if (!cleanFolder) return false;
+
+        const { data: list, error } = await client.storage.from(bucketName).list(cleanFolder, {
+            limit: 1000,
+            offset: 0,
+            sortBy: { column: 'name', order: 'asc' }
+        });
+
+        if (error) {
+            console.warn(`Supabase Storage: erro ao listar pasta ${bucketName}/${cleanFolder}:`, error);
+            return false;
+        }
+
+        if (!Array.isArray(list) || list.length === 0) {
+            return true;
+        }
+
+        const filesToDelete = [];
+        for (const item of list) {
+            if (!item || !item.name) continue;
+            if (item.id === null) {
+                // Se for um subdiretório interno, limpa recursivamente
+                await deleteStorageFolder(bucketName, `${cleanFolder}/${item.name}`);
+            } else {
+                filesToDelete.push(`${cleanFolder}/${item.name}`);
+            }
+        }
+
+        if (filesToDelete.length > 0) {
+            const { error: removeErr } = await client.storage.from(bucketName).remove(filesToDelete);
+            if (removeErr) {
+                console.warn(`Supabase Storage: falha ao remover arquivos de ${cleanFolder}:`, removeErr);
+                return false;
+            }
+        }
+        return true;
+    } catch (e) {
+        console.warn(`Erro em deleteStorageFolder (${bucketName}/${folderPath}):`, e);
+        return false;
+    }
+}
+
+
 
 

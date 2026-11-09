@@ -1,7 +1,8 @@
 // Crane Pro - Data Layer
 
-import { isSupabaseConfigured, getActiveSupabase, dbFetchAll, dbUpsert, dbDelete, uploadBase64ToStorage, deleteStorageFile, deleteStorageFilesByPrefix, getTenantCode } from './supabase.js';
+import { isSupabaseConfigured, getActiveSupabase, dbFetchAll, dbUpsert, dbDelete, uploadBase64ToStorage, deleteStorageFile, deleteStorageFilesByPrefix, deleteStorageFolder, getTenantCode } from './supabase.js';
 import { hashPassword } from './utils.js';
+import { releaseLock, purgeExpiredLocks } from './locks.js';
 
 export let isInitialLoad = true;
 
@@ -577,6 +578,15 @@ export async function deleteCompanyFromCloud(companyName) {
                 }
             }
         }
+        // Remove travas de edição vinculadas a esta empresa em active_locks
+        try {
+            await releaseLock(`company:${companyName}`);
+            await dbDelete('active_locks', 'resource_key', `company:${companyName}`);
+            if (companyName.trim() !== target) {
+                await releaseLock(`company:${target}`);
+                await dbDelete('active_locks', 'resource_key', `company:${target}`);
+            }
+        } catch (_) {}
     } catch (e) {
         console.warn(`Aviso ao excluir empresa ${companyName} do Supabase:`, e);
     }
@@ -700,6 +710,12 @@ export async function deleteAssetFromCloud(assetId) {
         setStoredData('crane_events', eventsList, false);
     }
 
+    // Remove travas de edição vinculadas a este ativo
+    try {
+        await releaseLock(`asset:${assetId}`);
+        await dbDelete('active_locks', 'resource_key', `asset:${assetId}`);
+    } catch (_) {}
+
     return dbDelete('all_assets', 'id', assetId);
 }
 
@@ -741,12 +757,32 @@ export async function deleteEventFromCloud(eventId) {
 }
 
 export async function deleteOrderFromCloud(orderId) {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !orderId) return;
+    try {
+        const cleanId = String(orderId).trim();
+        // Remove cirurgicamente apenas a subpasta específica da ordem no Storage
+        await deleteStorageFolder('crane-app-media', `reports/${cleanId}`);
+        // Libera qualquer trava existente para esta ordem
+        await releaseLock(`order:${cleanId}`);
+        await dbDelete('active_locks', 'resource_key', `order:${cleanId}`);
+    } catch (e) {
+        console.warn(`Erro ao excluir mídias e travas da ordem ${orderId} no Supabase:`, e);
+    }
     return dbDelete('open_orders', 'id', orderId);
 }
 
 export async function deleteReportFromCloud(reportId) {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !reportId) return;
+    try {
+        const cleanId = String(reportId).trim();
+        // Remove cirurgicamente apenas a subpasta específica do relatório no Storage
+        await deleteStorageFolder('crane-app-media', `reports/${cleanId}`);
+        // Libera qualquer trava existente para este relatório
+        await releaseLock(`report:${cleanId}`);
+        await dbDelete('active_locks', 'resource_key', `report:${cleanId}`);
+    } catch (e) {
+        console.warn(`Erro ao excluir mídias e travas do laudo ${reportId} no Supabase:`, e);
+    }
     return dbDelete('finalized_reports', 'id', reportId);
 }
 
@@ -757,6 +793,9 @@ export async function syncAllFromSupabase() {
     if (!isSupabaseConfigured) return;
     try {
         console.log('SUPABASE: Carregando dados da nuvem...');
+
+        // Limpeza preventiva permanente de travas expiradas/órfãs em background
+        purgeExpiredLocks().catch(() => {});
 
         // 1. Companies
         let dbCompanies = await dbFetchAll('companies');

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { acquireLock, releaseLock, getCurrentUser, setCurrentUser, releaseAllLocks } from './locks.js';
+import { acquireLock, releaseLock, getCurrentUser, setCurrentUser, releaseAllLocks, purgeExpiredLocks } from './locks.js';
 
 describe('Concurrency Lock System (src/locks.js)', () => {
     beforeEach(() => {
@@ -43,5 +43,9 @@ describe('Concurrency Lock System (src/locks.js)', () => {
         setCurrentUser({ id: 'u2', name: 'JOAO SILVA', email: 'joao@test.com' });
         const res = await acquireLock('released_resource');
         expect(res.success).toBe(true);
+    }, 15000);
+
+    it('deve exportar purgeExpiredLocks e executar sem falhas', async () => {
+        await expect(purgeExpiredLocks()).resolves.not.toThrow();
     }, 15000);
 });

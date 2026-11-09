@@ -60,6 +60,10 @@ export function setCurrentUser(user) {
  */
 export async function acquireLock(resourceKey) {
     if (!resourceKey) return { success: true };
+
+    // Auto-limpeza contínua (garbage collector) de travas que expiraram
+    purgeExpiredLocks().catch(() => {});
+
     const user = getCurrentUser();
     const userEmail = (user.email || user.name || 'user').trim().toLowerCase();
     const userName = user.name || user.email || 'Outro Usuário';
@@ -162,6 +166,23 @@ function stopHeartbeat(resourceKey) {
     if (activeHeartbeats.has(resourceKey)) {
         clearInterval(activeHeartbeats.get(resourceKey));
         activeHeartbeats.delete(resourceKey);
+    }
+}
+
+/**
+ * Remove travas expiradas (sem heartbeat há mais de 60s) da tabela active_locks no Supabase.
+ * Executado continuamente de forma transparente como coletor de lixo (garbage collector).
+ */
+export async function purgeExpiredLocks() {
+    if (!isSupabaseConfigured || !supabase) return;
+    try {
+        const expiredThreshold = new Date(Date.now() - LOCK_TIMEOUT_MS).toISOString();
+        await supabase
+            .from('active_locks')
+            .delete()
+            .lt('last_heartbeat', expiredThreshold);
+    } catch (e) {
+        // Silencioso se offline ou falha de rede temporária
     }
 }
 

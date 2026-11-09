@@ -425,6 +425,7 @@ export async function deleteTemplate(id) {
             }
             await dbDelete('crane_template_items', 'template_id', String(id));
             await dbDelete('crane_templates', 'id', String(id));
+            await dbDelete('active_locks', 'resource_key', `template:${id}`);
         } catch (e) {
             console.error("CRANE PRO TEMPLATES: Erro ao excluir modelo do Supabase:", e);
         }
@@ -902,6 +903,7 @@ export async function deleteAssetTemplate(templateId) {
     if (isSupabaseConfigured) {
         try {
             await dbDelete('crane_asset_templates', 'id', templateId);
+            await dbDelete('active_locks', 'resource_key', `asset_template:${templateId}`);
         } catch (e) {
             console.warn("CRANE ASSET TEMPLATES: Erro ao excluir no Supabase (excluído localmente):", e);
         }
