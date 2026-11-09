@@ -1079,15 +1079,25 @@ export function generateReportPrintHTML(report, company = {}, internalCompany = 
         /* Configuração de Impressão */
         @media print {
             @page {
-                size: auto;
-                margin: 1.5cm;
-            }
-            body {
+                size: A4 portrait;
                 margin: 0;
-                padding: 0;
-                background: none;
-                width: 100% !important;
-                min-width: 0 !important;
+            }
+            html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                background: none !important;
+                width: 210mm !important;
+                min-width: 210mm !important;
+            }
+            .cover-page,
+            .print-page {
+                margin: 0 auto !important;
+                padding: 16mm 15mm !important;
+                width: 210mm !important;
+                height: 297mm !important;
+                box-sizing: border-box !important;
+                page-break-after: always !important;
+                break-after: page !important;
             }
             * {
                 -webkit-print-color-adjust: exact !important;

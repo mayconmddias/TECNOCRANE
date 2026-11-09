@@ -1,4 +1,4 @@
-import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteCompanyAllDataFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud, openOrders, setOpenOrders, finalizedReports, setFinalizedReports, syncAllFromSupabase, syncKeyToSupabase, eventsList, setEventsList } from './data.js';
+import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, setDBValue, deleteDBValue, getTenantKey, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteCompanyAllDataFromCloud, deleteInternalCompanyFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud, openOrders, setOpenOrders, finalizedReports, setFinalizedReports, syncAllFromSupabase, syncKeyToSupabase, eventsList, setEventsList } from './data.js';
 import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay, hashPassword, formatShortName } from './utils.js';
 import { renderCompanies as renderCompaniesUI, renderAssetsTable, getDefaultAssetImage, getDefaultCompanyLogo } from './ui-render.js';
 import { renderObservationBlock, renderNode, renderCustomChecklistItemRow, renderResponsibleCard } from './checklist-render.js';
@@ -2295,6 +2295,42 @@ window.saveUserFromForm = async function() {
 };
 
 window.deleteUserFromForm = function() {
+    const regType = document.getElementById('user-registration-type')?.value;
+
+    if (regType === 'CADASTRO_INTERNO') {
+        window.showAlert('DESEJA EXCLUIR O CADASTRO DA EMPRESA INTERNA DEFINITIVAMENTE?', 'warning', async () => {
+            const tenantKey = getTenantKey('crane_internal_company');
+            try {
+                localStorage.removeItem(tenantKey);
+                localStorage.removeItem('crane_internal_company');
+            } catch (e) {}
+            await deleteDBValue(tenantKey);
+            await deleteDBValue('crane_internal_company');
+
+            if (typeof deleteInternalCompanyFromCloud === 'function') {
+                await deleteInternalCompanyFromCloud();
+            }
+
+            const fields = [
+                'interno-empresa-name', 'interno-empresa-cnpj', 'interno-empresa-endereco',
+                'interno-empresa-numero', 'interno-empresa-bairro', 'interno-empresa-cep',
+                'interno-empresa-cidade', 'interno-empresa-estado'
+            ];
+            fields.forEach(fId => {
+                const el = document.getElementById(fId);
+                if (el) el.value = '';
+            });
+
+            if (typeof window.removeInternoLogo === 'function') {
+                window.removeInternoLogo();
+            }
+
+            window.closeUserModal();
+            window.showAlert('CADASTRO DA EMPRESA INTERNA EXCLUÍDO COM SUCESSO.', 'success');
+        });
+        return;
+    }
+
     const idVal = document.getElementById('user-id-input').value;
     if (!idVal) return;
     

@@ -19,8 +19,14 @@ import {
     SYSTEM_ASSET_TEMPLATE
 } from './templates-module.js';
 import { CHECKLIST_SCHEMA } from '../../checklist-schema.js';
-import { acquireLock, releaseLock } from '../../locks.js';
+import { acquireLock, releaseLock, getCurrentUser } from '../../locks.js';
 import { dbFetchAll, isSupabaseConfigured } from '../../supabase.js';
+
+function getActiveUserName() {
+    const u = (typeof getCurrentUser === 'function') ? getCurrentUser() : null;
+    const name = (u && u.name && u.name !== 'USUÁRIO' && u.name !== 'anon') ? u.name : (u?.email || 'ADMINISTRADOR');
+    return String(name).trim().toUpperCase();
+}
 
 /**
  * Função utilitária global robusta para auto-expansão dinâmica de textareas.
@@ -908,7 +914,8 @@ if (typeof window !== 'undefined') {
             }
 
             try {
-                await saveTemplate(draftTemplate);
+                const authorName = getActiveUserName();
+                await saveTemplate(draftTemplate, authorName);
                 closeTemplateModal();
                 window.showAlert('Modelo salvo com sucesso!', 'success');
                 renderTemplatesView();
@@ -943,7 +950,8 @@ if (typeof window !== 'undefined') {
     window.duplicateTemplateAction = function(evt, id) {
         executeWithAntiDoubleClick(evt, async () => {
             try {
-                await duplicateTemplate(id);
+                const authorName = getActiveUserName();
+                await duplicateTemplate(id, authorName);
                 window.showAlert('Modelo duplicado com sucesso.', 'success');
                 renderTemplatesView();
             } catch (e) {
@@ -1029,7 +1037,8 @@ if (typeof window !== 'undefined') {
         if (!id || String(id) === SYSTEM_ASSET_TEMPLATE_ID) return;
         executeWithAntiDoubleClick(evt, async () => {
             try {
-                await duplicateAssetTemplate(id);
+                const authorName = getActiveUserName();
+                await duplicateAssetTemplate(id, authorName);
                 window.showAlert('Modelo de ativo duplicado com sucesso.', 'success');
                 renderTemplatesView();
             } catch (e) {
@@ -1476,7 +1485,8 @@ async function saveAssetTemplateFromModal() {
     };
 
     try {
-        await saveAssetTemplate(payload);
+        const authorName = getActiveUserName();
+        await saveAssetTemplate(payload, authorName);
         closeAssetTemplateModal();
         window.showAlert('Modelo de ativo salvo com sucesso!', 'success');
         renderTemplatesView();

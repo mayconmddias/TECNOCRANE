@@ -779,5 +779,24 @@ describe('Reports PDF Module - Geração e Snapshot de Formulários Dinâmicos',
         expect(html).not.toContain('MOTOR ELEVAÇÃO PRINCIPAL');
         expect(html).not.toContain('NÚMERO DE SÉRIE');
     });
+
+    it('Teste 21: Supressão de cabeçalhos e rodapés do navegador na impressão com margin: 0 e A4 portrait', () => {
+        const report = {
+            id: 'REL-0001',
+            status: 'FINALIZADO',
+            responses: {}
+        };
+        const company = { name: 'DJT FOCUS' };
+        const asset = { id: '#EQP-0001' };
+        const html = generateReportPrintHTML(report, company, null, [], asset);
+
+        // Deve conter a configuração @page com margin 0 para suprimir URL, data e título do navegador
+        expect(html).toContain('size: A4 portrait;');
+        expect(html).toContain('margin: 0;');
+        expect(html).toContain('.cover-page,');
+        expect(html).toContain('.print-page');
+        expect(html).toContain('height: 297mm !important;');
+        expect(html).toContain('padding: 16mm 15mm !important;');
+    });
 });
 

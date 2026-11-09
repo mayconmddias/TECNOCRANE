@@ -267,7 +267,7 @@ export async function saveTemplate(templateData, currentUser = 'Usuário') {
     const templateRecord = {
         id: id,
         nome: templateData.nome.trim(),
-        createdBy: templateData.createdBy || currentUser,
+        createdBy: (templateData.createdBy && templateData.createdBy !== 'Usuário' && templateData.createdBy !== 'USUÁRIO') ? templateData.createdBy : currentUser,
         createdAt: templateData.createdAt || now,
         updatedAt: now,
         items: (templateData.items || []).map((item, idx) => ({
@@ -777,7 +777,7 @@ export async function saveAssetTemplate(templateData, currentUser = 'Usuário') 
         nome: templateData.nome.trim().toUpperCase(),
         descricao: (templateData.descricao || '').trim(),
         tipoEquipamento: (templateData.tipoEquipamento || 'PONTE ROLANTE VIGA DUPLA').trim().toUpperCase(),
-        createdBy: templateData.createdBy || currentUser,
+        createdBy: (templateData.createdBy && templateData.createdBy !== 'Usuário' && templateData.createdBy !== 'USUÁRIO') ? templateData.createdBy : currentUser,
         createdAt: templateData.createdAt || now,
         updatedAt: now,
         customFields: customFields

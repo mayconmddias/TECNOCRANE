@@ -493,6 +493,24 @@ describe('Modelos Padrão do Sistema (Ponte Rolante Viga Dupla)', () => {
             const numericHeight = parseFloat(mockEl.style.height);
             expect(numericHeight).toBeGreaterThanOrEqual(80);
         });
+
+        it('deve registrar o nome real do usuário logado em createdBy ao invés de fallback genérico Usuário', async () => {
+            const uniqueName = `MODELO TESTE RESPONSAVEL ${Date.now()}`;
+            const template = await saveTemplate({
+                nome: uniqueName,
+                items: [{ id: 'i1', nome: 'SEÇÃO 1', checklists: [{ id: 'c1', descricao: 'ITEM 1' }] }]
+            }, 'MAYCON DIAS');
+
+            expect(template.createdBy).toBe('MAYCON DIAS');
+
+            const assetTemplate = await saveAssetTemplate({
+                nome: `ATIVO TESTE RESPONSAVEL ${Date.now()}`,
+                tipoEquipamento: 'PONTE ROLANTE',
+                customFields: []
+            }, 'MAYCON DIAS');
+
+            expect(assetTemplate.createdBy).toBe('MAYCON DIAS');
+        });
     });
 });
 

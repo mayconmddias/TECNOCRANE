@@ -583,6 +583,27 @@ export async function deleteCompanyFromCloud(companyName) {
     return dbDelete('companies', 'name', companyName);
 }
 
+export async function deleteInternalCompanyFromCloud() {
+    if (!isSupabaseConfigured) return;
+    try {
+        const tenant = getTenantCode() || '001';
+        const dbCurrent = await dbFetchAll('internal_company');
+        if (Array.isArray(dbCurrent)) {
+            for (const c of dbCurrent) {
+                if (c && c.logo && typeof c.logo === 'string' && c.logo.startsWith('http')) {
+                    await deleteStorageFile('crane-app-media', c.logo);
+                }
+            }
+        }
+        await deleteStorageFilesByPrefix('crane-app-media', 'companies', `internal_logo_${tenant}_`);
+        await deleteStorageFilesByPrefix('crane-app-media', 'companies', `internal_logo.`);
+        await dbDelete('internal_company', 'tenant_code', tenant);
+        await dbDelete('internal_company', 'id', 1);
+    } catch (e) {
+        console.warn('Aviso ao excluir empresa interna da nuvem:', e);
+    }
+}
+
 export async function deleteCompanyAllDataFromCloud(companyName) {
     if (!isSupabaseConfigured || !companyName) return;
     try {
