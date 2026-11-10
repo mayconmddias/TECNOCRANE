@@ -43,6 +43,33 @@ export function getDefaultCompanyLogo() {
     return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120"><rect width="120" height="120" rx="16" fill="%23ffffff" stroke="%23e4e4e7" stroke-width="2"/><path d="M30 95 L30 42 L60 25 L90 42 L90 95 Z" fill="%2318181b"/><rect x="42" y="48" width="10" height="10" rx="2" fill="%23eab308"/><rect x="68" y="48" width="10" height="10" rx="2" fill="%23eab308"/><rect x="42" y="66" width="10" height="10" rx="2" fill="%23eab308"/><rect x="68" y="66" width="10" height="10" rx="2" fill="%23eab308"/><rect x="52" y="80" width="16" height="15" rx="1" fill="%23eab308"/></svg>`;
 }
 
+export function calculateGridCardPosition(index, rowsPerCol = 5, numCols = 3) {
+    const validRows = Math.max(1, rowsPerCol);
+    const validCols = Math.max(1, numCols);
+    const blockSize = validRows * validCols;
+    const blockIndex = Math.floor(index / blockSize);
+    const indexInBlock = index % blockSize;
+    const col = Math.floor(indexInBlock / validRows); // 0 to numCols - 1
+    const rowInBlock = indexInBlock % validRows;      // 0 to validRows - 1
+    const globalRow = blockIndex * validRows + rowInBlock + 1; // 1-based for CSS Grid
+    const globalCol = col + 1;                                  // 1-based for CSS Grid
+    return { row: globalRow, col: globalCol };
+}
+
+export function getRowsPerColumn(isCalendarVisible = true) {
+    if (typeof window !== 'undefined' && window.innerHeight) {
+        // Reservamos espaço para header + filtros + padding (~140px sem calendário, ~340px com calendário)
+        const reserved = isCalendarVisible ? 340 : 140;
+        const available = window.innerHeight - reserved;
+        // Cada card ocupa 148px de altura + 12px de gap = 160px
+        const computed = Math.floor((available + 12) / 160);
+        if (computed >= 3) {
+            return isCalendarVisible ? Math.min(computed, 6) : computed;
+        }
+    }
+    return isCalendarVisible ? 5 : 8;
+}
+
 export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedCompany, isGlobalFilterActive, filterMonthOffset, searchTerm }) {
     const tbody = document.getElementById(tbodyId);
     const thead = document.getElementById(theadId);
@@ -243,10 +270,29 @@ export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedC
         if (mobileContainer) mobileContainer.innerHTML = emptyHTML;
         if (desktopContainer) desktopContainer.innerHTML = emptyHTML;
     } else {
-        filtered.forEach(event => {
-            if (mobileContainer) mobileContainer.appendChild(renderCardElement(event));
-            if (desktopContainer) desktopContainer.appendChild(renderCardElement(event));
-        });
+        if (mobileContainer) {
+            filtered.forEach(event => {
+                mobileContainer.appendChild(renderCardElement(event));
+            });
+        }
+
+        if (desktopContainer) {
+            const calendarSection = document.getElementById('calendar-card-section');
+            const isCalendarVisible = !calendarSection || !calendarSection.classList.contains('hidden');
+            let numCols = 3;
+            if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                numCols = 2;
+            }
+            const rowsPerCol = getRowsPerColumn(isCalendarVisible);
+
+            filtered.forEach((event, idx) => {
+                const card = renderCardElement(event);
+                const { row, col } = calculateGridCardPosition(idx, rowsPerCol, numCols);
+                card.style.gridRow = `${row} / span 1`;
+                card.style.gridColumn = `${col} / span 1`;
+                desktopContainer.appendChild(card);
+            });
+        }
     }
 
     // Renderiza Desktop Table

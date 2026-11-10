@@ -211,6 +211,10 @@ window.toggleCalendarVisibility = function(isVisible) {
     try {
         localStorage.setItem('crane_show_operational_calendar', isVisible ? 'true' : 'false');
     } catch (e) {}
+
+    if (typeof window.renderAssets === 'function') {
+        window.renderAssets();
+    }
 };
 
 // --- TOGGLE VISIBILIDADE DO MODO LISTA / CARDS DA PROGRAMAÇÃO ---
@@ -260,6 +264,18 @@ window.initCalendarVisibility = function() {
     }
     window.initPlanningViewMode();
 };
+
+// Listener para ajuste dinâmico do layout vertical dos cards ao redimensionar tela
+let resizeAssetsTimeout = null;
+window.addEventListener('resize', () => {
+    clearTimeout(resizeAssetsTimeout);
+    resizeAssetsTimeout = setTimeout(() => {
+        const desktopContainer = document.getElementById('assets-desktop-container');
+        if (desktopContainer && !desktopContainer.classList.contains('hidden') && typeof window.renderAssets === 'function') {
+            window.renderAssets();
+        }
+    }, 150);
+});
 
 // --- VIEW NAVIGATION ---
 
