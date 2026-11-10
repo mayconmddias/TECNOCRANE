@@ -189,9 +189,9 @@ export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedC
         const displayTipo = (event.tipo && event.tipo !== 'N/A')
             ? event.tipo
             : (matchingAsset ? (matchingAsset.tipo || matchingAsset.nome || 'N/A') : 'N/A');
-        const displayLocal = (event.local && event.local !== 'SETOR OPERACIONAL')
+        const displayLocal = String((event.local && event.local !== 'SETOR OPERACIONAL')
             ? event.local
-            : (matchingAsset ? (matchingAsset.local || 'SETOR OPERACIONAL') : 'SETOR OPERACIONAL');
+            : (matchingAsset ? (matchingAsset.local || 'SETOR OPERACIONAL') : 'SETOR OPERACIONAL')).toUpperCase();
 
         let displayTecnicos = event.tecnico || '';
         if (!displayTecnicos && Array.isArray(event.tecnicos) && event.tecnicos.length > 0) {
@@ -240,8 +240,8 @@ export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedC
             <div class="font-bold text-[#1f1f1f] text-[13px] truncate leading-tight">Ativo: ${displayNome}</div>
             <div class="text-[#1f1f1f] font-semibold flex items-center gap-1.5">ID: <span class="font-mono font-bold text-[#fa520f] bg-[#fff0c2] px-1.5 py-0.5 rounded border border-[#e6d5a8] text-[11px] leading-none">${event.equipamento || event.id}</span></div>
             <div class="text-[#4a4a4a] truncate font-medium">Empresa: <span class="text-[#1f1f1f] font-bold uppercase">${(event.empresa || '---').toUpperCase()}</span></div>
-            <div class="text-[#4a4a4a] truncate font-medium">Local: <span class="text-[#1f1f1f] font-semibold">${displayLocal}</span></div>
-            <div class="text-[#4a4a4a] truncate font-medium">Técnicos: <span class="text-[#1f1f1f] font-semibold">${displayTecnicos}</span></div>
+            <div class="text-[#4a4a4a] truncate font-medium">Local: <span class="text-[#1f1f1f] font-semibold uppercase">${displayLocal}</span></div>
+            <div class="text-[#4a4a4a] truncate font-medium">Técnicos: <span class="text-[#1f1f1f] font-semibold uppercase">${displayTecnicos}</span></div>
         `;
 
         const dateBadge = document.createElement('div');
@@ -329,9 +329,9 @@ export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedC
             const displayTipo = (event.tipo && event.tipo !== 'N/A')
                 ? event.tipo
                 : (matchingAsset ? (matchingAsset.tipo || matchingAsset.nome || 'N/A') : 'N/A');
-            const displayLocal = (event.local && event.local !== 'SETOR OPERACIONAL')
+            const displayLocal = String((event.local && event.local !== 'SETOR OPERACIONAL')
                 ? event.local
-                : (matchingAsset ? (matchingAsset.local || 'SETOR OPERACIONAL') : 'SETOR OPERACIONAL');
+                : (matchingAsset ? (matchingAsset.local || 'SETOR OPERACIONAL') : 'SETOR OPERACIONAL')).toUpperCase();
 
             let displayTecnicos = event.tecnico || '';
             if (!displayTecnicos && Array.isArray(event.tecnicos) && event.tecnicos.length > 0) {

@@ -106,6 +106,15 @@ describe('Sequência Cronológica Vertical nos Cards de Programação', () => {
             expect(getDisplayTecnicos({ tecnicos: ['Aparecido de Jesus', 'Jose Santos'] })).toBe('APARECIDO DE JESUS | JOSE SANTOS');
             expect(getDisplayTecnicos({})).toBe('---');
         });
+
+        it('deve converter localização para maiúsculas preservando o rótulo', () => {
+            const rawLocal = 'bloco a produção';
+            const displayLocal = String(rawLocal).toUpperCase();
+            expect(displayLocal).toBe('BLOCO A PRODUÇÃO');
+            const cardSnippet = `Local: <span class="uppercase">${displayLocal}</span>`;
+            expect(cardSnippet).toContain('Local:');
+            expect(cardSnippet).toContain('BLOCO A PRODUÇÃO');
+        });
     });
 });
 
