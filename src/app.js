@@ -3789,14 +3789,14 @@ function renderAtivosView() {
         desktopCompaniesList.innerHTML = '';
         currentList.forEach(company => {
             const compName = typeof company === 'string' ? company : (company.name || '');
-            const cnpj = (typeof company === 'object' && company.cnpj && String(company.cnpj).trim()) ? String(company.cnpj).trim() : 'NÃO CADASTRADO';
+            const cnpj = (typeof company === 'object' && company.cnpj && String(company.cnpj).trim()) ? String(company.cnpj).trim().toUpperCase() : 'NÃO CADASTRADO';
             const endereco = (typeof company === 'object' && company.endereco && String(company.endereco).trim()) 
-                ? `${company.endereco}${company.numero ? ', ' + company.numero : ''}` 
+                ? `${company.endereco}${company.numero ? ', ' + company.numero : ''}`.toUpperCase() 
                 : 'NÃO CADASTRADO';
-            const bairro = (typeof company === 'object' && company.bairro && String(company.bairro).trim()) ? String(company.bairro).trim() : 'NÃO CADASTRADO';
-            const cidade = (typeof company === 'object' && company.cidade && String(company.cidade).trim()) ? String(company.cidade).trim() : 'NÃO CADASTRADO';
-            const estado = (typeof company === 'object' && company.estado && String(company.estado).trim()) ? String(company.estado).trim() : 'NÃO CADASTRADO';
-            const cep = (typeof company === 'object' && company.cep && String(company.cep).trim()) ? String(company.cep).trim() : 'NÃO CADASTRADO';
+            const bairro = (typeof company === 'object' && company.bairro && String(company.bairro).trim()) ? String(company.bairro).trim().toUpperCase() : 'NÃO CADASTRADO';
+            const cidade = (typeof company === 'object' && company.cidade && String(company.cidade).trim()) ? String(company.cidade).trim().toUpperCase() : 'NÃO CADASTRADO';
+            const estado = (typeof company === 'object' && company.estado && String(company.estado).trim()) ? String(company.estado).trim().toUpperCase() : 'NÃO CADASTRADO';
+            const cep = (typeof company === 'object' && company.cep && String(company.cep).trim()) ? String(company.cep).trim().toUpperCase() : 'NÃO CADASTRADO';
             const logoUrl = (typeof company === 'object' && company.logo) ? company.logo : getDefaultCompanyLogo();
             const countAssets = allAssetsList.filter(a => a.empresa && a.empresa.toLowerCase() === compName.toLowerCase()).length;
             const isSelected = selectedCompany && compName.toLowerCase() === selectedCompany.toLowerCase();
@@ -3840,29 +3840,29 @@ function renderAtivosView() {
                 </div>
                 <div class="text-[#1f1f1f] truncate leading-tight">
                     <span class="text-zinc-500 font-bold uppercase text-[9.5px]">CNPJ:</span>
-                    <span class="font-semibold font-mono text-[10.5px] ml-1">${cnpj}</span>
+                    <span class="font-semibold font-mono text-[10.5px] ml-1 uppercase">${cnpj}</span>
                 </div>
                 <div class="text-[#4a4a4a] truncate leading-tight" title="${endereco}">
                     <span class="text-zinc-500 font-bold uppercase text-[9.5px]">Endereço:</span>
-                    <span class="text-[#1f1f1f] font-semibold text-[10.5px] ml-1">${endereco}</span>
+                    <span class="text-[#1f1f1f] font-semibold text-[10.5px] ml-1 uppercase">${endereco}</span>
                 </div>
                 <div class="text-[#4a4a4a] truncate leading-tight" title="${bairro}">
                     <span class="text-zinc-500 font-bold uppercase text-[9.5px]">Bairro:</span>
-                    <span class="text-[#1f1f1f] font-semibold text-[10.5px] ml-1">${bairro}</span>
+                    <span class="text-[#1f1f1f] font-semibold text-[10.5px] ml-1 uppercase">${bairro}</span>
                 </div>
                 <div class="flex items-center gap-2 truncate leading-tight">
                     <div class="truncate">
                         <span class="text-zinc-500 font-bold uppercase text-[9.5px]">Cidade:</span>
-                        <span class="text-[#1f1f1f] font-semibold text-[10.5px] ml-1">${cidade}</span>
+                        <span class="text-[#1f1f1f] font-semibold text-[10.5px] ml-1 uppercase">${cidade}</span>
                     </div>
                     <div class="shrink-0">
                         <span class="text-zinc-500 font-bold uppercase text-[9.5px]">Estado:</span>
-                        <span class="text-[#1f1f1f] font-semibold text-[10.5px] ml-1">${estado}</span>
+                        <span class="text-[#1f1f1f] font-semibold text-[10.5px] ml-1 uppercase">${estado}</span>
                     </div>
                 </div>
                 <div class="text-[#4a4a4a] truncate leading-tight">
                     <span class="text-zinc-500 font-bold uppercase text-[9.5px]">CEP:</span>
-                    <span class="text-[#1f1f1f] font-semibold text-[10.5px] ml-1">${cep}</span>
+                    <span class="text-[#1f1f1f] font-semibold text-[10.5px] ml-1 uppercase">${cep}</span>
                 </div>
             `;
 
@@ -4131,9 +4131,9 @@ function renderAtivosView() {
             mobileCompaniesList.innerHTML = '';
             currentList.forEach(company => {
                 const compName = typeof company === 'string' ? company : (company.name || '');
-                const cnpj = (typeof company === 'object' && company.cnpj) ? company.cnpj : 'CNPJ NÃO CADASTRADO';
-                const endereco = (typeof company === 'object' && company.endereco) ? `${company.endereco}${company.numero ? ', ' + company.numero : ''}${company.bairro ? ' - ' + company.bairro : ''}` : 'ENDEREÇO NÃO CADASTRADO';
-                const cidadeEstado = (typeof company === 'object' && company.cidade) ? `${company.cidade}${company.estado ? ' / ' + company.estado : ''}${company.cep ? ' • CEP ' + company.cep : ''}` : '';
+                const cnpj = (typeof company === 'object' && company.cnpj) ? String(company.cnpj).toUpperCase() : 'CNPJ NÃO CADASTRADO';
+                const endereco = (typeof company === 'object' && company.endereco) ? `${company.endereco}${company.numero ? ', ' + company.numero : ''}${company.bairro ? ' - ' + company.bairro : ''}`.toUpperCase() : 'ENDEREÇO NÃO CADASTRADO';
+                const cidadeEstado = (typeof company === 'object' && company.cidade) ? `${company.cidade}${company.estado ? ' / ' + company.estado : ''}${company.cep ? ' • CEP ' + company.cep : ''}`.toUpperCase() : '';
                 const logoUrl = (typeof company === 'object' && company.logo) ? company.logo : getDefaultCompanyLogo();
 
                 const countAssets = allAssetsList.filter(a => a.empresa && a.empresa.toLowerCase() === compName.toLowerCase()).length;
@@ -4174,8 +4174,8 @@ function renderAtivosView() {
                 const midRow = document.createElement('div');
                 midRow.className = "text-[12px] leading-snug space-y-0.5 text-zinc-700 font-semibold border-t border-zinc-100 pt-2.5";
                 midRow.innerHTML = `
-                    <div class="truncate">📍 <span class="text-zinc-800">${endereco}</span></div>
-                    ${cidadeEstado ? `<div class="truncate">🏙️ <span class="text-zinc-800">${cidadeEstado}</span></div>` : ''}
+                    <div class="truncate">📍 <span class="text-zinc-800 uppercase">${endereco}</span></div>
+                    ${cidadeEstado ? `<div class="truncate">🏙️ <span class="text-zinc-800 uppercase">${cidadeEstado}</span></div>` : ''}
                 `;
 
                 const footerRow = document.createElement('div');
