@@ -197,30 +197,40 @@ async function processReportImages(reportObj) {
             if (!resp || typeof resp !== 'object') continue;
 
             if (Array.isArray(resp.images) && resp.images.length > 0) {
-                resp.images = await Promise.all(
+                const uploaded = await Promise.all(
                     resp.images.map(async (img, idx) => {
                         if (typeof img === 'string' && img.startsWith('data:')) {
                             const fileName = `item_${itemId}_${idx}_${Date.now()}`;
                             return await uploadBase64ToStorage('crane-app-media', folderPath, img, fileName);
                         }
+                        // Remove links residuais quebrados de ORD-xxx em laudos finalizados REL-xxx
+                        if ((reportId.startsWith('REL-') || reportId.startsWith('REL - ')) && typeof img === 'string' && img.includes('/reports/ORD-')) {
+                            return null;
+                        }
                         return img;
                     })
                 );
+                resp.images = uploaded.filter(Boolean);
             }
 
             if (Array.isArray(resp.additionalObservations) && resp.additionalObservations.length > 0) {
                 for (let obsIdx = 0; obsIdx < resp.additionalObservations.length; obsIdx++) {
                     const addObs = resp.additionalObservations[obsIdx];
                     if (addObs && Array.isArray(addObs.images) && addObs.images.length > 0) {
-                        addObs.images = await Promise.all(
+                        const uploadedAdd = await Promise.all(
                             addObs.images.map(async (img, idx) => {
                                 if (typeof img === 'string' && img.startsWith('data:')) {
                                     const fileName = `addobs_${itemId}_${obsIdx}_${idx}_${Date.now()}`;
                                     return await uploadBase64ToStorage('crane-app-media', folderPath, img, fileName);
                                 }
+                                // Remove links residuais quebrados de ORD-xxx em laudos finalizados REL-xxx
+                                if ((reportId.startsWith('REL-') || reportId.startsWith('REL - ')) && typeof img === 'string' && img.includes('/reports/ORD-')) {
+                                    return null;
+                                }
                                 return img;
                             })
                         );
+                        addObs.images = uploadedAdd.filter(Boolean);
                     }
                 }
             }
@@ -756,12 +766,14 @@ export async function deleteEventFromCloud(eventId) {
     return Promise.all(deletePromises);
 }
 
-export async function deleteOrderFromCloud(orderId) {
+export async function deleteOrderFromCloud(orderId, deleteStorage = true) {
     if (!isSupabaseConfigured || !orderId) return;
     try {
         const cleanId = String(orderId).trim();
-        // Remove cirurgicamente apenas a subpasta específica da ordem no Storage
-        await deleteStorageFolder('crane-app-media', `reports/${cleanId}`);
+        if (deleteStorage) {
+            // Remove cirurgicamente apenas a subpasta específica da ordem no Storage
+            await deleteStorageFolder('crane-app-media', `reports/${cleanId}`);
+        }
         // Libera qualquer trava existente para esta ordem
         await releaseLock(`order:${cleanId}`);
         await dbDelete('active_locks', 'resource_key', `order:${cleanId}`);
@@ -769,6 +781,91 @@ export async function deleteOrderFromCloud(orderId) {
         console.warn(`Erro ao excluir mídias e travas da ordem ${orderId} no Supabase:`, e);
     }
     return dbDelete('open_orders', 'id', orderId);
+}
+
+/**
+ * Migra de forma atômica e sem duplicidade as mídias salvas em reports/ORD-xxx para reports/REL-xxx
+ * Atualiza todas as URLs existentes nas respostas do laudo para a pasta oficial definitiva.
+ */
+export async function migrateOrderMediaToReport(orderId, reportId, reportObj) {
+    if (!orderId || !reportId || !reportObj) return reportObj;
+    const cleanOrderId = String(orderId).trim();
+    const cleanReportId = String(reportId).trim();
+
+    if (cleanOrderId === cleanReportId) return reportObj;
+
+    // 1. Se o Supabase estiver configurado, transfere os arquivos físicos no Storage
+    if (isSupabaseConfigured) {
+        const client = getActiveSupabase();
+        if (client) {
+            try {
+                const { data: files, error: listError } = await client.storage
+                    .from('crane-app-media')
+                    .list(`reports/${cleanOrderId}`, { limit: 1000 });
+
+                if (!listError && Array.isArray(files) && files.length > 0) {
+                    for (const file of files) {
+                        if (!file.name || file.name === '.emptyFolderPlaceholder') continue;
+                        const fromPath = `reports/${cleanOrderId}/${file.name}`;
+                        const toPath = `reports/${cleanReportId}/${file.name}`;
+
+                        // Move no Storage (atômico: transfere diretamente sem deixar duplicata)
+                        const { error: moveError } = await client.storage
+                            .from('crane-app-media')
+                            .move(fromPath, toPath);
+
+                        if (moveError) {
+                            // Fallback caso move encontre restrição: copia e remove origem
+                            const { error: copyError } = await client.storage
+                                .from('crane-app-media')
+                                .copy(fromPath, toPath);
+                            if (!copyError) {
+                                await client.storage.from('crane-app-media').remove([fromPath]);
+                            }
+                        }
+                    }
+                }
+                // Limpa a pasta temporária de origem para garantir zero duplicatas
+                await deleteStorageFolder('crane-app-media', `reports/${cleanOrderId}`);
+            } catch (e) {
+                console.warn(`Aviso ao migrar arquivos no Storage de ${cleanOrderId} para ${cleanReportId}:`, e);
+            }
+        }
+    }
+
+    // 2. Substitui as URLs antigas da ordem pelas novas URLs do laudo nas respostas
+    const replaceUrlPrefix = (url) => {
+        if (typeof url !== 'string') return url;
+        return url
+            .replace(new RegExp(`reports/${encodeURIComponent(cleanOrderId)}`, 'g'), `reports/${encodeURIComponent(cleanReportId)}`)
+            .replace(new RegExp(`reports/${cleanOrderId}`, 'g'), `reports/${encodeURIComponent(cleanReportId)}`);
+    };
+
+    if (reportObj.responses && typeof reportObj.responses === 'object') {
+        const responses = reportObj.responses;
+        for (const itemId of Object.keys(responses)) {
+            const resp = responses[itemId];
+            if (!resp || typeof resp !== 'object') continue;
+
+            if (Array.isArray(resp.images)) {
+                resp.images = resp.images.map(replaceUrlPrefix);
+            }
+
+            if (Array.isArray(resp.additionalObservations)) {
+                resp.additionalObservations.forEach(addObs => {
+                    if (addObs && Array.isArray(addObs.images)) {
+                        addObs.images = addObs.images.map(replaceUrlPrefix);
+                    }
+                });
+            }
+        }
+    }
+
+    if (Array.isArray(reportObj.generalImages)) {
+        reportObj.generalImages = reportObj.generalImages.map(replaceUrlPrefix);
+    }
+
+    return reportObj;
 }
 
 export async function deleteReportFromCloud(reportId) {

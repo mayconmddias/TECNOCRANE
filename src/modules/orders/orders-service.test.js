@@ -7,6 +7,7 @@ import {
     getFastLocalDraft,
     clearFastLocalDraft
 } from './orders-service.js';
+import { migrateOrderMediaToReport } from '../../data.js';
 
 describe('Orders Service - Ciclo de Vida de OS em Aberto', () => {
     let mockOpenOrders = [];
@@ -125,5 +126,40 @@ describe('Orders Service - Geração Sequencial de IDs de Ordens', () => {
             { id: 'ORD-009' }
         ];
         expect(generateNextOrderId(list)).toBe('ORD-010');
+    });
+});
+
+describe('Orders Service - Migração de Mídias de ORD para REL', () => {
+    it('deve atualizar URLs de fotos de reports/ORD-xxx para reports/REL-xxx sem duplicidade', async () => {
+        const mockReport = {
+            id: 'REL - 12',
+            responses: {
+                'item_1': {
+                    status: 'OK',
+                    images: [
+                        'https://pbfrgdkjahnawwlspzbb.supabase.co/storage/v1/object/public/crane-app-media/reports/ORD-001/item_1_0_123.jpg',
+                        'https://pbfrgdkjahnawwlspzbb.supabase.co/storage/v1/object/public/crane-app-media/reports/ORD-001/item_1_1_123.jpg'
+                    ],
+                    additionalObservations: [
+                        {
+                            text: 'Obs adicional',
+                            images: [
+                                'https://pbfrgdkjahnawwlspzbb.supabase.co/storage/v1/object/public/crane-app-media/reports/ORD-001/addobs_1_0_0_123.jpg'
+                            ]
+                        }
+                    ]
+                }
+            },
+            generalImages: [
+                'https://pbfrgdkjahnawwlspzbb.supabase.co/storage/v1/object/public/crane-app-media/reports/ORD-001/general_123.jpg'
+            ]
+        };
+
+        const migrated = await migrateOrderMediaToReport('ORD-001', 'REL - 12', mockReport);
+
+        expect(migrated.responses['item_1'].images[0]).toContain('reports/REL%20-%2012/item_1_0_123.jpg');
+        expect(migrated.responses['item_1'].images[1]).toContain('reports/REL%20-%2012/item_1_1_123.jpg');
+        expect(migrated.responses['item_1'].additionalObservations[0].images[0]).toContain('reports/REL%20-%2012/addobs_1_0_0_123.jpg');
+        expect(migrated.generalImages[0]).toContain('reports/REL%20-%2012/general_123.jpg');
     });
 });

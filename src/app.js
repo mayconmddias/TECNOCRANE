@@ -1,4 +1,4 @@
-import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, setDBValue, deleteDBValue, getTenantKey, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteCompanyAllDataFromCloud, deleteInternalCompanyFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud, openOrders, setOpenOrders, finalizedReports, setFinalizedReports, syncAllFromSupabase, syncKeyToSupabase, eventsList, setEventsList } from './data.js';
+import { companies, allAssetsList, getStoredData, setStoredData, usersList, setUsersList, setAllAssetsList, setCompanies, loadAllDataFromDB, getDBValue, setDBValue, deleteDBValue, getTenantKey, updateArrayInPlace, deleteUserFromCloud, deleteCompanyFromCloud, deleteCompanyAssetsFromCloud, deleteCompanyAllDataFromCloud, deleteInternalCompanyFromCloud, deleteAssetFromCloud, deleteOrderFromCloud, deleteReportFromCloud, deleteEventFromCloud, openOrders, setOpenOrders, finalizedReports, setFinalizedReports, syncAllFromSupabase, syncKeyToSupabase, eventsList, setEventsList, migrateOrderMediaToReport } from './data.js';
 import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay, hashPassword, formatShortName } from './utils.js';
 import { renderCompanies as renderCompaniesUI, renderAssetsTable, getDefaultAssetImage, getDefaultCompanyLogo } from './ui-render.js';
 import { renderObservationBlock, renderNode, renderCustomChecklistItemRow, renderResponsibleCard } from './checklist-render.js';
@@ -1803,7 +1803,12 @@ window.generateWorkOrder = async function() {
     if (editingOrderId && String(editingOrderId).startsWith('ORD-')) {
         newOpenOrders = newOpenOrders.filter(o => o.id !== editingOrderId);
         clearFastLocalDraft(editingOrderId);
-        deleteOrderFromCloud(editingOrderId).catch(err => console.error("Erro ao deletar ordem concluída do Supabase:", err));
+        try {
+            await migrateOrderMediaToReport(editingOrderId, reportId, newReport);
+        } catch (errMigrate) {
+            console.warn("Aviso na migração de mídias de ordem para laudo:", errMigrate);
+        }
+        deleteOrderFromCloud(editingOrderId, false).catch(err => console.error("Erro ao deletar ordem concluída do Supabase:", err));
     }
 
     if (isEditingRel) {
