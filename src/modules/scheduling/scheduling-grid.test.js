@@ -91,4 +91,21 @@ describe('Sequência Cronológica Vertical nos Cards de Programação', () => {
             expect(getRowsPerColumn(false)).toBe(8);
         });
     });
+
+    describe('Exportação de Programação - Formatação e Técnicos', () => {
+        it('deve formatar corretamente técnicos únicos e múltiplos com pipe em maiúsculas', () => {
+            const getDisplayTecnicos = (ev) => {
+                let display = ev.tecnico || '';
+                if (!display && Array.isArray(ev.tecnicos) && ev.tecnicos.length > 0) {
+                    display = ev.tecnicos.join(' | ');
+                }
+                return display ? display.toUpperCase() : '---';
+            };
+
+            expect(getDisplayTecnicos({ tecnico: 'José Santos' })).toBe('JOSÉ SANTOS');
+            expect(getDisplayTecnicos({ tecnicos: ['Aparecido de Jesus', 'Jose Santos'] })).toBe('APARECIDO DE JESUS | JOSE SANTOS');
+            expect(getDisplayTecnicos({})).toBe('---');
+        });
+    });
 });
+

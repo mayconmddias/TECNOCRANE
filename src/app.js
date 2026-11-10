@@ -3446,7 +3446,25 @@ window.exportOperationalDashboardData = function() {
             
             // Formatador manual de data para evitar problemas de fuso horário do toLocaleDateString
             const formattedDate = `${String(evDate.getDate()).padStart(2, '0')}/${String(evDate.getMonth() + 1).padStart(2, '0')}/${evDate.getFullYear()}`;
-            const dayOfWeek = dayNames[evDate.getDay()];
+            const dayOfWeek = dayNames[evDate.getDay()] || '---';
+
+            // Resolução dos Técnicos
+            let displayTecnicos = ev.tecnico || '';
+            if (!displayTecnicos && Array.isArray(ev.tecnicos) && ev.tecnicos.length > 0) {
+                displayTecnicos = ev.tecnicos.join(' | ');
+            }
+            displayTecnicos = displayTecnicos ? displayTecnicos.toUpperCase() : '---';
+
+            // Enriquecimento do Ativo e Localização
+            const eqId = String(ev.equipamento || ev.id || '').trim().toUpperCase();
+            const matchingAsset = (allAssetsList || []).find(a => String(a.id || '').trim().toUpperCase() === eqId) ||
+                                  (typeof assets !== 'undefined' && Array.isArray(assets) ? assets.find(a => String(a.id || '').trim().toUpperCase() === eqId) : null);
+            const displayTipo = (ev.tipo && ev.tipo !== 'N/A')
+                ? ev.tipo
+                : (matchingAsset ? (matchingAsset.tipo || matchingAsset.nome || '---') : '---');
+            const displayLocal = (ev.local && ev.local !== 'SETOR OPERACIONAL')
+                ? ev.local
+                : (matchingAsset ? (matchingAsset.local || 'SETOR OPERACIONAL') : 'SETOR OPERACIONAL');
             
             let statusBadgeColor = "background: #f3f4f6; color: #374151;";
             let statusText = "PENDENTE";
@@ -3461,12 +3479,13 @@ window.exportOperationalDashboardData = function() {
 
             tableRows += `
                 <tr style="border-bottom: 1px solid #e5e7eb;">
-                    <td style="padding: 10px 8px; text-align: left; text-transform: uppercase;">${ev.empresa}</td>
-                    <td style="padding: 10px 8px; text-align: left; font-weight: bold;">${ev.equipamento}</td>
-                    <td style="padding: 10px 8px; text-align: left; text-transform: uppercase; color: #4b5563;">${ev.tipo || '---'}</td>
-                    <td style="padding: 10px 8px; text-align: left; text-transform: uppercase; color: #4b5563;">${ev.local || '---'}</td>
-                    <td style="padding: 10px 8px; text-align: left; font-weight: bold;">${formattedDate}</td>
-                    <td style="padding: 10px 8px; text-align: left; color: #4b5563; text-transform: uppercase;">${dayOfWeek}</td>
+                    <td style="padding: 9px 8px; text-align: left; text-transform: uppercase;">${ev.empresa || '---'}</td>
+                    <td style="padding: 9px 8px; text-align: left; font-weight: bold; font-family: monospace;">${ev.equipamento || ev.id || '---'}</td>
+                    <td style="padding: 9px 8px; text-align: left; text-transform: uppercase; color: #374151;">${displayTipo}</td>
+                    <td style="padding: 9px 8px; text-align: left; text-transform: uppercase; color: #4b5563;">${displayLocal}</td>
+                    <td style="padding: 9px 8px; text-align: center; font-weight: bold;">${formattedDate}</td>
+                    <td style="padding: 9px 8px; text-align: left; color: #4b5563; text-transform: uppercase;">${dayOfWeek}</td>
+                    <td style="padding: 9px 8px; text-align: left; text-transform: uppercase; font-weight: 600; color: #1f2937;">${displayTecnicos}</td>
                 </tr>
             `;
         });
@@ -3595,12 +3614,13 @@ window.exportOperationalDashboardData = function() {
     <table>
         <thead>
             <tr>
-                <th style="width: 30%">Cliente / Empresa</th>
-                <th style="width: 15%">ID Equipamento</th>
-                <th style="width: 15%">Tipo</th>
-                <th style="width: 16%">Localização</th>
-                <th style="width: 12%">Prox. Inspeção</th>
-                <th style="width: 12%">Dia Semana</th>
+                <th style="width: 22%">Cliente / Empresa</th>
+                <th style="width: 11%">ID Equipamento</th>
+                <th style="width: 15%">Ativo</th>
+                <th style="width: 15%">Localização</th>
+                <th style="width: 11%; text-align: center;">Prox. Inspeção</th>
+                <th style="width: 11%">Dia Semana</th>
+                <th style="width: 15%">Nome dos Técnicos</th>
             </tr>
         </thead>
         <tbody>
