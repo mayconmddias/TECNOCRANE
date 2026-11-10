@@ -3904,10 +3904,10 @@ function renderAtivosView() {
                 card.className = "bg-white text-[#1f1f1f] rounded-xl p-3 shadow-sm border border-[#e6d5a8] hover:border-[#fa520f] flex gap-3 items-center transition-all select-none min-h-[152px] h-[152px] max-h-[152px]";
 
                 const imgBox = document.createElement('div');
-                imgBox.className = "w-20 h-20 rounded-lg bg-white border border-[#e6d5a8] shadow-xs flex-shrink-0 flex items-center justify-center overflow-hidden p-1.5 self-center";
+                imgBox.className = "w-20 h-20 rounded-lg bg-[#fff8e0] border border-[#e6d5a8] shadow-xs flex-shrink-0 flex items-center justify-center overflow-hidden self-center";
                 const imgEl = document.createElement('img');
                 imgEl.alt = displayTipo;
-                imgEl.className = "w-full h-full object-contain";
+                imgEl.className = "w-full h-full object-cover";
                 imgEl.src = fotoUrl;
                 imgEl.onerror = function() {
                     this.onerror = null;
