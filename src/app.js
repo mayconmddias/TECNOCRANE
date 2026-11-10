@@ -802,6 +802,11 @@ window.startChecklist = function() {
         });
         if (matchingReports.length > 0) {
             matchingReports.sort((a, b) => {
+                const matchA = String(a.id || '').match(/\d+/);
+                const matchB = String(b.id || '').match(/\d+/);
+                const numA = matchA ? parseInt(matchA[0], 10) : 0;
+                const numB = matchB ? parseInt(matchB[0], 10) : 0;
+                if (numA !== numB) return numB - numA;
                 const dateA = new Date(a.createdAt || a.updatedAt || parseAssetDate(a.date));
                 const dateB = new Date(b.createdAt || b.updatedAt || parseAssetDate(b.date));
                 return dateB - dateA;

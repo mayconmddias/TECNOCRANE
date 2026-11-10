@@ -139,16 +139,25 @@ export function filterReports(reports, selectedCompany, selectedAssetId = null, 
         filtered = filtered.filter(r => matchesReportAsset(r, selectedAssetId, allAssetsList));
     }
 
-    // 3. Ordena decrescentemente por data / ID
+    // 3. Ordena decrescentemente por Número do Relatório (Opção B: último relatório gerado no topo)
     return filtered.sort((a, b) => {
-        const dateA = new Date(a.createdAt || a.updatedAt || a.date || 0).getTime();
-        const dateB = new Date(b.createdAt || b.updatedAt || b.date || 0).getTime();
-        if (dateA && dateB && dateA !== dateB) return dateB - dateA;
+        const matchA = String(a.id || '').match(/\d+/);
+        const matchB = String(b.id || '').match(/\d+/);
+        const numA = matchA ? parseInt(matchA[0], 10) : 0;
+        const numB = matchB ? parseInt(matchB[0], 10) : 0;
 
-        // Fallback por ID numérico
-        const numA = parseInt((String(a.id || '').match(/\d+/) || [0])[0], 10);
-        const numB = parseInt((String(b.id || '').match(/\d+/) || [0])[0], 10);
-        return numB - numA;
+        if (numA !== numB) {
+            return numB - numA;
+        }
+
+        // Fallback por comparação alfanumérica de ID
+        const compId = String(b.id || '').localeCompare(String(a.id || ''), undefined, { numeric: true });
+        if (compId !== 0) return compId;
+
+        // Fallback por data se IDs forem idênticos
+        const dateA = new Date(a.createdAt || a.date || 0).getTime();
+        const dateB = new Date(b.createdAt || b.date || 0).getTime();
+        return dateB - dateA;
     });
 }
 

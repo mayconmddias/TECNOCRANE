@@ -119,6 +119,18 @@ describe('Reports Service - Filtragem e Ordenação', () => {
         expect(resultSas).toHaveLength(1);
         expect(resultSas[0].id).toBe('REL-04');
     });
+
+    it('deve ordenar relatórios rigorosamente por número de relatório de forma decrescente (Opção B)', () => {
+        const unSortedReports = [
+            { id: 'REL-05', empresa: 'DJT FOCUS LTDA', equipamentoId: '#EQP-0002', date: '08/07/2026' },
+            { id: 'REL-08', empresa: 'DJT FOCUS LTDA', equipamentoId: '#EQP-0002', date: '08/06/2026' },
+            { id: 'REL-02', empresa: 'DJT FOCUS LTDA', equipamentoId: '#EQP-0002', date: '08/04/2026' },
+            { id: 'REL-07', empresa: 'DJT FOCUS LTDA', equipamentoId: '#EQP-0002', date: '07/05/2026' },
+            { id: 'REL-03', empresa: 'DJT FOCUS LTDA', equipamentoId: '#EQP-0002', date: '07/03/2026' }
+        ];
+        const result = filterReports(unSortedReports, 'DJT FOCUS LTDA', '#EQP-0002', []);
+        expect(result.map(r => r.id)).toEqual(['REL-08', 'REL-07', 'REL-05', 'REL-03', 'REL-02']);
+    });
 });
 
 describe('Reports Service - Exibição Estrita de Técnicos (Dual-Technician Display)', () => {
