@@ -1087,9 +1087,8 @@
                         </div>
                         <div class="col-span-8 flex items-center justify-between pl-1 pr-1">
                             <span id="header-assets-selected-company-title" class="text-xs font-black uppercase tracking-wider text-[#1f1f1f]">ATIVOS TÉCNICOS</span>
-                            <button onclick="window.openUnifiedRegistrationModal()" class="bg-primary hover:brightness-105 text-on-primary font-bold py-1.5 px-3 rounded-xl flex items-center gap-1.5 text-xs shadow-md transition-all cursor-pointer">
-                                <span class="material-symbols-outlined text-[18px]">add</span>
-                                Novo
+                            <button onclick="window.openUnifiedRegistrationModal()" class="bg-primary hover:brightness-105 text-on-primary font-bold w-8 h-8 rounded-xl flex items-center justify-center text-xs shadow-md transition-all cursor-pointer" title="Novo Cadastro">
+                                <span class="material-symbols-outlined text-[20px]">add</span>
                             </button>
                         </div>
                     </div>
@@ -1167,7 +1166,7 @@
                 <a id="nav-dashboard" onclick="window.switchView('dashboard')"
                     class="nav-item-active flex flex-col items-center justify-center text-center py-4 px-3 rounded-[20px] min-h-[82px] text-on-surface-variant hover:bg-surface-container transition-all duration-200 cursor-pointer">
                     <span class="material-symbols-outlined text-[30px]">grid_view</span>
-                    <span class="text-[11px] font-bold uppercase tracking-wider mt-1.5 leading-tight">GESTÃO OPERACIONAL</span>
+                    <span class="text-[11px] font-bold uppercase tracking-wider mt-1.5 leading-tight">PROGRAMAÇÃO</span>
                 </a>
                 <a id="nav-reports" onclick="window.switchView('reports')"
                     class="flex flex-col items-center justify-center text-center py-4 px-3 rounded-[20px] min-h-[82px] text-on-surface-variant hover:bg-surface-container transition-all duration-200 cursor-pointer">
@@ -1425,12 +1424,12 @@
 
         <!-- MOBILE BOTTOM NAVIGATION (WARM CREAM THEME) -->
         <nav id="mobile-bottom-nav" class="fixed bottom-0 left-0 right-0 z-50 bg-[#fff8e0]/95 backdrop-blur-md border-t border-[#e6d5a8] flex md:hidden items-center justify-around px-2 py-1.5 shadow-md safe-bottom select-none">
-            <!-- 1. Gestão Operacional -->
+            <!-- 1. Programação -->
             <button id="mobile-nav-dashboard" onclick="window.switchView('dashboard')" class="mobile-nav-btn mobile-nav-active flex flex-col items-center justify-center flex-1 py-1 px-1 rounded-xl transition-all duration-200 cursor-pointer">
                 <div class="icon-wrap w-10 h-7 flex items-center justify-center rounded-lg">
                     <span class="material-symbols-outlined text-[22px]">grid_view</span>
                 </div>
-                <span class="text-[9px] font-bold uppercase tracking-tight text-center leading-tight mt-0.5">Gestão<br>Operacional</span>
+                <span class="text-[9px] font-bold uppercase tracking-tight text-center leading-tight mt-0.5">Programação</span>
             </button>
 
             <!-- 2. Relatórios -->
