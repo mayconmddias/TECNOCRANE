@@ -59,15 +59,15 @@ export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedC
         title.innerText = searchTerm.length > 0 ? `BUSCA: "${searchTerm.toUpperCase()}"` : "AGENDA DO MÊS";
     }
     thead.innerHTML = `
-        <tr class="bg-surface-container border-b border-outline-variant sticky top-0 z-10">
-            <th class="py-stack_sm px-card_padding text-label-md text-on-surface-variant uppercase tracking-wider text-left col-empresa">EMPRESA</th>
-            <th class="py-stack_sm px-card_padding text-label-md text-on-surface-variant uppercase tracking-wider text-left col-equipamento">ID EQUIPAMENTO</th>
-            <th class="py-stack_sm px-card_padding text-label-md text-on-surface-variant uppercase tracking-wider text-left col-tipo">TIPO</th>
-            <th class="py-stack_sm px-card_padding text-label-md text-on-surface-variant uppercase tracking-wider text-left col-local">LOCALIZAÇÃO</th>
-            <th class="py-stack_sm px-card_padding text-label-md text-on-surface-variant uppercase tracking-wider text-left col-data">PROX. INSPEÇÃO</th>
-            <th class="py-stack_sm px-card_padding text-label-md text-on-surface-variant uppercase tracking-wider text-left col-semana">DIA SEMANA</th>
-            <th class="py-stack_sm px-card_padding text-label-md text-on-surface-variant uppercase tracking-wider text-left col-tecnico">TÉCNICO</th>
-            <th class="py-stack_sm px-card_padding text-label-md text-on-surface-variant uppercase tracking-wider text-right col-acoes">AÇÕES</th>
+        <tr class="bg-[#fff8e0] border-b border-[#e6d5a8] sticky top-0 z-10 text-[#1f1f1f] select-none">
+            <th class="py-2.5 px-3 text-[11px] font-extrabold uppercase tracking-wider text-[#1f1f1f] text-left">EMPRESA</th>
+            <th class="py-2.5 px-3 text-[11px] font-extrabold uppercase tracking-wider text-[#1f1f1f] text-left whitespace-nowrap">ID</th>
+            <th class="py-2.5 px-3 text-[11px] font-extrabold uppercase tracking-wider text-[#1f1f1f] text-left">ATIVO</th>
+            <th class="py-2.5 px-3 text-[11px] font-extrabold uppercase tracking-wider text-[#1f1f1f] text-left">LOCALIZAÇÃO</th>
+            <th class="py-2.5 px-3 text-[11px] font-extrabold uppercase tracking-wider text-[#1f1f1f] text-left whitespace-nowrap">PROX. INSPEÇÃO</th>
+            <th class="py-2.5 px-3 text-[11px] font-extrabold uppercase tracking-wider text-[#1f1f1f] text-left whitespace-nowrap">DIA SEMANA</th>
+            <th class="py-2.5 px-3 text-[11px] font-extrabold uppercase tracking-wider text-[#1f1f1f] text-left">NOME DOS TÉCNICOS</th>
+            <th class="py-2.5 px-3 text-[11px] font-extrabold uppercase tracking-wider text-[#1f1f1f] text-right">AÇÕES</th>
         </tr>
     `;
 
@@ -250,58 +250,67 @@ export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedC
     }
 
     // Renderiza Desktop Table
-    filtered.forEach(event => {
-        const tr = document.createElement('tr');
-        tr.className = "bg-surface hover:bg-surface-container transition-all duration-200 group border-b border-outline";
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-zinc-500 uppercase font-bold text-xs">Nenhum agendamento encontrado para o mês selecionado</td></tr>`;
+    } else {
+        filtered.forEach(event => {
+            const tr = document.createElement('tr');
+            tr.className = "hover:bg-[#fffdf7] border-b border-[#e6d5a8]/60 transition-colors text-[11px] text-[#1f1f1f] cursor-pointer group";
+            tr.onclick = (e) => {
+                if (!e.target.closest('button') && typeof window.openEditModal === 'function') {
+                    window.openEditModal(e, event.id);
+                }
+            };
 
-        const eventDate = new Date(event.date + 'T00:00:00');
-        eventDate.setHours(0, 0, 0, 0);
-        const diffDays = Math.round((eventDate - today) / (1000 * 60 * 60 * 24));
+            const eventDate = new Date(event.date + 'T00:00:00');
+            eventDate.setHours(0, 0, 0, 0);
+            const diffDays = Math.round((eventDate - today) / (1000 * 60 * 60 * 24));
 
-        let dateColor = "text-[#15803d] font-bold";
-        if (event.status === 'NAO_REALIZADO' || diffDays <= 0) {
-            dateColor = "text-red-600 font-bold";
-        } else if (diffDays >= 1 && diffDays <= 7) {
-            dateColor = "text-[#d97706] font-bold";
-        }
+            let dateColor = "text-[#15803d] font-bold";
+            if (event.status === 'NAO_REALIZADO' || diffDays <= 0) {
+                dateColor = "text-red-600 font-bold";
+            } else if (diffDays >= 1 && diffDays <= 7) {
+                dateColor = "text-[#d97706] font-bold";
+            }
 
-        const displayDate = formatDateToDisplay(eventDate);
-        const dayNames = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO'];
-        const dayOfWeek = dayNames[eventDate.getDay()];
+            const displayDate = formatDateToDisplay(eventDate);
+            const dayNames = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO'];
+            const dayOfWeek = dayNames[eventDate.getDay()] || '';
 
-        const eqId = String(event.equipamento || event.id || '').trim().toUpperCase();
-        const matchingAsset = (allAssetsList || []).find(a => String(a.id || '').trim().toUpperCase() === eqId) ||
-                              (typeof assets !== 'undefined' && Array.isArray(assets) ? assets.find(a => String(a.id || '').trim().toUpperCase() === eqId) : null);
-        const displayTipo = (event.tipo && event.tipo !== 'N/A')
-            ? event.tipo
-            : (matchingAsset ? (matchingAsset.tipo || matchingAsset.nome || 'N/A') : 'N/A');
-        const displayLocal = (event.local && event.local !== 'SETOR OPERACIONAL')
-            ? event.local
-            : (matchingAsset ? (matchingAsset.local || 'SETOR OPERACIONAL') : 'SETOR OPERACIONAL');
+            const eqId = String(event.equipamento || event.id || '').trim().toUpperCase();
+            const matchingAsset = (allAssetsList || []).find(a => String(a.id || '').trim().toUpperCase() === eqId) ||
+                                  (typeof assets !== 'undefined' && Array.isArray(assets) ? assets.find(a => String(a.id || '').trim().toUpperCase() === eqId) : null);
+            const displayTipo = (event.tipo && event.tipo !== 'N/A')
+                ? event.tipo
+                : (matchingAsset ? (matchingAsset.tipo || matchingAsset.nome || 'N/A') : 'N/A');
+            const displayLocal = (event.local && event.local !== 'SETOR OPERACIONAL')
+                ? event.local
+                : (matchingAsset ? (matchingAsset.local || 'SETOR OPERACIONAL') : 'SETOR OPERACIONAL');
 
-        let displayTecnicos = event.tecnico || '';
-        if (!displayTecnicos && Array.isArray(event.tecnicos) && event.tecnicos.length > 0) {
-            displayTecnicos = event.tecnicos.join(' | ');
-        }
-        displayTecnicos = displayTecnicos ? displayTecnicos.toUpperCase() : '---';
+            let displayTecnicos = event.tecnico || '';
+            if (!displayTecnicos && Array.isArray(event.tecnicos) && event.tecnicos.length > 0) {
+                displayTecnicos = event.tecnicos.join(' | ');
+            }
+            displayTecnicos = displayTecnicos ? displayTecnicos.toUpperCase() : '---';
 
-        tr.innerHTML = `
-            <td class="py-stack_sm px-card_padding text-body-md uppercase text-on-surface col-empresa truncate">${event.empresa}</td>
-            <td class="py-stack_sm px-card_padding font-bold text-body-md uppercase transition-all duration-200 col-equipamento text-on-surface whitespace-nowrap">${event.equipamento}</td>
-            <td class="py-stack_sm px-card_padding text-body-md uppercase text-on-surface-variant col-tipo truncate">${displayTipo}</td>
-            <td class="py-stack_sm px-card_padding text-body-md uppercase text-on-surface-variant col-local truncate">${displayLocal}</td>
-            <td class="py-stack_sm px-card_padding text-body-md font-bold ${dateColor} col-data whitespace-nowrap">
-                ${displayDate}
-                ${event.status === 'NAO_REALIZADO' ? '<br><span class="text-label-md text-error uppercase">NÃO REALIZADO</span>' : ''}
-            </td>
-            <td class="py-stack_sm px-card_padding text-body-md text-on-surface-variant uppercase col-semana whitespace-nowrap">${dayOfWeek}</td>
-            <td class="py-stack_sm px-card_padding text-body-md font-semibold text-on-surface uppercase col-tecnico whitespace-nowrap">${displayTecnicos}</td>
-            <td class="py-stack_sm px-card_padding text-right col-acoes">
-                <button onclick="window.openEditModal(event, '${event.id}')" class="text-on-surface-variant hover:text-on-surface p-1 transition-all duration-200">
-                    <span class="material-symbols-outlined text-headline-md text-on-surface-variant">edit</span>
-                </button>
-            </td>
-        `;
-        tbody.appendChild(tr);
-    });
+            tr.innerHTML = `
+                <td class="py-2.5 px-3 font-bold uppercase truncate max-w-[180px] text-zinc-900">${String(event.empresa || '---').toUpperCase()}</td>
+                <td class="py-2.5 px-3 whitespace-nowrap"><span class="font-mono font-bold text-[#fa520f] bg-[#fff0c2] px-1.5 py-0.5 rounded border border-[#e6d5a8] text-[10.5px] leading-none">${event.equipamento || event.id}</span></td>
+                <td class="py-2.5 px-3 font-bold uppercase truncate max-w-[160px] text-zinc-900">${displayTipo}</td>
+                <td class="py-2.5 px-3 uppercase truncate max-w-[160px] text-zinc-600 font-medium">${displayLocal}</td>
+                <td class="py-2.5 px-3 whitespace-nowrap font-bold ${dateColor}">
+                    ${displayDate}
+                    ${event.status === 'NAO_REALIZADO' ? '<br><span class="text-[9px] font-black text-red-600 uppercase">NÃO REALIZADO</span>' : ''}
+                </td>
+                <td class="py-2.5 px-3 whitespace-nowrap uppercase font-semibold text-zinc-700">${dayOfWeek}</td>
+                <td class="py-2.5 px-3 whitespace-nowrap uppercase font-semibold text-zinc-800">${displayTecnicos}</td>
+                <td class="py-2.5 px-3 text-right whitespace-nowrap">
+                    <button onclick="window.openEditModal(event, '${event.id}')" class="text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 p-1 rounded-lg transition-colors cursor-pointer border border-zinc-200" title="Editar Agendamento">
+                        <span class="material-symbols-outlined text-[18px] pointer-events-none">edit</span>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
 }

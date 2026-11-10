@@ -182,6 +182,7 @@ window.renderCompanies = renderCompanies;
 window.toggleCalendarVisibility = function(isVisible) {
     const calendarSection = document.getElementById('calendar-card-section');
     const assetsContainer = document.getElementById('assets-desktop-container') || document.getElementById('operational-assets-card-section');
+    const tableContainer = document.getElementById('assets-desktop-table-container');
     const checkbox = document.getElementById('toggle-calendar-checkbox');
 
     if (checkbox && checkbox.checked !== isVisible) {
@@ -196,19 +197,57 @@ window.toggleCalendarVisibility = function(isVisible) {
         }
     }
 
-    if (assetsContainer) {
+    const containers = [assetsContainer, tableContainer].filter(Boolean);
+    containers.forEach(c => {
         if (isVisible) {
-            assetsContainer.classList.remove('max-h-[calc(100vh-100px)]');
-            assetsContainer.classList.add('max-h-[calc(100vh-340px)]');
+            c.classList.remove('max-h-[calc(100vh-100px)]');
+            c.classList.add('max-h-[calc(100vh-340px)]');
         } else {
-            assetsContainer.classList.remove('max-h-[calc(100vh-340px)]');
-            assetsContainer.classList.add('max-h-[calc(100vh-100px)]');
+            c.classList.remove('max-h-[calc(100vh-340px)]');
+            c.classList.add('max-h-[calc(100vh-100px)]');
         }
-    }
+    });
 
     try {
         localStorage.setItem('crane_show_operational_calendar', isVisible ? 'true' : 'false');
     } catch (e) {}
+};
+
+// --- TOGGLE VISIBILIDADE DO MODO LISTA / CARDS DA PROGRAMAÇÃO ---
+window.togglePlanningViewMode = function(isList) {
+    const cardsContainer = document.getElementById('assets-desktop-container');
+    const tableContainer = document.getElementById('assets-desktop-table-container');
+    const checkbox = document.getElementById('toggle-list-view-checkbox');
+
+    if (checkbox && checkbox.checked !== isList) {
+        checkbox.checked = isList;
+    }
+
+    if (cardsContainer && tableContainer) {
+        if (isList) {
+            cardsContainer.classList.add('hidden');
+            tableContainer.classList.remove('hidden');
+            tableContainer.classList.add('flex');
+        } else {
+            cardsContainer.classList.remove('hidden');
+            tableContainer.classList.add('hidden');
+            tableContainer.classList.remove('flex');
+        }
+    }
+
+    try {
+        localStorage.setItem('crane_planning_view_mode', isList ? 'list' : 'cards');
+    } catch (e) {}
+};
+
+window.initPlanningViewMode = function() {
+    try {
+        const saved = localStorage.getItem('crane_planning_view_mode');
+        const isList = saved === 'list';
+        window.togglePlanningViewMode(isList);
+    } catch (e) {
+        window.togglePlanningViewMode(false);
+    }
 };
 
 window.initCalendarVisibility = function() {
@@ -219,6 +258,7 @@ window.initCalendarVisibility = function() {
     } catch (e) {
         window.toggleCalendarVisibility(true);
     }
+    window.initPlanningViewMode();
 };
 
 // --- VIEW NAVIGATION ---

@@ -1061,11 +1061,18 @@
                         <button onclick="window.changeFilterMonth(1)" class="material-symbols-outlined text-[18px] text-[#1f1f1f] hover:text-primary transition-colors cursor-pointer flex items-center justify-center p-0.5">chevron_right</button>
                     </div>
 
-                    <!-- CHECKBOX DO CALENDÁRIO (SEM TEXTO "PROGRAMAÇÃO OPERACIONAL" CONFORME PEDIDO) -->
+                    <!-- CHECKBOX DO CALENDÁRIO -->
                     <label class="flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-bold text-[#6a6a6a] uppercase ml-1" title="Exibir / Ocultar Calendário">
                         <input type="checkbox" id="toggle-calendar-checkbox" checked onchange="window.toggleCalendarVisibility(this.checked)"
                             class="w-4 h-4 rounded border-[#e6d5a8] text-primary focus:ring-primary accent-primary cursor-pointer">
                         <span>Calendário</span>
+                    </label>
+
+                    <!-- CHECKBOX DO MODO LISTA -->
+                    <label class="flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-bold text-[#6a6a6a] uppercase ml-2" title="Alternar entre Cards e Lista">
+                        <input type="checkbox" id="toggle-list-view-checkbox" onchange="window.togglePlanningViewMode(this.checked)"
+                            class="w-4 h-4 rounded border-[#e6d5a8] text-primary focus:ring-primary accent-primary cursor-pointer">
+                        <span>Lista</span>
                     </label>
                     <span id="selected-company-name-container" class="hidden"></span>
                 </div>
@@ -1255,11 +1262,15 @@
                             <!-- Injetado dinamicamente via ui-render.js -->
                         </div>
 
-                        <!-- Fallback de tabela invisível para retrocompatibilidade -->
-                        <table class="hidden">
-                            <thead id="assets-thead"></thead>
-                            <tbody id="assets-tbody"></tbody>
-                        </table>
+                        <!-- CONTAINER DA TABELA / LISTA DOS AGENDAMENTOS (QUANDO O CHECKBOX 'LISTA' FOR ATIVADO) -->
+                        <div id="assets-desktop-table-container" class="hidden flex-1 min-h-0 bg-white border border-[#e6d5a8] rounded-2xl shadow-sm overflow-hidden flex-col transition-all duration-300">
+                            <div class="overflow-y-auto flex-1 h-full">
+                                <table class="w-full text-left border-collapse">
+                                    <thead id="assets-thead"></thead>
+                                    <tbody id="assets-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
 
                         <!-- CARD DO CALENDÁRIO COMPACTO (FIXADO NA BASE DA TELA) -->
                         <section id="calendar-card-section" class="bg-surface border border-outline flex flex-col rounded-xl shadow-sm overflow-hidden shrink-0 transition-all duration-300">
