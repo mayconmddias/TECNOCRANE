@@ -2301,9 +2301,7 @@ export function updateCorretivaItemsCount() {
         counterEl.innerText = `${count} ${count === 1 ? 'ITEM SELECIONADO' : 'ITENS SELECIONADOS'}`;
     }
     if (confirmBtn) {
-        confirmBtn.innerText = count > 0 
-            ? `INICIAR INSPEÇÃO CORRETIVA (${count} ${count === 1 ? 'ITEM' : 'ITENS'})`
-            : 'INICIAR INSPEÇÃO CORRETIVA';
+        confirmBtn.innerText = 'INICIAR';
     }
 }
 

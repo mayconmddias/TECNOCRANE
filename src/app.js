@@ -3,7 +3,7 @@ import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay, hashPasswor
 import { renderCompanies as renderCompaniesUI, renderAssetsTable, getDefaultAssetImage, getDefaultCompanyLogo } from './ui-render.js';
 import { renderObservationBlock, renderNode, renderCustomChecklistItemRow, renderResponsibleCard } from './checklist-render.js';
 import { mountChecklistForm, getFormRoot, collectFormData } from './checklist-ui.js';
-import { createInspectionDocument, validateBeforeSend, validateTechniciansSelected, mergeLegacyReport } from './checklist-state.js';
+import { createInspectionDocument, validateBeforeSend, validateTechniciansSelected, mergeLegacyReport, shouldReconcileTemplateSchema } from './checklist-state.js';
 import { acquireLock, releaseLock, getCurrentUser, setCurrentUser } from './locks.js';
 import { getTenantCode, isSupabaseConfigured, getActiveSupabase } from './supabase.js';
 import { CHECKLIST_SCHEMA } from './checklist-schema.js';
@@ -910,7 +910,7 @@ let currentChecklistLockKey = null;
  * imediatamente para preenchimento, preservando 100% das respostas já salvas anteriormente.
  */
 function resolveAndReconcileTemplateForInspection(doc, context) {
-    if (!doc) return;
+    if (!shouldReconcileTemplateSchema(doc, context)) return;
 
     const candId = doc.templateId || context?.templateId || doc.responses?.__meta?.templateId;
     const candName = doc.templateName || context?.templateName || doc.responses?.__meta?.templateName;

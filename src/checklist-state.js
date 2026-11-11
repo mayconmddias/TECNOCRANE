@@ -516,3 +516,16 @@ export function mergeLegacyReport(report) {
         revisions: revisions,
     };
 }
+
+/**
+ * Determina se o documento em edição deve reconciliar sua estrutura com o modelo padrão vivo.
+ * Inspeções CORRETIVA que já possuem schema filtrado ou personalizado não devem ser sobrescritas.
+ */
+export function shouldReconcileTemplateSchema(doc, context = null) {
+    if (!doc) return false;
+    const docType = String(doc.type || context?.tipo || '').trim().toUpperCase();
+    if (docType === 'CORRETIVA' && Array.isArray(doc.schema) && doc.schema.length > 0) {
+        return false;
+    }
+    return true;
+}

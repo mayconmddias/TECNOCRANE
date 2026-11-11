@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CHECKLIST_SCHEMA, walkChecklistFields, createEmptyResponses } from './checklist-schema.js';
 import { renderNode } from './checklist-render.js';
-import { createInspectionDocument, mergeLegacyReport, applyFormData } from './checklist-state.js';
+import { createInspectionDocument, mergeLegacyReport, applyFormData, shouldReconcileTemplateSchema } from './checklist-state.js';
 
 describe('Checklist Schema e Renderização Unificada', () => {
     it('deve ter seções 5.6 e 6.6 com título limpo (sem texto fixo NBR ISO 4309)', () => {
@@ -210,5 +210,40 @@ describe('Checklist Schema e Renderização Unificada', () => {
         expect(merged.responses['1.alinhamento'].status).toBe('OK');
         expect(Array.isArray(merged.schema)).toBe(true);
         expect(merged.schema[0].id).toBe('1');
+    });
+
+    it('shouldReconcileTemplateSchema não deve sobrescrever schema personalizado ou filtrado em inspeção CORRETIVA', () => {
+        const customCorretivaDoc = createInspectionDocument(
+            {
+                tipo: 'CORRETIVA',
+                empresa: 'SAS TRANSPORTE',
+                equipamentoId: '#EQP-0004',
+                templateId: 'tpl_ponte_dupla',
+                schema: [
+                    {
+                        id: 'corretiva_custom_123',
+                        title: 'TROCA DOS CONTATORES DO PAINEL ELETRICO',
+                        isCustomCorretiva: true,
+                        level: 1,
+                        children: [
+                            { id: 'corretiva_custom_123_obs', label: 'OBSERVAÇÕES E PARECER TÉCNICO', fieldType: 'textarea' }
+                        ]
+                    }
+                ]
+            }
+        );
+
+        expect(shouldReconcileTemplateSchema(customCorretivaDoc, { tipo: 'CORRETIVA' })).toBe(false);
+
+        const preventivaDoc = createInspectionDocument({
+            tipo: 'PREVENTIVA',
+            templateId: 'tpl_ponte_dupla',
+            schema: [{ id: '1', title: '1 SISTEMA', children: [] }]
+        });
+        expect(shouldReconcileTemplateSchema(preventivaDoc, { tipo: 'PREVENTIVA' })).toBe(true);
+
+        const rendered = renderNode(customCorretivaDoc.schema[0], customCorretivaDoc.schema[0].id, customCorretivaDoc);
+        expect(rendered).toContain('TROCA DOS CONTATORES DO PAINEL ELETRICO');
+        expect(rendered).toContain('corretiva_custom_123_obs');
     });
 });
