@@ -2868,7 +2868,9 @@ function renderReportsView() {
                 infoBox.className = "flex-1 min-w-0 text-left text-[12px] leading-tight space-y-1 text-[#4a4a4a]";
                 infoBox.innerHTML = `
                     <div class="flex items-center justify-between gap-1">
-                        <span class="font-mono font-bold text-[#fa520f] bg-[#fff0c2] px-1.5 py-0.5 rounded border border-[#e6d5a8] text-[11px] leading-none">${repNumber}</span>
+                        <div class="text-[#4a4a4a] truncate font-medium flex items-center gap-1.5">
+                            Rel: <span class="font-mono font-bold text-[#fa520f] bg-[#fff0c2] px-1.5 py-0.5 rounded border border-[#e6d5a8] text-[11px] leading-none">${repNumber}</span>
+                        </div>
                         <button onclick="window.toggleActionMenu(event, '${report.id}')" class="text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 p-1 rounded-lg transition-colors cursor-pointer flex items-center justify-center border border-zinc-200" title="Ações">
                             <span class="material-symbols-outlined text-[18px] pointer-events-none">more_vert</span>
                         </button>
@@ -2961,7 +2963,7 @@ function renderReportsView() {
                     card.className = "bg-white text-zinc-900 rounded-2xl p-4 shadow-md border border-zinc-200/90 flex flex-col gap-3";
                     card.innerHTML = `
                         <div class="flex items-center justify-between border-b border-zinc-100 pb-2">
-                            <span class="font-mono font-black text-sm text-zinc-950">${repNumber}</span>
+                            <span class="text-zinc-600 font-semibold text-xs">Rel: <span class="font-mono font-black text-sm text-zinc-950">${repNumber}</span></span>
                             <span class="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase border ${typeBadgeClass}">${typeLabel}</span>
                         </div>
                         <div class="text-[12px] space-y-1 text-zinc-700 font-semibold">

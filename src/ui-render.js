@@ -237,9 +237,9 @@ export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedC
         const infoBox = document.createElement('div');
         infoBox.className = "flex-1 min-w-0 text-left text-[12px] leading-tight space-y-1 text-[#4a4a4a]";
         infoBox.innerHTML = `
-            <div class="font-bold text-[#1f1f1f] text-[13px] truncate leading-tight">Ativo: ${displayNome}</div>
-            <div class="text-[#1f1f1f] font-semibold flex items-center gap-1.5">ID: <span class="font-mono font-bold text-[#fa520f] bg-[#fff0c2] px-1.5 py-0.5 rounded border border-[#e6d5a8] text-[11px] leading-none">${event.equipamento || event.id}</span></div>
-            <div class="text-[#4a4a4a] truncate font-medium">Empresa: <span class="text-[#1f1f1f] font-bold uppercase">${(event.empresa || '---').toUpperCase()}</span></div>
+            <div class="font-bold text-[#1f1f1f] text-[13px] truncate leading-tight">Empresa: ${(event.empresa || '---').toUpperCase()}</div>
+            <div class="text-[#4a4a4a] truncate font-medium">Ativo: <span class="text-[#1f1f1f] font-semibold uppercase">${displayNome}</span></div>
+            <div class="text-[#4a4a4a] font-medium flex items-center gap-1.5">ID: <span class="font-mono font-bold text-[#fa520f] bg-[#fff0c2] px-1.5 py-0.5 rounded border border-[#e6d5a8] text-[11px] leading-none">${event.equipamento || event.id}</span></div>
             <div class="text-[#4a4a4a] truncate font-medium">Local: <span class="text-[#1f1f1f] font-semibold uppercase">${displayLocal}</span></div>
             <div class="text-[#4a4a4a] truncate font-medium">Técnicos: <span class="text-[#1f1f1f] font-semibold uppercase">${displayTecnicos}</span></div>
         `;
