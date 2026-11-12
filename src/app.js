@@ -5032,7 +5032,9 @@ window.saveUnifiedRegistration = async function() {
         const searchId = (isEdit && oldId) ? oldId : id;
         const existingAsset = allAssetsList.find(a => (isEdit && oldId ? a.id === oldId : a.id === id) && (!a.empresa || !empresa || a.empresa.toLowerCase() === empresa.toLowerCase()))
             || allAssetsList.find(a => a.id === searchId);
-        const fotoVal = window.currentAssetFotoBase64 !== null ? window.currentAssetFotoBase64 : (existingAsset?.foto || existingAsset?.photo || existingAsset?.imagemUrl || "");
+        const fotoVal = window.currentAssetFotoBase64 !== null
+            ? window.currentAssetFotoBase64
+            : (existingAsset?.foto || existingAsset?.photo || existingAsset?.imagemUrl || existingAsset?.custom_fields?.foto || "");
 
         // Sincroniza campos dinâmicos preenchidos no template para as propriedades base do ativo
         let resolvedCapacidade = capPrincipalRaw || "";
@@ -5068,6 +5070,9 @@ window.saveUnifiedRegistration = async function() {
 
         const assetData = prepareAssetPayload(baseAsset, selectedTemplate, customFields, false);
         assetData.foto = fotoVal;
+        if (window.currentAssetFotoBase64 === "") {
+            assetData._photoRemoved = true;
+        }
         if (assetData.custom_fields) {
             assetData.custom_fields.foto = fotoVal;
         }

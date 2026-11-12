@@ -62,7 +62,7 @@ export async function reserveNextAssetId(tenantCode = '001', localDbInstance = n
         }
     }
 
-    // 2. Consulta em tempo real de todos os IDs gravados na nuvem (Supabase all_assets)
+    // 2. Consulta em tempo real de todos os IDs gravados na nuvem (Supabase all_assets, scheduled_inspections, open_orders, finalized_reports)
     if (isSupabaseConfigured && supabase && typeof supabase.from === 'function') {
         try {
             const { data: cloudAssets, error: fetchErr } = await supabase.from('all_assets').select('id');
@@ -76,6 +76,24 @@ export async function reserveNextAssetId(tenantCode = '001', localDbInstance = n
         } catch (e) {
             console.warn('CRANE ASSETS: Falha ao consultar IDs remotos na tabela all_assets:', e);
         }
+
+        // Evita reutilizar IDs históricos que já existam em agendamentos, ordens ou relatórios
+        for (const [tableName, cols] of [
+            ['scheduled_inspections', 'equipamento'],
+            ['open_orders', 'equipamentoid, equipamento'],
+            ['finalized_reports', 'equipamentoid, equipamento']
+        ]) {
+            try {
+                const { data: rows, error: err } = await supabase.from(tableName).select(cols);
+                if (!err && Array.isArray(rows)) {
+                    for (const row of rows) {
+                        const eqId = row && (row.equipamento || row.equipamentoid || row.equipamentoId);
+                        const num = eqId ? parseAssetSequenceNumber(String(eqId)) : null;
+                        if (num && num > maxFound) maxFound = num;
+                    }
+                }
+            } catch (_) { /* best-effort para tabelas históricas */ }
+        }
     }
 
     // 3. Varredura completa de todas as fontes locais em memória e armazenamento local
@@ -88,6 +106,16 @@ export async function reserveNextAssetId(tenantCode = '001', localDbInstance = n
         }
         if (typeof globalThis !== 'undefined' && Array.isArray(globalThis.allAssetsList)) {
             candidates.push(...globalThis.allAssetsList);
+        }
+        if (typeof window !== 'undefined') {
+            ['eventsList', 'events', 'openOrders', 'finalizedReports'].forEach(arrName => {
+                if (Array.isArray(window[arrName])) {
+                    window[arrName].forEach(it => {
+                        const eqId = it && (it.equipamento || it.equipamentoId || it.equipamentoid);
+                        if (eqId) candidates.push({ id: eqId });
+                    });
+                }
+            });
         }
 
         // Do localStorage de ativos (todas as chaves históricas e com prefixo de tenant)

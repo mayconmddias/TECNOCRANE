@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { findMatchingAssetForEvent } from '../../ui-render.js';
 import {
     calculateRecurringDate,
     buildScheduledEventId,
@@ -187,6 +188,34 @@ describe('Módulo de Agendamento - formatDateCardDisplay', () => {
     it('deve tratar entradas inválidas de forma segura', () => {
         expect(formatDateCardDisplay('')).toEqual({ dateFormatted: '--/--/----', weekday: '---' });
         expect(formatDateCardDisplay('invalido')).toEqual({ dateFormatted: '--/--/----', weekday: '---' });
+    });
+});
+
+describe('Módulo de Agendamento - findMatchingAssetForEvent (Isolamento por Empresa)', () => {
+    const candidateAssets = [
+        { id: '#EQP-0002', empresa: 'SAS Transporte', nome: 'TALHA ELETRICA', tipo: 'TALHA ELETRICA' },
+        { id: '#EQP-0003', empresa: 'SAS Transporte', nome: 'PONTE ROLANTE VIGA DUPLA', tipo: 'PONTE ROLANTE VIGA DUPLA' }
+    ];
+
+    it('nunca deve retornar ativo de outra empresa quando houver colisão de ID', () => {
+        const djtEvent = {
+            id: '#EQP-0002-2026-11-11',
+            empresa: 'DJT FOCUS LTDA',
+            equipamento: '#EQP-0002',
+            tipo: 'GUINDASTE DE COLUNA'
+        };
+        const matched = findMatchingAssetForEvent(djtEvent, candidateAssets);
+        expect(matched).toBeUndefined();
+    });
+
+    it('deve retornar o ativo correspondente quando ID e empresa coincidirem (case-insensitive)', () => {
+        const sasEvent = {
+            id: '#EQP-0003-2026-11-02',
+            empresa: 'sas transporte',
+            equipamento: '#EQP-0003'
+        };
+        const matched = findMatchingAssetForEvent(sasEvent, candidateAssets);
+        expect(matched?.nome).toBe('PONTE ROLANTE VIGA DUPLA');
     });
 });
 

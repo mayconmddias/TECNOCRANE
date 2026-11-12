@@ -1,6 +1,47 @@
 import { monthsMap, monthNames, parseAssetDate, formatDateToDisplay } from './utils.js';
 import { allAssetsList } from './data.js';
 
+/**
+ * Busca resiliente do ativo cadastrado para um evento de agendamento,
+ * garantindo isolamento estrito por empresa quando o evento possui empresa definida.
+ * @param {object} event
+ * @param {Array} candidateAssets
+ * @returns {object|undefined}
+ */
+export function findMatchingAssetForEvent(event, candidateAssets = []) {
+    if (!event || !Array.isArray(candidateAssets) || candidateAssets.length === 0) return undefined;
+
+    let rawEquip = String(event.equipamento || '').trim();
+    if (!rawEquip && event.id) {
+        rawEquip = event.id.includes('-20') ? event.id.substring(0, event.id.lastIndexOf('-20')) : event.id;
+    }
+    const cleanNormId = rawEquip.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const evEmpresa = (event.empresa || '').trim().toLowerCase();
+
+    // 1ª tentativa: Correspondência por ID normalizado + Empresa
+    let matchingAsset = candidateAssets.find(a => {
+        if (!a || !a.id) return false;
+        const aNormId = String(a.id).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const idMatch = (aNormId && cleanNormId && aNormId === cleanNormId) ||
+                        (String(a.id).trim().toUpperCase() === rawEquip.toUpperCase()) ||
+                        (event.id && String(a.id).trim().toUpperCase() === String(event.id).trim().toUpperCase());
+        if (!idMatch) return false;
+        if (!evEmpresa || !a.empresa) return true;
+        return a.empresa.trim().toLowerCase() === evEmpresa;
+    });
+
+    // 2ª tentativa: Somente se o evento NÃO tiver empresa definida (evita cruzar ativos entre empresas distintas)
+    if (!matchingAsset && !evEmpresa && cleanNormId) {
+        matchingAsset = candidateAssets.find(a => {
+            if (!a || !a.id) return false;
+            const aNormId = String(a.id).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+            return (aNormId && aNormId === cleanNormId) || String(a.id).trim().toUpperCase() === rawEquip.toUpperCase();
+        });
+    }
+
+    return matchingAsset;
+}
+
 export function renderCompanies(containerId, companies, selectedCompany, onSelect) {
     const tbody = document.getElementById(containerId);
     if (!tbody) return;
@@ -150,40 +191,12 @@ export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedC
             weekdayName = dayNames[dateObj.getDay()] || '';
         }
 
-        // Identificação limpa e normalizada do ID do equipamento (ex: '#EQP-0001', 'EQP-0001', ou id composto '#EQP-0001-2026-10-09')
-        let rawEquip = String(event.equipamento || '').trim();
-        if (!rawEquip && event.id) {
-            rawEquip = event.id.includes('-20') ? event.id.substring(0, event.id.lastIndexOf('-20')) : event.id;
-        }
-        const cleanNormId = rawEquip.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const evEmpresa = (event.empresa || '').trim().toLowerCase();
-
         // Obtém a lista atualizada de ativos do sistema priorizando o estado global carregado
         const candidateAssets = (typeof window !== 'undefined' && Array.isArray(window.allAssetsList) && window.allAssetsList.length > 0)
             ? window.allAssetsList
             : (Array.isArray(allAssetsList) && allAssetsList.length > 0 ? allAssetsList : (typeof assets !== 'undefined' && Array.isArray(assets) ? assets : []));
 
-        // Busca resiliente do ativo cadastrado:
-        // 1ª tentativa: Correspondência por ID normalizado + Empresa
-        let matchingAsset = candidateAssets.find(a => {
-            if (!a || !a.id) return false;
-            const aNormId = String(a.id).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-            const idMatch = (aNormId && cleanNormId && aNormId === cleanNormId) ||
-                            (String(a.id).trim().toUpperCase() === rawEquip.toUpperCase()) ||
-                            (event.id && String(a.id).trim().toUpperCase() === String(event.id).trim().toUpperCase());
-            if (!idMatch) return false;
-            if (!evEmpresa || !a.empresa) return true;
-            return a.empresa.trim().toLowerCase() === evEmpresa;
-        });
-
-        // 2ª tentativa: Se não encontrou por empresa exata, busca pelo ID único
-        if (!matchingAsset && cleanNormId) {
-            matchingAsset = candidateAssets.find(a => {
-                if (!a || !a.id) return false;
-                const aNormId = String(a.id).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-                return (aNormId && aNormId === cleanNormId) || String(a.id).trim().toUpperCase() === rawEquip.toUpperCase();
-            });
-        }
+        const matchingAsset = findMatchingAssetForEvent(event, candidateAssets);
 
         const displayNome = (matchingAsset?.nome || matchingAsset?.tipo || event.tipo || 'Equipamento').toUpperCase();
         const displayTipo = (event.tipo && event.tipo !== 'N/A')

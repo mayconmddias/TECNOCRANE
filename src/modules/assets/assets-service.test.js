@@ -341,4 +341,18 @@ describe('Assets Service Unit Tests', () => {
             expect(getAssetTechnicalFields(undefined)).toEqual([]);
         });
     });
+
+    describe('reserveNextAssetId - proteção contra reutilização de IDs históricos', () => {
+        it('deve considerar IDs presentes em window.finalizedReports e window.eventsList além de allAssetsList', async () => {
+            globalThis.window = {
+                allAssetsList: [{ id: '#EQP-0002' }],
+                finalizedReports: [{ id: 'REL - 11', equipamentoId: '#EQP-0004' }],
+                eventsList: [{ id: '#EQP-0003-2026-11-02', equipamento: '#EQP-0003' }]
+            };
+            const res = await reserveNextAssetId('001');
+            expect(res.id).toBe('#EQP-0005');
+            expect(res.sequenceNumber).toBe(5);
+            delete globalThis.window;
+        });
+    });
 });

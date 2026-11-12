@@ -294,15 +294,16 @@ export async function syncKeyToSupabase(key, data) {
             const dbAssets = await dbFetchAll('all_assets');
 
             await Promise.all(uniqueData.map(async a => {
-                let fotoUrl = a.foto || a.photo || a.imagemUrl || '';
+                let fotoUrl = a.foto || a.photo || a.imagemUrl || (a.custom_fields && a.custom_fields.foto) || '';
                 const assetId = a.id || String(Date.now());
                 const cleanId = String(assetId).replace(/\W+/g, '_');
                 const oldAsset = Array.isArray(dbAssets) ? dbAssets.find(oa => oa && String(oa.id).trim() === String(a.id).trim()) : null;
+                const oldPhoto = (oldAsset && ((typeof oldAsset.foto === 'string' && oldAsset.foto.trim()) || (oldAsset.custom_fields && typeof oldAsset.custom_fields.foto === 'string' && oldAsset.custom_fields.foto.trim()))) || '';
 
                 if (typeof fotoUrl === 'string' && fotoUrl.startsWith('data:')) {
                     // Remove foto remota anterior para não duplicar arquivos no storage
-                    if (oldAsset && oldAsset.foto && typeof oldAsset.foto === 'string' && oldAsset.foto.startsWith('http')) {
-                        await deleteStorageFile('crane-app-media', oldAsset.foto);
+                    if (oldPhoto && oldPhoto.startsWith('http')) {
+                        await deleteStorageFile('crane-app-media', oldPhoto);
                     }
                     // Limpa quaisquer duplicatas legadas anteriores com timestamp para este ativo
                     await deleteStorageFilesByPrefix('crane-app-media', 'assets', `asset_${cleanId}_`);
@@ -310,10 +311,16 @@ export async function syncKeyToSupabase(key, data) {
                     const uniqueFileName = `asset_${cleanId}_${Date.now()}`;
                     fotoUrl = await uploadBase64ToStorage('crane-app-media', 'assets', fotoUrl, uniqueFileName);
                     a.foto = fotoUrl;
-                } else if (!fotoUrl && oldAsset && oldAsset.foto && typeof oldAsset.foto === 'string' && oldAsset.foto.startsWith('http')) {
-                    // Foto foi removida pelo usuário no modal
-                    await deleteStorageFile('crane-app-media', oldAsset.foto);
-                    await deleteStorageFilesByPrefix('crane-app-media', 'assets', `asset_${cleanId}_`);
+                } else if (!fotoUrl && oldPhoto && oldPhoto.startsWith('http')) {
+                    if (a._photoRemoved === true) {
+                        // Foto foi explicitamente removida pelo usuário no modal
+                        await deleteStorageFile('crane-app-media', oldPhoto);
+                        await deleteStorageFilesByPrefix('crane-app-media', 'assets', `asset_${cleanId}_`);
+                    } else {
+                        // Preserva a foto existente na nuvem se o objeto local não marcou remoção explícita
+                        a.foto = oldPhoto;
+                        a.custom_fields = { ...(a.custom_fields || {}), foto: oldPhoto };
+                    }
                 }
             }));
 
