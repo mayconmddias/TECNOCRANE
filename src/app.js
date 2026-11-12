@@ -4813,7 +4813,8 @@ window.loadAssetDataForEdit = function() {
                 const matchedTpl = availableTemplates.find(t => {
                     const tNome = (t.nome || '').trim().toLowerCase();
                     const tTipo = (t.tipoEquipamento || '').trim().toLowerCase();
-                    return tNome === assetTipoNorm || tTipo === assetTipoNorm || (assetTipoNorm && tNome && (assetTipoNorm.includes(tNome) || tNome.includes(assetTipoNorm)));
+                    return tNome === assetTipoNorm || tTipo === assetTipoNorm ||
+                           (assetTipoNorm && tNome && (assetTipoNorm === tNome || assetTipoNorm.includes(tNome) || tNome.includes(assetTipoNorm)));
                 });
                 if (matchedTpl) {
                     targetTemplateId = matchedTpl.id;
@@ -4827,6 +4828,11 @@ window.loadAssetDataForEdit = function() {
                 window.handleAssetTemplateChange({ ...(asset.custom_fields || asset.customFields || {}), ...asset });
             } else {
                 window.handleAssetTemplateChange();
+                // Se nenhum template customizado foi casado, garante que o tipo original do ativo seja preservado no input
+                const tipoInput = document.getElementById('reg-ativo-tipo');
+                if (tipoInput && (asset.tipo || asset.nome)) {
+                    tipoInput.value = (asset.tipo || asset.nome).toUpperCase();
+                }
             }
         }
     }

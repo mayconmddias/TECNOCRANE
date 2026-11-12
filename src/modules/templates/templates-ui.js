@@ -1532,9 +1532,8 @@ export function populateAssetTemplateDropdown(selectEl, selectedId = null) {
     if (allOptions.length === 0) {
         html = '<option value="">NENHUM MODELO DE ATIVO CADASTRADO</option>';
     } else {
-        allOptions.forEach((tpl, idx) => {
-            const isSel = (selectedId !== null && selectedId !== undefined && selectedId !== '' && String(tpl.id) === String(selectedId)) || 
-                          ((selectedId === null || selectedId === undefined || selectedId === '') && idx === 0) ? 'selected' : '';
+        allOptions.forEach((tpl) => {
+            const isSel = (selectedId !== null && selectedId !== undefined && selectedId !== '' && String(tpl.id) === String(selectedId)) ? 'selected' : '';
             html += `<option value="${tpl.id}" ${isSel}>${escapeHTML(tpl.nome.toUpperCase())}</option>`;
         });
     }
