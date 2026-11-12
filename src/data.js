@@ -244,7 +244,7 @@ async function processReportImages(reportObj) {
  * Envia alterações de uma chave local para a tabela correspondente no Supabase de forma atômica e não-destrutiva
  */
 export async function syncKeyToSupabase(key, data) {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || isInitialLoad) return;
     try {
         if (key === 'crane_companies') {
             const dbCompanies = await dbFetchAll('companies');
@@ -1270,24 +1270,9 @@ export function setCompanies(newList) {
 
 const initialAssets = [];
 
-// Migração: se o localStorage já possuir dados, atualiza apenas os 8 ativos de referência padrão.
+// Estado inicial síncrono da lista de ativos técnicos em memória (sem disparar sync para a nuvem no boot)
 const storedTechnicalAssets = getStoredData('crane_all_assets', null);
-export let allAssetsList;
-
-if (!storedTechnicalAssets) {
-    allAssetsList = initialAssets;
-    setStoredData('crane_all_assets', allAssetsList);
-} else {
-    allAssetsList = storedTechnicalAssets.map(asset => {
-        const matchingInit = initialAssets.find(init => init.id === asset.id);
-        if (matchingInit) {
-            // Se for um ativo padrão de referência, atualiza-o com a nova especificação técnica completa
-            return matchingInit;
-        }
-        return asset;
-    });
-    setStoredData('crane_all_assets', allAssetsList);
-}
+export let allAssetsList = Array.isArray(storedTechnicalAssets) ? storedTechnicalAssets : [...initialAssets];
 
 export function setAllAssetsList(newList) {
     updateArrayInPlace(allAssetsList, newList || []);
@@ -1442,7 +1427,7 @@ export async function fixConflictingAssetIds() {
     return false;
 }
 
-export const DB_SCHEMA_VERSION = 4;
+export const DB_SCHEMA_VERSION = 5;
 
 export async function checkAndApplySchemaVersion() {
     try {
