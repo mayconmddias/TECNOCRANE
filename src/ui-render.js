@@ -214,7 +214,7 @@ export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedC
         }
 
         const card = document.createElement('div');
-        card.className = "bg-white text-[#1f1f1f] rounded-2xl p-3.5 shadow-sm border border-[#e6d5a8] flex gap-3.5 items-center justify-between cursor-pointer hover:shadow-md transition-all active:scale-[0.99] min-h-[148px] h-[148px]";
+        card.className = "bg-white text-[#1f1f1f] rounded-2xl p-3 md:p-3.5 shadow-sm border border-[#e6d5a8] flex gap-3 md:gap-3.5 items-center justify-between cursor-pointer hover:shadow-md transition-all active:scale-[0.99] min-h-[124px] h-auto md:min-h-[148px] md:h-[148px]";
         card.onclick = (e) => {
             if (typeof window.openEditModal === 'function') {
                 window.openEditModal(e, event.id);
@@ -222,7 +222,7 @@ export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedC
         };
 
         const imgBox = document.createElement('div');
-        imgBox.className = "w-20 h-20 rounded-xl bg-[#fff8e0] flex-shrink-0 overflow-hidden flex items-center justify-center border border-[#e6d5a8]";
+        imgBox.className = "w-16 h-16 md:w-20 md:h-20 rounded-xl bg-[#fff8e0] flex-shrink-0 overflow-hidden flex items-center justify-center border border-[#e6d5a8]";
         
         const imgEl = document.createElement('img');
         imgEl.alt = displayNome;
@@ -237,15 +237,16 @@ export function renderAssetsTable({ tbodyId, theadId, titleId, events, selectedC
         const infoBox = document.createElement('div');
         infoBox.className = "flex-1 min-w-0 text-left text-[12px] leading-tight space-y-1 text-[#4a4a4a]";
         infoBox.innerHTML = `
-            <div class="font-bold text-[#1f1f1f] text-[13px] truncate leading-tight">Empresa: ${(event.empresa || '---').toUpperCase()}</div>
-            <div class="text-[#4a4a4a] truncate font-medium">Ativo: <span class="text-[#1f1f1f] font-semibold uppercase">${displayNome}</span></div>
+            <div class="font-bold text-[#1f1f1f] text-[13px] whitespace-normal break-words md:truncate leading-tight">Empresa: ${(event.empresa || '---').toUpperCase()}</div>
+            <div class="text-[#4a4a4a] whitespace-normal break-words md:truncate font-medium">Ativo: <span class="text-[#1f1f1f] font-semibold uppercase">${displayNome}</span></div>
             <div class="text-[#4a4a4a] font-medium flex items-center gap-1.5">ID: <span class="font-mono font-bold text-[#fa520f] bg-[#fff0c2] px-1.5 py-0.5 rounded border border-[#e6d5a8] text-[11px] leading-none">${event.equipamento || event.id}</span></div>
-            <div class="text-[#4a4a4a] truncate font-medium">Local: <span class="text-[#1f1f1f] font-semibold uppercase">${displayLocal}</span></div>
-            <div class="text-[#4a4a4a] truncate font-medium">Técnicos: <span class="text-[#1f1f1f] font-semibold uppercase">${displayTecnicos}</span></div>
+            <div class="text-[#4a4a4a] whitespace-normal break-words md:truncate font-medium">Local: <span class="text-[#1f1f1f] font-semibold uppercase">${displayLocal}</span></div>
+            <div class="text-[#4a4a4a] whitespace-normal break-words md:truncate font-medium">Técnicos: <span class="text-[#1f1f1f] font-semibold uppercase">${displayTecnicos}</span></div>
+            <div class="inline-flex md:hidden items-center gap-1.5 bg-[#fff8e0] border border-[#e6d5a8] rounded-lg px-2 py-1 mt-1 text-[11px] font-medium text-[#4a4a4a]">Data: <span class="font-bold text-[#1f1f1f]">${formattedDateHyphen}</span> <span class="text-[#1f1f1f] font-semibold">(${weekdayName})</span></div>
         `;
 
         const dateBadge = document.createElement('div');
-        dateBadge.className = "bg-[#fff8e0] border border-[#e6d5a8] rounded-2xl px-3.5 py-3 flex flex-col items-center justify-center shrink-0 min-w-[95px] md:min-w-[105px] shadow-sm select-none text-center";
+        dateBadge.className = "bg-[#fff8e0] border border-[#e6d5a8] rounded-2xl px-3.5 py-3 hidden md:flex flex-col items-center justify-center shrink-0 min-w-[95px] md:min-w-[105px] shadow-sm select-none text-center";
         dateBadge.innerHTML = `
             <span class="text-[11px] font-bold text-zinc-700 leading-none">Data</span>
             <span class="text-[12px] md:text-[13px] font-black text-zinc-900 leading-tight my-1 tracking-tight">${formattedDateHyphen}</span>

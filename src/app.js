@@ -411,49 +411,49 @@ window.switchView = function(view) {
     const headerUsersControls = document.getElementById('header-users-controls');
     if (headerReportsTitles) {
         if (view === 'reports') {
-            headerReportsTitles.classList.remove('hidden');
+            headerReportsTitles.classList.remove('md:hidden');
             headerReportsTitles.classList.add('md:flex');
         } else {
             headerReportsTitles.classList.remove('md:flex');
-            headerReportsTitles.classList.add('hidden');
+            headerReportsTitles.classList.add('md:hidden');
         }
     }
     if (headerAssetsControls) {
         if (view === 'assets') {
-            headerAssetsControls.classList.remove('hidden');
+            headerAssetsControls.classList.remove('md:hidden');
             headerAssetsControls.classList.add('md:flex');
         } else {
             headerAssetsControls.classList.remove('md:flex');
-            headerAssetsControls.classList.add('hidden');
+            headerAssetsControls.classList.add('md:hidden');
         }
     }
     const headerTemplatesControls = document.getElementById('header-templates-controls');
     if (headerUsersControls) {
         if (view === 'users') {
-            headerUsersControls.classList.remove('hidden');
+            headerUsersControls.classList.remove('md:hidden');
             headerUsersControls.classList.add('md:flex');
         } else {
             headerUsersControls.classList.remove('md:flex');
-            headerUsersControls.classList.add('hidden');
+            headerUsersControls.classList.add('md:hidden');
         }
     }
     const headerOrdersControls = document.getElementById('header-orders-controls');
     if (headerTemplatesControls) {
         if (view === 'templates') {
-            headerTemplatesControls.classList.remove('hidden');
+            headerTemplatesControls.classList.remove('md:hidden');
             headerTemplatesControls.classList.add('md:flex');
         } else {
             headerTemplatesControls.classList.remove('md:flex');
-            headerTemplatesControls.classList.add('hidden');
+            headerTemplatesControls.classList.add('md:hidden');
         }
     }
     if (headerOrdersControls) {
         if (view === 'open-orders') {
-            headerOrdersControls.classList.remove('hidden');
+            headerOrdersControls.classList.remove('md:hidden');
             headerOrdersControls.classList.add('md:flex');
         } else {
             headerOrdersControls.classList.remove('md:flex');
-            headerOrdersControls.classList.add('hidden');
+            headerOrdersControls.classList.add('md:hidden');
         }
     }
 
