@@ -23,6 +23,7 @@ import {
     canEditReport,
     canDeleteReport,
     canExtendReportEditPeriod,
+    canAssignReport,
     canManageOpenOrder,
     canReassignOpenOrder,
     canManageScheduling,
@@ -35,6 +36,7 @@ window.isCurrentUserAdmin = isCurrentUserAdmin;
 window.isCurrentUserTechnician = isCurrentUserTechnician;
 window.canEditReport = canEditReport;
 window.canDeleteReport = canDeleteReport;
+window.canAssignReport = canAssignReport;
 window.canManageOpenOrder = canManageOpenOrder;
 
 window.calculateRecurringDate = calculateRecurringDate;
@@ -3198,19 +3200,31 @@ function renderReportsView() {
                     const typeBadgeClass = isCorretiva ? 'bg-purple-100 text-purple-800 border-purple-300' : 'bg-green-100 text-green-800 border-green-300';
                     const techName = getReportTechniciansDisplay(report, usersList);
 
+                    const curUser = getCurrentUser();
+                    const isAdmin = isCurrentUserAdmin(curUser);
+                    const canEdit = canEditReport(report, curUser);
+                    const canDel = canDeleteReport(curUser);
+
                     const card = document.createElement('div');
                     card.className = "bg-white text-zinc-900 rounded-2xl p-4 shadow-md border border-zinc-200/90 flex flex-col gap-3";
                     card.innerHTML = `
                         <div class="flex items-center justify-between border-b border-zinc-100 pb-2">
                             <span class="text-zinc-600 font-semibold text-xs">Rel: <span class="font-mono font-black text-sm text-zinc-950">${repNumber}</span></span>
-                            <span class="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase border ${typeBadgeClass}">${typeLabel}</span>
+                            <div class="flex items-center gap-1.5">
+                                <span class="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase border ${typeBadgeClass}">${typeLabel}</span>
+                                ${isAdmin ? `
+                                    <button onclick="event.stopPropagation(); window.openAssignReportModal('${report.id}')" class="w-6 h-6 rounded-md bg-zinc-100 hover:bg-[#fff0c2] text-zinc-700 hover:text-[#fa520f] border border-zinc-200 flex items-center justify-center transition-colors cursor-pointer" title="Atribuir Técnico para Edição">
+                                        <span class="material-symbols-outlined text-[16px]">add</span>
+                                    </button>
+                                ` : ''}
+                            </div>
                         </div>
                         <div class="text-[12px] space-y-1 text-zinc-700 font-semibold">
                             <div>📅 Data: <span class="text-zinc-900 font-bold">${report.date || '---'}</span></div>
                             <div>👷 Técnico: <span class="text-zinc-900 font-bold uppercase">${techName}</span></div>
                         </div>
                         <div class="grid grid-cols-3 gap-2 pt-1 border-t border-zinc-100">
-                            <button onclick="window.handleEditReport('${report.id}')" class="bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-bold py-2 px-2 rounded-xl flex items-center justify-center gap-1 text-xs border border-zinc-200 transition-all cursor-pointer">
+                            <button onclick="window.handleEditReport('${report.id}')" ${canEdit ? '' : 'disabled'} class="bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-bold py-2 px-2 rounded-xl flex items-center justify-center gap-1 text-xs border border-zinc-200 transition-all cursor-pointer ${canEdit ? '' : 'opacity-40 cursor-not-allowed pointer-events-none'}">
                                 <span class="material-symbols-outlined text-[16px]">edit</span>
                                 Editar
                             </button>
@@ -3218,7 +3232,7 @@ function renderReportsView() {
                                 <span class="material-symbols-outlined text-[16px]">picture_as_pdf</span>
                                 PDF
                             </button>
-                            <button onclick="window.handleDeleteReport('${report.id}')" class="bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2 px-2 rounded-xl flex items-center justify-center gap-1 text-xs border border-red-200 transition-all cursor-pointer">
+                            <button onclick="window.handleDeleteReport('${report.id}')" ${canDel ? '' : 'disabled'} class="bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2 px-2 rounded-xl flex items-center justify-center gap-1 text-xs border border-red-200 transition-all cursor-pointer ${canDel ? '' : 'opacity-40 cursor-not-allowed pointer-events-none'}">
                                 <span class="material-symbols-outlined text-[16px]">delete</span>
                                 Excluir
                             </button>
@@ -3456,6 +3470,7 @@ window.toggleActionMenu = function(event, id) {
     const report = (finalizedReports || []).find(r => String(r.id) === String(id));
     const editBtn = document.getElementById('menu-action-edit-btn');
     const extendBtn = document.getElementById('menu-action-extend-btn');
+    const assignBtn = document.getElementById('menu-action-assign-btn');
     const deleteBtn = document.getElementById('menu-action-delete-btn');
 
     if (editBtn) {
@@ -3491,6 +3506,17 @@ window.toggleActionMenu = function(event, id) {
         }
     }
 
+    if (assignBtn) {
+        const canAssign = canAssignReport(curUser);
+        if (canAssign) {
+            assignBtn.classList.remove('opacity-40', 'cursor-not-allowed', 'pointer-events-none', 'hidden');
+            assignBtn.removeAttribute('disabled');
+        } else {
+            assignBtn.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none', 'hidden');
+            assignBtn.setAttribute('disabled', 'true');
+        }
+    }
+
     let left = event.clientX - 150;
     let top = event.clientY + 10;
     if (top + 200 > window.innerHeight) top = window.innerHeight - 210;
@@ -3523,9 +3549,93 @@ window.execMenuAction = async function(action) {
     if (action === 'extend') {
         await window.extendReportTenDays(id);
     }
+    if (action === 'assign') {
+        window.openAssignReportModal(id);
+    }
     if (action === 'delete') {
         window.handleDeleteReport(id);
     }
+};
+
+window.currentAssigningReportId = null;
+
+window.openAssignReportModal = function(reportId) {
+    const curUser = getCurrentUser();
+    if (!canAssignReport(curUser)) {
+        window.showAlert('ACESSO RESTRITO: APENAS ADMINISTRADORES PODEM ATRIBUIR RELATÓRIOS.', 'warning');
+        return;
+    }
+    const report = (finalizedReports || []).find(r => String(r.id) === String(reportId));
+    if (!report) return;
+
+    window.currentAssigningReportId = report.id;
+
+    const repNumEl = document.getElementById('assign-modal-rep-num');
+    const empEl = document.getElementById('assign-modal-empresa');
+    const equipEl = document.getElementById('assign-modal-equip');
+    const selectEl = document.getElementById('assign-modal-tech-select');
+
+    if (repNumEl) repNumEl.innerText = report.numero || report.id;
+    if (empEl) empEl.innerText = (report.empresa || '---').toUpperCase();
+    const matchingAsset = (allAssetsList || []).find(a => a && (String(a.id) === String(report.equipamentoId) || String(a.id) === String(report.equipamento)));
+    const equipName = matchingAsset?.tipo || matchingAsset?.nome || report.equipamentoNome || report.equipamento || '---';
+    if (equipEl) equipEl.innerText = equipName.toUpperCase();
+
+    if (selectEl) {
+        const currentAssigned = (report.assignedTo || report.assigned_to || '').trim().toUpperCase();
+        const techs = (usersList || []).filter(u => {
+            const p = (u.permission || u.role || u.cargo || '').trim().toUpperCase();
+            return p === 'TECNICO' || p === 'TÉCNICO';
+        });
+        const candidates = techs.length > 0 ? techs : (usersList || []);
+        selectEl.innerHTML = candidates.map(u => {
+            const uName = u.name || '';
+            const isSel = uName.trim().toUpperCase() === currentAssigned;
+            return `<option value="${uName}" ${isSel ? 'selected' : ''}>${uName.toUpperCase()}</option>`;
+        }).join('');
+    }
+
+    const modal = document.getElementById('modal-assign-report');
+    if (modal) modal.classList.remove('hidden');
+};
+
+window.closeAssignReportModal = function() {
+    window.currentAssigningReportId = null;
+    const modal = document.getElementById('modal-assign-report');
+    if (modal) modal.classList.add('hidden');
+};
+
+window.confirmAssignReport = async function() {
+    const curUser = getCurrentUser();
+    if (!canAssignReport(curUser)) {
+        window.showAlert('ACESSO RESTRITO: APENAS ADMINISTRADORES PODEM ATRIBUIR RELATÓRIOS.', 'warning');
+        return;
+    }
+    const reportId = window.currentAssigningReportId;
+    if (!reportId) return;
+
+    const report = (finalizedReports || []).find(r => String(r.id) === String(reportId));
+    if (!report) return;
+
+    const selectEl = document.getElementById('assign-modal-tech-select');
+    const selectedTech = selectEl ? selectEl.value : '';
+    if (!selectedTech) {
+        window.showAlert('SELECIONE UM TÉCNICO.', 'warning');
+        return;
+    }
+
+    // Atribuição de permissão de acesso nos bastidores
+    // IMPORTANTE: NÃO altera os técnicos executores originais nem as assinaturas!
+    report.assignedTo = selectedTech;
+    report.assigned_to = selectedTech;
+    report.assigned_at = new Date().toISOString();
+
+    await setDBValue('crane_reports', finalizedReports);
+    await syncKeyToSupabase('crane_reports', finalizedReports);
+
+    window.closeAssignReportModal();
+    renderReportsView();
+    window.showAlert(`PERMISSÃO DE EDIÇÃO ATRIBUÍDA PARA "${selectedTech.toUpperCase()}" COM SUCESSO!`, 'success');
 };
 
 window.printReportPDF = async function(reportId) {

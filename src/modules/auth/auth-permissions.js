@@ -34,15 +34,21 @@ export function normalizeUserName(name) {
 
 /**
  * Calcula a data de expiração de edição de um relatório.
- * Regra: Data de criação (ou data do laudo) + 15 dias corridos + dias extras prorrogados.
+ * Regra: Data de criação (ou data de atribuição, se aplicável) + 15 dias corridos + dias extras prorrogados.
  * @param {Object} report 
+ * @param {boolean} [isAssigned=false]
  * @returns {Date|null}
  */
-export function getReportEditDeadline(report) {
+export function getReportEditDeadline(report, isAssigned = false) {
     if (!report) return null;
 
     let baseDate = null;
-    if (report.createdAt) {
+    if (isAssigned && (report.assigned_at || report.assignedAt)) {
+        const d = new Date(report.assigned_at || report.assignedAt);
+        if (!isNaN(d.getTime())) baseDate = d;
+    }
+
+    if (!baseDate && report.createdAt) {
         const d = new Date(report.createdAt);
         if (!isNaN(d.getTime())) baseDate = d;
     }
@@ -89,10 +95,11 @@ export function getReportEditDeadline(report) {
  * Verifica se um relatório ainda está dentro do prazo de edição.
  * @param {Object} report 
  * @param {Date} [referenceDate] 
+ * @param {boolean} [isAssigned=false]
  * @returns {boolean}
  */
-export function isReportWithinEditPeriod(report, referenceDate = new Date()) {
-    const deadline = getReportEditDeadline(report);
+export function isReportWithinEditPeriod(report, referenceDate = new Date(), isAssigned = false) {
+    const deadline = getReportEditDeadline(report, isAssigned);
     if (!deadline) return false;
     return referenceDate.getTime() <= deadline.getTime();
 }
@@ -115,10 +122,25 @@ export function isReportAuthor(report, user) {
 }
 
 /**
+ * Verifica se o relatório foi atribuído especificamente ao usuário técnico por um Administrador.
+ * @param {Object} report 
+ * @param {Object} user 
+ * @returns {boolean}
+ */
+export function isReportAssignedToUser(report, user) {
+    if (!report || !user) return false;
+    const currentUserName = normalizeUserName(user.name);
+    if (!currentUserName) return false;
+
+    const assigned = normalizeUserName(report.assignedTo || report.assigned_to);
+    return Boolean(assigned && assigned === currentUserName);
+}
+
+/**
  * Verifica se o usuário atual tem permissão para editar o relatório.
  * Regra:
  * - Administrador: pode editar qualquer relatório a qualquer tempo.
- * - Técnico: pode editar apenas se for o autor e estiver dentro do prazo (15 dias + prorrogações).
+ * - Técnico: pode editar se for o autor original OU se tiver sido atribuído pelo Administrador, e estiver dentro do prazo (15 dias + prorrogações).
  * @param {Object} report 
  * @param {Object} user 
  * @param {Date} [referenceDate] 
@@ -127,8 +149,23 @@ export function isReportAuthor(report, user) {
 export function canEditReport(report, user, referenceDate = new Date()) {
     if (isCurrentUserAdmin(user)) return true;
     if (!report || !user) return false;
-    if (!isReportAuthor(report, user)) return false;
-    return isReportWithinEditPeriod(report, referenceDate);
+
+    const isAssigned = isReportAssignedToUser(report, user);
+    const isAuthor = isReportAuthor(report, user);
+
+    if (!isAssigned && !isAuthor) return false;
+
+    return isReportWithinEditPeriod(report, referenceDate, isAssigned);
+}
+
+/**
+ * Verifica se o usuário atual tem permissão para atribuir um relatório a um técnico.
+ * Regra: Apenas Administrador.
+ * @param {Object} user 
+ * @returns {boolean}
+ */
+export function canAssignReport(user) {
+    return isCurrentUserAdmin(user);
 }
 
 /**

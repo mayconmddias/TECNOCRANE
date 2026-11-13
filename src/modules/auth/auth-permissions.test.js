@@ -5,9 +5,11 @@ import {
     getReportEditDeadline,
     isReportWithinEditPeriod,
     isReportAuthor,
+    isReportAssignedToUser,
     canEditReport,
     canDeleteReport,
     canExtendReportEditPeriod,
+    canAssignReport,
     canManageOpenOrder,
     canReassignOpenOrder,
     canManageScheduling,
@@ -121,6 +123,45 @@ describe('auth-permissions module (RBAC)', () => {
         it('allows only administrator to extend report edit period', () => {
             expect(canExtendReportEditPeriod(adminUser)).toBe(true);
             expect(canExtendReportEditPeriod(techUser1)).toBe(false);
+        });
+
+        it('allows assigned technician to edit report created by admin or another technician', () => {
+            const reportCreatedByAdmin = {
+                id: 'rel-admin-1',
+                createdAt: '2026-10-01T10:00:00Z',
+                tecnico: 'Maycon Dias (ADMIN)', // Original technician / author must not change
+                assignedTo: 'Aparecido de Jesus', // Assigned by Admin to Aparecido
+                assigned_at: '2026-11-10T10:00:00Z' // Assigned 3 days ago
+            };
+            const today = new Date('2026-11-13T10:00:00Z');
+
+            // Assigned technician has edit permission
+            expect(isReportAssignedToUser(reportCreatedByAdmin, techUser1)).toBe(true);
+            expect(canEditReport(reportCreatedByAdmin, techUser1, today)).toBe(true);
+
+            // Other unassigned technician does not have edit permission
+            expect(isReportAssignedToUser(reportCreatedByAdmin, techUser2)).toBe(false);
+            expect(canEditReport(reportCreatedByAdmin, techUser2, today)).toBe(false);
+
+            // Original author in the report object remained untouched
+            expect(reportCreatedByAdmin.tecnico).toBe('Maycon Dias (ADMIN)');
+        });
+
+        it('blocks assigned technician when assignment period (15 days) has expired', () => {
+            const expiredAssignedReport = {
+                id: 'rel-expired-1',
+                createdAt: '2026-09-01T10:00:00Z',
+                tecnico: 'Maycon Dias (ADMIN)',
+                assignedTo: 'Aparecido de Jesus',
+                assigned_at: '2026-10-20T10:00:00Z' // Assigned 24 days ago
+            };
+            const today = new Date('2026-11-13T10:00:00Z');
+            expect(canEditReport(expiredAssignedReport, techUser1, today)).toBe(false);
+        });
+
+        it('verifies canAssignReport permission', () => {
+            expect(canAssignReport(adminUser)).toBe(true);
+            expect(canAssignReport(techUser1)).toBe(false);
         });
     });
 

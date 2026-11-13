@@ -2803,6 +2803,48 @@
         </div>
     </div>
 
+    <!-- Modal Atribuir Relatório a Técnico (z-[900]) -->
+    <div id="modal-assign-report" class="fixed inset-0 z-[900] hidden overflow-y-auto">
+        <div class="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity" onclick="window.closeAssignReportModal()"></div>
+        <div class="flex min-h-full items-center justify-center p-3 sm:p-4 text-center">
+            <div class="relative transform overflow-hidden rounded-2xl bg-white border border-[#e6d5a8] text-left shadow-2xl transition-all w-full max-w-md p-5 flex flex-col gap-4">
+                <div class="flex justify-between items-center pb-3 border-b border-[#e6d5a8]">
+                    <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-[#fa520f] text-2xl">person_add</span>
+                        <h3 class="font-extrabold text-sm uppercase text-zinc-900 tracking-wide">ATRIBUIR RELATÓRIO PARA EDIÇÃO</h3>
+                    </div>
+                    <button onclick="window.closeAssignReportModal()" class="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer" title="Fechar">
+                        <span class="material-symbols-outlined text-xl">close</span>
+                    </button>
+                </div>
+
+                <div class="space-y-3">
+                    <div class="bg-[#fffdf7] p-3 rounded-xl border border-[#e6d5a8] text-xs space-y-1">
+                        <div><span class="font-bold text-zinc-500 uppercase text-[10px]">Relatório:</span> <span id="assign-modal-rep-num" class="font-mono font-black text-[#fa520f] ml-1">#--</span></div>
+                        <div class="truncate"><span class="font-bold text-zinc-500 uppercase text-[10px]">Empresa:</span> <span id="assign-modal-empresa" class="font-extrabold text-zinc-900 uppercase ml-1">---</span></div>
+                        <div class="truncate"><span class="font-bold text-zinc-500 uppercase text-[10px]">Equipamento:</span> <span id="assign-modal-equip" class="font-extrabold text-zinc-900 uppercase ml-1">---</span></div>
+                    </div>
+
+                    <div>
+                        <label class="block text-[11px] font-bold uppercase text-zinc-700 tracking-wider mb-1.5">SELECIONE O TÉCNICO RESPONSÁVEL</label>
+                        <select id="assign-modal-tech-select" class="w-full bg-white border border-zinc-300 rounded-xl p-3 text-xs font-bold uppercase text-zinc-900 outline-none focus:ring-2 focus:ring-[#fa520f] cursor-pointer">
+                            <!-- Preenchido dinamicamente com os técnicos da equipe -->
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex gap-2.5 pt-2 border-t border-zinc-100">
+                    <button type="button" onclick="window.closeAssignReportModal()" class="flex-1 border border-zinc-300 text-zinc-700 font-extrabold py-2.5 px-4 rounded-xl text-xs uppercase hover:bg-zinc-50 transition-all cursor-pointer text-center">
+                        CANCELAR
+                    </button>
+                    <button type="button" onclick="window.confirmAssignReport()" class="flex-1 bg-primary hover:brightness-105 text-on-primary font-extrabold py-2.5 px-4 rounded-xl text-xs uppercase shadow-md transition-all cursor-pointer text-center">
+                        CONFIRMAR
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Menu de Ações Global para Relatórios (Relatórios - Conforme Imagem 2 de Referência) -->
     <div id="global-action-menu" class="fixed z-[1000] hidden bg-white border border-zinc-200 shadow-2xl rounded-2xl w-48 py-2 px-1 select-none">
         <button id="menu-action-edit-btn" onclick="window.execMenuAction('edit')" class="w-full text-left px-3 py-2 text-xs font-extrabold uppercase hover:bg-zinc-100 text-zinc-900 rounded-xl transition-colors flex items-center gap-2.5 cursor-pointer">
@@ -2813,6 +2855,9 @@
         </button>
         <button id="menu-action-extend-btn" onclick="window.execMenuAction('extend')" class="w-full text-left px-3 py-2 text-xs font-extrabold uppercase hover:bg-zinc-100 text-[#fa520f] rounded-xl transition-colors flex items-center gap-2.5 cursor-pointer">
             <span class="material-symbols-outlined text-[20px] text-[#fa520f]">more_time</span> PRAZO EDIÇÃO + 10 DIAS
+        </button>
+        <button id="menu-action-assign-btn" onclick="window.execMenuAction('assign')" class="w-full text-left px-3 py-2 text-xs font-extrabold uppercase hover:bg-zinc-100 text-zinc-900 rounded-xl transition-colors flex items-center gap-2.5 cursor-pointer">
+            <span class="material-symbols-outlined text-[20px] text-[#fa520f]">person_add</span> ATRIBUIR TÉCNICO
         </button>
         <button id="menu-action-delete-btn" onclick="window.execMenuAction('delete')" class="w-full text-left px-3 py-2 text-xs font-extrabold uppercase hover:bg-red-50 text-red-600 rounded-xl transition-colors flex items-center gap-2.5 cursor-pointer">
             <span class="material-symbols-outlined text-[20px] text-red-600">delete</span> EXCLUIR
