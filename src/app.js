@@ -15,6 +15,27 @@ import { reserveNextAssetId, prepareAssetPayload, parseAssetSequenceNumber, getA
 import { generateNextOrderId, saveDraftOrder, deleteDraftOrder, saveFastLocalDraft, getFastLocalDraft, clearFastLocalDraft } from './modules/orders/orders-service.js';
 import { initNativeFeatures } from './native.js';
 import { calculateRecurringDate, buildScheduledEventId, filterEventsOnSingleDelete, filterEventsOnGroupDelete, getEventCloudIdsToDelete, generateScheduledEvents, formatCompanyAddress, formatDateCardDisplay } from './modules/scheduling/scheduling-service.js';
+import {
+    isCurrentUserAdmin,
+    isCurrentUserTechnician,
+    getReportEditDeadline,
+    isReportWithinEditPeriod,
+    canEditReport,
+    canDeleteReport,
+    canExtendReportEditPeriod,
+    canManageOpenOrder,
+    canReassignOpenOrder,
+    canManageScheduling,
+    canManageCompaniesAndAssets,
+    canAccessTemplates,
+    canAccessUsers
+} from './modules/auth/auth-permissions.js';
+
+window.isCurrentUserAdmin = isCurrentUserAdmin;
+window.isCurrentUserTechnician = isCurrentUserTechnician;
+window.canEditReport = canEditReport;
+window.canDeleteReport = canDeleteReport;
+window.canManageOpenOrder = canManageOpenOrder;
 
 window.calculateRecurringDate = calculateRecurringDate;
 window.formatCompanyAddress = formatCompanyAddress;
@@ -336,7 +357,115 @@ window.updateMobileUserInfo = function(user) {
     if (sheetRole) sheetRole.innerText = role;
 };
 
+export function applyUserRolePermissions(user) {
+    const curUser = user || getCurrentUser();
+    const isAdmin = isCurrentUserAdmin(curUser);
+
+    // 1. Sidebar Desktop: Formulários e Cadastro Interno
+    const navTemplates = document.getElementById('nav-templates');
+    const navUsers = document.getElementById('nav-users');
+    if (navTemplates) {
+        if (!isAdmin) {
+            navTemplates.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            navTemplates.setAttribute('aria-disabled', 'true');
+        } else {
+            navTemplates.classList.remove('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            navTemplates.removeAttribute('aria-disabled');
+        }
+    }
+    if (navUsers) {
+        if (!isAdmin) {
+            navUsers.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            navUsers.setAttribute('aria-disabled', 'true');
+        } else {
+            navUsers.classList.remove('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            navUsers.removeAttribute('aria-disabled');
+        }
+    }
+
+    // 2. Mobile Bottom Sheet ("Mais"): Formulários e Cadastro Interno
+    const mobileTemplates = document.getElementById('mobile-nav-templates');
+    const mobileUsers = document.getElementById('mobile-nav-users');
+    if (mobileTemplates) {
+        if (!isAdmin) {
+            mobileTemplates.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            mobileTemplates.setAttribute('disabled', 'true');
+        } else {
+            mobileTemplates.classList.remove('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            mobileTemplates.removeAttribute('disabled');
+        }
+    }
+    if (mobileUsers) {
+        if (!isAdmin) {
+            mobileUsers.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            mobileUsers.setAttribute('disabled', 'true');
+        } else {
+            mobileUsers.classList.remove('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            mobileUsers.removeAttribute('disabled');
+        }
+    }
+
+    // 3. Programação / Dashboard Action Menu & Mobile Novo
+    const btnNovoMobile = document.getElementById('btn-novo-agendamento-mobile');
+    if (btnNovoMobile) {
+        if (!isAdmin) {
+            btnNovoMobile.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            btnNovoMobile.setAttribute('disabled', 'true');
+        } else {
+            btnNovoMobile.classList.remove('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            btnNovoMobile.removeAttribute('disabled');
+        }
+    }
+    const dashMenuProgBtn = document.getElementById('dashboard-menu-programacao-btn');
+    if (dashMenuProgBtn) {
+        if (!isAdmin) {
+            dashMenuProgBtn.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            dashMenuProgBtn.setAttribute('disabled', 'true');
+        } else {
+            dashMenuProgBtn.classList.remove('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            dashMenuProgBtn.removeAttribute('disabled');
+        }
+    }
+
+    // 4. Header buttons for "Novo Cadastro" in Empresas/Ativos
+    const headerAtivosBtn = document.querySelector('#header-assets-controls button');
+    if (headerAtivosBtn) {
+        if (!isAdmin) {
+            headerAtivosBtn.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            headerAtivosBtn.setAttribute('disabled', 'true');
+        } else {
+            headerAtivosBtn.classList.remove('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            headerAtivosBtn.removeAttribute('disabled');
+        }
+    }
+
+    // 5. Header button for "Novo Usuário" in Cadastro Interno
+    const headerUsersBtn = document.querySelector('#header-users-controls button');
+    if (headerUsersBtn) {
+        if (!isAdmin) {
+            headerUsersBtn.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            headerUsersBtn.setAttribute('disabled', 'true');
+        } else {
+            headerUsersBtn.classList.remove('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            headerUsersBtn.removeAttribute('disabled');
+        }
+    }
+}
+window.applyUserRolePermissions = applyUserRolePermissions;
+
 window.switchView = function(view) {
+    const curUser = getCurrentUser();
+    if (isCurrentUserTechnician(curUser)) {
+        if (view === 'templates') {
+            window.showAlert('ACESSO RESTRITO: FORMULÁRIOS DISPONÍVEIS APENAS PARA ADMINISTRADORES.', 'warning');
+            return;
+        }
+        if (view === 'users') {
+            window.showAlert('ACESSO RESTRITO: CADASTRO INTERNO DISPONÍVEL APENAS PARA ADMINISTRADORES.', 'warning');
+            return;
+        }
+    }
+
     // Inspeção abre popup, não troca de view
     if (view === 'inspections') {
         window.openInspecaoModal();
@@ -471,6 +600,8 @@ window.switchView = function(view) {
     try {
         window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     } catch (_) {}
+
+    applyUserRolePermissions(curUser);
 
     // Sincroniza dados com o Supabase em segundo plano ao alternar de menu
     if (isSupabaseConfigured) {
@@ -1075,6 +1206,11 @@ function populateTechnicianDropdowns(select1Id, select2Id, currentVal1 = '', cur
 }
 
 window.openProgModal = function(dateStr) {
+    const curUser = getCurrentUser();
+    if (!canManageScheduling(curUser)) {
+        window.showAlert('ACESSO RESTRITO: APENAS ADMINISTRADORES PODEM CRIAR AGENDAMENTOS NA PROGRAMAÇÃO.', 'warning');
+        return;
+    }
     const modal = document.getElementById('prog-modal');
     const panel = document.getElementById('prog-panel');
     const companySelect = document.getElementById('prog-empresa');
@@ -1258,6 +1394,31 @@ window.openEditModal = async function(eventOrId, id) {
     };
     populateTechnicianDropdowns('edit-asset-tecnico-1', 'edit-asset-tecnico-2', findUser(curTec1), findUser(curTec2));
 
+    const curUser = getCurrentUser();
+    const isTech = isCurrentUserTechnician(curUser);
+
+    const dateInput = document.getElementById('edit-asset-date');
+    const tec1Select = document.getElementById('edit-asset-tecnico-1');
+    const tec2Select = document.getElementById('edit-asset-tecnico-2');
+    const btnNaoRealizado = document.getElementById('btn-nao-realizado');
+    const btnDelete = document.getElementById('btn-edit-asset-delete');
+    const btnSave = document.getElementById('btn-edit-asset-save');
+
+    if (dateInput) dateInput.disabled = isTech;
+    if (tec1Select) tec1Select.disabled = isTech;
+    if (tec2Select) tec2Select.disabled = isTech;
+
+    [btnNaoRealizado, btnDelete, btnSave].forEach(btn => {
+        if (!btn) return;
+        if (isTech) {
+            btn.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            btn.setAttribute('disabled', 'true');
+        } else {
+            btn.classList.remove('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            btn.removeAttribute('disabled');
+        }
+    });
+
     window.updateNaoRealizadoButtonState();
 
     window.currentEditingEventId = event.id;
@@ -1284,6 +1445,10 @@ window.closeEditAssetModal = function() {
 };
 
 window.markAsNaoRealizado = function() {
+    if (!canManageScheduling(getCurrentUser())) {
+        window.showAlert('ACESSO RESTRITO: APENAS ADMINISTRADORES PODEM ALTERAR O STATUS DO AGENDAMENTO.', 'warning');
+        return;
+    }
     const statusInput = document.getElementById('edit-asset-status');
     const wrapper = document.getElementById('justification-wrapper');
     const btn = document.getElementById('btn-nao-realizado');
@@ -1354,6 +1519,10 @@ window.updateNaoRealizadoButtonState = function() {
 };
 
 window.updateEventFromIndustrial = function() {
+    if (!canManageScheduling(getCurrentUser())) {
+        window.showAlert('ACESSO RESTRITO: APENAS ADMINISTRADORES PODEM ALTERAR AGENDAMENTOS NA PROGRAMAÇÃO.', 'warning');
+        return;
+    }
     const id = window.currentEditingEventId;
     if (!id) return;
 
@@ -1425,6 +1594,10 @@ window.updateEventFromIndustrial = function() {
 };
 
 window.confirmDeleteModal = function() {
+    if (!canManageScheduling(getCurrentUser())) {
+        window.showAlert('ACESSO RESTRITO: APENAS ADMINISTRADORES PODEM EXCLUIR AGENDAMENTOS NA PROGRAMAÇÃO.', 'warning');
+        return;
+    }
     const id = window.currentEditingEventId;
     const event = events.find(e => e.id == id);
     if (!event) return;
@@ -1570,6 +1743,13 @@ window.openChecklistModal = async function(id = null) {
         return;
     }
 
+    const curUser = getCurrentUser();
+    const orderToCheck = openOrders.find(o => String(o.id) === String(id));
+    if (orderToCheck && !canManageOpenOrder(orderToCheck, curUser)) {
+        window.showAlert('ACESSO RESTRITO: ESTA ORDEM DE SERVIÇO PERTENCE A OUTRO TÉCNICO.', 'warning');
+        return;
+    }
+
     let order = openOrders.find(o => String(o.id) === String(id));
     if (!order || !order.responses || Object.keys(order.responses || {}).length === 0) {
         const localOrders = await getDBValue('crane_open_orders', []);
@@ -1693,6 +1873,8 @@ window.savePartialInspection = async function() {
         status: 'DRAFT',
         id: docId,
         tecnico: existing?.tecnico || currentUserName,
+        assignedTo: existing?.assignedTo || existing?.assigned_to || currentUserName,
+        createdBy: existing?.createdBy || existing?.created_by || currentUserName,
     });
 
     try {
@@ -1950,6 +2132,11 @@ function renderUsers(searchTerm = '') {
 }
 
 window.openUserModal = function() {
+    const curUser = getCurrentUser();
+    if (!canAccessUsers(curUser)) {
+        window.showAlert('ACESSO RESTRITO: APENAS ADMINISTRADORES PODEM GERENCIAR USUÁRIOS.', 'warning');
+        return;
+    }
     const modal = document.getElementById('user-modal');
     const panel = modal.querySelector('.relative');
     
@@ -2432,6 +2619,11 @@ window.saveUserFromForm = async function() {
 };
 
 window.deleteUserFromForm = function() {
+    const curUser = getCurrentUser();
+    if (!canAccessUsers(curUser)) {
+        window.showAlert('ACESSO RESTRITO: APENAS ADMINISTRADORES PODEM EXCLUIR USUÁRIOS.', 'warning');
+        return;
+    }
     const regType = document.getElementById('user-registration-type')?.value;
 
     if (regType === 'CADASTRO_INTERNO') {
@@ -2506,10 +2698,33 @@ function renderOpenOrders() {
         return;
     }
 
+    const curUser = getCurrentUser();
+    const isAdmin = isCurrentUserAdmin(curUser);
+
     openOrders.forEach(order => {
         const parts = (order.assetInfo || '').split('—').map(s => s.trim());
         const equip = order.equipamentoNome || parts[0] || '---';
         const emp = order.empresa || parts[1] || '---';
+        const assignedTech = order.assignedTo || order.assigned_to || order.tecnico || order.tecnico1 || order.createdBy || 'NÃO ATRIBUÍDO';
+        const canManage = canManageOpenOrder(order, curUser);
+
+        const techOptions = (usersList || []).map(u => {
+            const isSel = (u.name || '').trim().toUpperCase() === assignedTech.trim().toUpperCase();
+            return `<option value="${u.name}" ${isSel ? 'selected' : ''}>${formatShortName(u.name || '').toUpperCase()}</option>`;
+        }).join('');
+
+        const responsibleBlock = isAdmin ? `
+            <div class="flex items-center gap-1.5 pt-1 text-[11px] text-zinc-700 font-bold">
+                <span>👤 Responsável:</span>
+                <select onchange="window.reassignOpenOrder('${order.id}', this.value)" class="bg-zinc-50 border border-zinc-300 rounded-lg px-2 py-1 text-[11px] font-bold text-zinc-900 cursor-pointer focus:ring-1 focus:ring-primary outline-none">
+                    ${techOptions}
+                </select>
+            </div>
+        ` : `
+            <div class="pt-1 text-[11px] text-zinc-700 font-semibold truncate">
+                👤 Responsável: <span class="font-extrabold text-zinc-900 uppercase">${assignedTech}</span>
+            </div>
+        `;
 
         // Desktop Table (retrocompatibilidade)
         if (tbody) {
@@ -2522,10 +2737,10 @@ function renderOpenOrders() {
                 <td class="p-4"><span class="px-2 py-1 bg-amber-100 text-amber-700 text-[9px] font-black uppercase border border-amber-200">EM ABERTO</span></td>
                 <td class="p-4 text-right">
                     <div class="flex items-center justify-end gap-1">
-                        <button onclick="window.openChecklistModal('${order.id}')" class="text-zinc-400 hover:text-black p-1 transition-colors" title="Editar Ordem">
+                        <button onclick="window.openChecklistModal('${order.id}')" ${canManage ? '' : 'disabled'} class="text-zinc-400 hover:text-black p-1 transition-colors ${canManage ? '' : 'opacity-40 cursor-not-allowed pointer-events-none'}" title="Editar Ordem">
                             <span class="material-symbols-outlined text-lg">edit_note</span>
                         </button>
-                        <button onclick="window.deleteOpenOrder('${order.id}')" class="text-zinc-400 hover:text-error p-1 transition-colors" title="Excluir Ordem">
+                        <button onclick="window.deleteOpenOrder('${order.id}')" ${canManage ? '' : 'disabled'} class="text-zinc-400 hover:text-error p-1 transition-colors ${canManage ? '' : 'opacity-40 cursor-not-allowed pointer-events-none'}" title="Excluir Ordem">
                             <span class="material-symbols-outlined text-lg">delete</span>
                         </button>
                     </div>
@@ -2545,13 +2760,14 @@ function renderOpenOrders() {
                 <div class="text-[12px] space-y-1 text-zinc-700 font-semibold">
                     <div>🏢 Empresa: <span class="text-zinc-900 font-bold uppercase">${emp}</span></div>
                     <div>⚙️ Equipamento: <span class="text-zinc-900 font-bold uppercase">${equip}</span></div>
+                    ${responsibleBlock}
                 </div>
                 <div class="grid grid-cols-2 gap-2 pt-1 border-t border-zinc-100">
-                    <button onclick="window.openChecklistModal('${order.id}')" class="bg-primary hover:brightness-105 text-on-primary font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs shadow-sm transition-all cursor-pointer">
+                    <button onclick="window.openChecklistModal('${order.id}')" ${canManage ? '' : 'disabled'} class="bg-primary hover:brightness-105 text-on-primary font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs shadow-sm transition-all cursor-pointer ${canManage ? '' : 'opacity-40 cursor-not-allowed pointer-events-none'}">
                         <span class="material-symbols-outlined text-[18px]">edit_note</span>
                         Retomar
                     </button>
-                    <button onclick="window.deleteOpenOrder('${order.id}')" class="bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs border border-red-200 transition-all cursor-pointer">
+                    <button onclick="window.deleteOpenOrder('${order.id}')" ${canManage ? '' : 'disabled'} class="bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs border border-red-200 transition-all cursor-pointer ${canManage ? '' : 'opacity-40 cursor-not-allowed pointer-events-none'}">
                         <span class="material-symbols-outlined text-[18px]">delete</span>
                         Excluir
                     </button>
@@ -2572,13 +2788,14 @@ function renderOpenOrders() {
                 <div class="text-[12px] space-y-1 text-zinc-700 font-semibold">
                     <div>🏢 Empresa: <span class="text-zinc-900 font-bold uppercase">${emp}</span></div>
                     <div>⚙️ Equipamento: <span class="text-zinc-900 font-bold uppercase">${equip}</span></div>
+                    ${responsibleBlock}
                 </div>
                 <div class="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-100">
-                    <button onclick="window.openChecklistModal('${order.id}')" class="bg-primary hover:brightness-105 text-on-primary font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs shadow-sm transition-all cursor-pointer">
+                    <button onclick="window.openChecklistModal('${order.id}')" ${canManage ? '' : 'disabled'} class="bg-primary hover:brightness-105 text-on-primary font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs shadow-sm transition-all cursor-pointer ${canManage ? '' : 'opacity-40 cursor-not-allowed pointer-events-none'}">
                         <span class="material-symbols-outlined text-[18px]">edit_note</span>
                         Retomar
                     </button>
-                    <button onclick="window.deleteOpenOrder('${order.id}')" class="bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs border border-red-200 transition-all cursor-pointer">
+                    <button onclick="window.deleteOpenOrder('${order.id}')" ${canManage ? '' : 'disabled'} class="bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs border border-red-200 transition-all cursor-pointer ${canManage ? '' : 'opacity-40 cursor-not-allowed pointer-events-none'}">
                         <span class="material-symbols-outlined text-[18px]">delete</span>
                         Excluir
                     </button>
@@ -2590,8 +2807,30 @@ function renderOpenOrders() {
 }
 window.renderOpenOrders = renderOpenOrders;
 
+window.reassignOpenOrder = async function(orderId, newTechName) {
+    const curUser = getCurrentUser();
+    if (!isCurrentUserAdmin(curUser)) {
+        window.showAlert('ACESSO RESTRITO: APENAS ADMINISTRADORES PODEM REATRIBUIR ORDENS DE SERVIÇO.', 'warning');
+        return;
+    }
+    const order = openOrders.find(o => String(o.id) === String(orderId));
+    if (!order) return;
+    order.assignedTo = newTechName;
+    order.assigned_to = newTechName;
+    await setDBValue('crane_open_orders', openOrders);
+    await syncKeyToSupabase('crane_open_orders', openOrders);
+    renderOpenOrders();
+    window.showAlert(`ORDEM ATRIBUÍDA A "${newTechName.toUpperCase()}".`, 'success');
+};
+
 window.deleteOpenOrder = async function(orderId) {
     if (!orderId) return;
+    const curUser = getCurrentUser();
+    const order = openOrders.find(o => String(o.id) === String(orderId));
+    if (order && !canManageOpenOrder(order, curUser)) {
+        window.showAlert('ACESSO RESTRITO: VOCÊ NÃO PODE EXCLUIR ORDEM DE SERVIÇO DE OUTRO TÉCNICO.', 'warning');
+        return;
+    }
     await deleteDraftOrder(orderId, openOrders);
     renderOpenOrders();
     window.showAlert('ORDEM DE SERVIÇO EXCLUÍDA.', 'success');
@@ -3160,9 +3399,37 @@ window.handleDownloadReportPDF = async function(id) {
 };
 
 window.handleDeleteReport = function(id) {
+    const curUser = getCurrentUser();
+    if (!canDeleteReport(curUser)) {
+        window.showAlert('ACESSO RESTRITO: APENAS ADMINISTRADORES PODEM EXCLUIR RELATÓRIOS.', 'warning');
+        return;
+    }
     window.reportIdParaExcluir = id;
     const modal = document.getElementById('modal-confirm-exclusao');
     if (modal) modal.classList.remove('hidden');
+};
+
+window.extendReportTenDays = async function(reportId) {
+    const curUser = getCurrentUser();
+    if (!canExtendReportEditPeriod(curUser)) {
+        window.showAlert('ACESSO RESTRITO: APENAS ADMINISTRADORES PODEM PRORROGAR O PRAZO DE EDIÇÃO.', 'warning');
+        return;
+    }
+    const report = (finalizedReports || []).find(r => String(r.id) === String(reportId));
+    if (!report) {
+        window.showAlert('RELATÓRIO NÃO ENCONTRADO.', 'error');
+        return;
+    }
+    const currentExtra = Number(report.extended_days || report.extendedDays || 0);
+    const newExtra = currentExtra + 10;
+    report.extended_days = newExtra;
+    report.extendedDays = newExtra;
+
+    await setDBValue('crane_reports', finalizedReports);
+    await syncKeyToSupabase('crane_reports', finalizedReports);
+
+    renderReportsView();
+    window.showAlert('PRAZO DE EDIÇÃO ESTENDIDO EM +10 DIAS COM SUCESSO!', 'success');
 };
 
 window.selectReportsAsset = function(assetId) {
@@ -3184,6 +3451,46 @@ window.toggleActionMenu = function(event, id) {
         return;
     }
     menu.setAttribute('data-current-id', id);
+
+    const curUser = getCurrentUser();
+    const report = (finalizedReports || []).find(r => String(r.id) === String(id));
+    const editBtn = document.getElementById('menu-action-edit-btn');
+    const extendBtn = document.getElementById('menu-action-extend-btn');
+    const deleteBtn = document.getElementById('menu-action-delete-btn');
+
+    if (editBtn) {
+        const canEdit = canEditReport(report, curUser);
+        if (canEdit) {
+            editBtn.classList.remove('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            editBtn.removeAttribute('disabled');
+        } else {
+            editBtn.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            editBtn.setAttribute('disabled', 'true');
+        }
+    }
+
+    if (deleteBtn) {
+        const canDel = canDeleteReport(curUser);
+        if (canDel) {
+            deleteBtn.classList.remove('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            deleteBtn.removeAttribute('disabled');
+        } else {
+            deleteBtn.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            deleteBtn.setAttribute('disabled', 'true');
+        }
+    }
+
+    if (extendBtn) {
+        const canExt = canExtendReportEditPeriod(curUser);
+        if (canExt) {
+            extendBtn.classList.remove('opacity-40', 'cursor-not-allowed', 'pointer-events-none', 'hidden');
+            extendBtn.removeAttribute('disabled');
+        } else {
+            extendBtn.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+            extendBtn.setAttribute('disabled', 'true');
+        }
+    }
+
     let left = event.clientX - 150;
     let top = event.clientY + 10;
     if (top + 200 > window.innerHeight) top = window.innerHeight - 210;
@@ -3212,6 +3519,9 @@ window.execMenuAction = async function(action) {
     if (action === 'edit') await editReport(id);
     if (action === 'pdf') {
         await window.printReportPDF(id);
+    }
+    if (action === 'extend') {
+        await window.extendReportTenDays(id);
     }
     if (action === 'delete') {
         window.handleDeleteReport(id);
@@ -3337,6 +3647,11 @@ async function editReport(id) {
         }
     }
     if (report) {
+        const curUser = getCurrentUser();
+        if (!canEditReport(report, curUser)) {
+            window.showAlert('EDIÇÃO BLOQUEADA: PRAZO DE 15 DIAS EXPIRADO OU RELATÓRIO PERTENCE A OUTRO TÉCNICO.', 'warning');
+            return;
+        }
         const tplId = report.templateId || report.responses?.__meta?.templateId || null;
         const tplName = report.templateName || report.responses?.__meta?.templateName || null;
         openChecklistForm({
@@ -3863,6 +4178,9 @@ function renderAtivosView() {
         });
     }
 
+    const curUser = getCurrentUser();
+    const canManageAssets = canManageCompaniesAndAssets(curUser);
+
     const filteredAssets = allAssetsList
         .filter(a => a.empresa && selectedCompany && a.empresa.toLowerCase() === selectedCompany.toLowerCase())
         .sort((a, b) => {
@@ -3921,7 +4239,7 @@ function renderAtivosView() {
                             <span class="material-symbols-outlined text-[13px]">precision_manufacturing</span>
                             ${countAssets} ${countAssets === 1 ? 'ATIVO' : 'ATIVOS'}
                         </span>
-                        <button onclick="event.stopPropagation(); window.openEditCompanyModal('${compName}')" class="text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 p-1 rounded-lg transition-colors cursor-pointer flex items-center justify-center border border-zinc-200" title="Editar Empresa">
+                        <button onclick="event.stopPropagation(); window.openEditCompanyModal('${compName}')" ${canManageAssets ? '' : 'disabled'} class="text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 p-1 rounded-lg transition-colors cursor-pointer flex items-center justify-center border border-zinc-200 ${canManageAssets ? '' : 'opacity-40 cursor-not-allowed pointer-events-none'}" title="Editar Empresa">
                             <span class="material-symbols-outlined text-[18px] pointer-events-none">more_vert</span>
                         </button>
                     </div>
@@ -3989,7 +4307,11 @@ function renderAtivosView() {
                                 getDefaultAssetImage(displayTipo);
 
                 const card = document.createElement('div');
-                card.className = "bg-white text-[#1f1f1f] rounded-xl p-3 shadow-sm border border-[#e6d5a8] hover:border-[#fa520f] flex gap-3 items-center transition-all select-none min-h-[152px] h-[152px] max-h-[152px]";
+                card.className = "bg-white text-[#1f1f1f] rounded-xl p-3 shadow-sm border border-[#e6d5a8] hover:border-[#fa520f] flex gap-3 items-center transition-all select-none min-h-[152px] h-[152px] max-h-[152px] cursor-pointer hover:shadow-md";
+                card.onclick = (e) => {
+                    if (e.target.closest('button')) return;
+                    window.openAssetDetailsModal(a.id);
+                };
 
                 const imgBox = document.createElement('div');
                 imgBox.className = "w-20 h-20 rounded-lg bg-[#fff8e0] border border-[#e6d5a8] shadow-xs flex-shrink-0 flex items-center justify-center overflow-hidden self-center";
@@ -4079,7 +4401,7 @@ function renderAtivosView() {
                                 <span class="font-bold text-[#1f1f1f] text-[11px] uppercase truncate max-w-[150px]" title="${(a.local || 'N/A').toUpperCase()}">${(a.local || 'N/A').toUpperCase()}</span>
                             </div>
                         </div>
-                        <button onclick="event.stopPropagation(); window.openEditAssetModal('${a.id}', '${selectedCompany}')" class="text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 p-1 rounded-lg transition-colors cursor-pointer flex items-center justify-center border border-zinc-200 shrink-0" title="Editar Ativo">
+                        <button onclick="event.stopPropagation(); window.openEditAssetModal('${a.id}', '${selectedCompany}')" ${canManageAssets ? '' : 'disabled'} class="text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 p-1 rounded-lg transition-colors cursor-pointer flex items-center justify-center border border-zinc-200 shrink-0 ${canManageAssets ? '' : 'opacity-40 cursor-not-allowed pointer-events-none'}" title="Editar Ativo">
                             <span class="material-symbols-outlined text-[17px] pointer-events-none">more_vert</span>
                         </button>
                     </div>
@@ -4177,7 +4499,8 @@ function renderAtivosView() {
                                     getDefaultAssetImage(displayTipo);
 
                     const card = document.createElement('div');
-                    card.className = "bg-white text-zinc-900 rounded-2xl p-3.5 shadow-md border border-zinc-200/90 flex gap-3.5 items-center";
+                    card.className = "bg-white text-zinc-900 rounded-2xl p-3.5 shadow-md border border-zinc-200/90 flex gap-3.5 items-center cursor-pointer active:scale-[0.99] transition-all hover:border-[#fa520f]";
+                    card.onclick = () => window.openAssetDetailsModal(a.id);
                     
                     const imgBox = document.createElement('div');
                     imgBox.className = "w-24 h-24 rounded-xl bg-zinc-100 flex-shrink-0 overflow-hidden flex items-center justify-center border border-zinc-200";
@@ -4288,12 +4611,104 @@ function renderAtivosView() {
     }
 }
 
+window.openAssetDetailsModal = function(assetId) {
+    if (!assetId) return;
+    const asset = (allAssetsList || []).find(a => a && String(a.id).trim().toUpperCase() === String(assetId).trim().toUpperCase());
+    if (!asset) return;
+
+    const modal = document.getElementById('asset-details-modal');
+    if (!modal) return;
+
+    const displayTipo = asset.tipo || asset.nome || 'Equipamento';
+    const fotoUrl = (typeof asset.foto === 'string' && asset.foto.trim() !== '' ? asset.foto : null) ||
+                    (asset.custom_fields && typeof asset.custom_fields.foto === 'string' && asset.custom_fields.foto.trim() !== '' ? asset.custom_fields.foto : null) ||
+                    (typeof asset.photo === 'string' && asset.photo.trim() !== '' ? asset.photo : null) ||
+                    (typeof asset.imagemUrl === 'string' && asset.imagemUrl.trim() !== '' ? asset.imagemUrl : null) ||
+                    getDefaultAssetImage(displayTipo);
+
+    const imgEl = document.getElementById('asset-details-img');
+    const nomeEl = document.getElementById('asset-details-nome');
+    const idEl = document.getElementById('asset-details-id');
+    const empresaEl = document.getElementById('asset-details-empresa');
+    const fabricanteEl = document.getElementById('asset-details-fabricante');
+    const localEl = document.getElementById('asset-details-local');
+    const tplEl = document.getElementById('asset-details-template');
+    const specsContainer = document.getElementById('asset-details-specs-container');
+
+    if (imgEl) {
+        imgEl.src = fotoUrl;
+        imgEl.onerror = function() {
+            this.onerror = null;
+            this.src = getDefaultAssetImage(displayTipo);
+        };
+    }
+    if (nomeEl) nomeEl.innerText = displayTipo.toUpperCase();
+    if (idEl) idEl.innerText = `#${asset.id}`;
+    if (empresaEl) empresaEl.innerText = (asset.empresa || '---').toUpperCase();
+    if (fabricanteEl) fabricanteEl.innerText = (asset.fabricante || '---').toUpperCase();
+    if (localEl) localEl.innerText = (asset.local || '---').toUpperCase();
+
+    // Template vinculado
+    const tplTemplates = typeof getAssetTemplates === 'function' ? getAssetTemplates() : [];
+    let linkedTemplate = null;
+    const tplId = asset.template_id || asset.templateId;
+    if (tplId) {
+        linkedTemplate = tplTemplates.find(t => String(t.id) === String(tplId));
+    }
+    if (!linkedTemplate && asset.schema_snapshot) {
+        linkedTemplate = asset.schema_snapshot;
+    }
+    if (tplEl) {
+        tplEl.innerText = linkedTemplate?.nome ? linkedTemplate.nome.toUpperCase() : 'MODELO PADRÃO';
+    }
+
+    // Especificações Técnicas do Modelo (100% apenas visualização)
+    if (specsContainer) {
+        specsContainer.innerHTML = '';
+        const fields = getAssetTechnicalFields(asset, {
+            getTemplateById: getAssetTemplateById,
+            templates: tplTemplates,
+            excludeHeaderFields: true
+        });
+
+        if (!fields || fields.length === 0) {
+            specsContainer.innerHTML = `
+                <div class="col-span-full bg-zinc-50 rounded-xl p-4 text-center border border-zinc-200 text-zinc-500 font-bold text-xs uppercase">
+                    Nenhuma especificação técnica adicional cadastrada
+                </div>
+            `;
+        } else {
+            fields.forEach(f => {
+                const item = document.createElement('div');
+                item.className = "bg-zinc-50 p-2.5 rounded-xl border border-zinc-200 flex flex-col justify-center";
+                item.innerHTML = `
+                    <span class="text-[9.5px] font-bold uppercase text-zinc-500 tracking-wider truncate" title="${f.fullLabel || f.displayLabel}">${f.displayLabel || f.fullLabel}:</span>
+                    <span class="text-[11px] font-extrabold uppercase text-zinc-900 truncate mt-0.5" title="${f.value}">${f.value || '---'}</span>
+                `;
+                specsContainer.appendChild(item);
+            });
+        }
+    }
+
+    modal.classList.remove('hidden');
+};
+
+window.closeAssetDetailsModal = function() {
+    const modal = document.getElementById('asset-details-modal');
+    if (modal) modal.classList.add('hidden');
+};
+
 window.renderAtivosView = renderAtivosView;
 
 window.editingCompanyName = null;
 
 window.openEditCompanyModal = function(compName) {
     if (!compName) return;
+    const curUser = getCurrentUser();
+    if (!canManageCompaniesAndAssets(curUser)) {
+        window.showAlert('ACESSO RESTRITO: APENAS ADMINISTRADORES PODEM EDITAR EMPRESAS.', 'warning');
+        return;
+    }
     const comp = (companies || []).find(c => {
         const name = typeof c === 'string' ? c : (c?.name || "");
         return name.toLowerCase() === compName.toLowerCase();
@@ -4328,6 +4743,11 @@ window.openEditCompanyModal = function(compName) {
 
 window.openEditAssetModal = function(assetId, compName) {
     if (!assetId) return;
+    const curUser = getCurrentUser();
+    if (!canManageCompaniesAndAssets(curUser)) {
+        window.showAlert('ACESSO RESTRITO: APENAS ADMINISTRADORES PODEM EDITAR ATIVOS.', 'warning');
+        return;
+    }
     window.openUnifiedRegistrationModal();
     window.editingCompanyName = null;
     const typeSelect = document.getElementById('reg-type-select');
@@ -4350,6 +4770,11 @@ window.openEditAssetModal = function(assetId, compName) {
 // --- UNIFIED REGISTRATION ---
 
 window.openUnifiedRegistrationModal = async function() {
+    const curUser = getCurrentUser();
+    if (!canManageCompaniesAndAssets(curUser)) {
+        window.showAlert('ACESSO RESTRITO: APENAS ADMINISTRADORES PODEM CADASTRAR OU EDITAR EMPRESAS E ATIVOS.', 'warning');
+        return;
+    }
     window.editingCompanyName = null;
     const modal = document.getElementById('modal-unified-registration');
     const panel = modal.querySelector('.relative');
@@ -5422,6 +5847,11 @@ window.closeEditCompanyModal = function() {
 };
 
 window.deleteCompany = function(empresaNome) {
+    const curUser = getCurrentUser();
+    if (!canManageCompaniesAndAssets(curUser)) {
+        window.showAlert('ACESSO RESTRITO: APENAS ADMINISTRADORES PODEM EXCLUIR EMPRESAS.', 'warning');
+        return;
+    }
     const target = empresaNome.trim().toLowerCase();
     
     // Exclui a empresa e todos os seus dados derivados do banco de dados na nuvem (Supabase)

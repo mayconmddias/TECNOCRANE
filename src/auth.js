@@ -28,6 +28,9 @@ export function restoreUserSession() {
             if (typeof window.updateMobileUserInfo === 'function') {
                 window.updateMobileUserInfo(user);
             }
+            if (typeof window.applyUserRolePermissions === 'function') {
+                window.applyUserRolePermissions(user);
+            }
 
             if (typeof window.reloadAppDataAndUI === 'function') {
                 window.reloadAppDataAndUI();
@@ -244,6 +247,9 @@ window.handleLogin = async function() {
     if (nameEl) nameEl.innerText = foundUser.name || 'USUÁRIO';
     if (typeof window.updateMobileUserInfo === 'function') {
         window.updateMobileUserInfo(foundUser);
+    }
+    if (typeof window.applyUserRolePermissions === 'function') {
+        window.applyUserRolePermissions(foundUser);
     }
     
     // Dispara sincronização e renderização completa dos dados atualizados da nuvem

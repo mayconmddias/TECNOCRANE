@@ -1246,7 +1246,7 @@
                                     <span class="material-symbols-outlined text-[18px] text-[#fa520f]">download</span>
                                     Exportar
                                 </button>
-                                <button onclick="window.openProgModal()" class="bg-primary hover:brightness-105 text-on-primary font-extrabold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs shadow-md transition-all cursor-pointer">
+                                <button id="btn-novo-agendamento-mobile" onclick="window.openProgModal()" class="bg-primary hover:brightness-105 text-on-primary font-extrabold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs shadow-md transition-all cursor-pointer">
                                     <span class="material-symbols-outlined text-[18px]">add_circle</span>
                                     Novo
                                 </button>
@@ -1505,11 +1505,11 @@
                         <span class="material-symbols-outlined text-primary text-[26px]">precision_manufacturing</span>
                         <span class="text-[10px] font-bold uppercase text-[#1f1f1f] leading-tight">Empresas e<br>Ativos</span>
                     </button>
-                    <button onclick="window.switchView('templates'); window.toggleMobileMoreMenu(false);" class="bg-white hover:bg-[#fff8e0] p-3 rounded-2xl flex flex-col items-center text-center gap-1.5 border border-[#e6d5a8] cursor-pointer shadow-sm">
+                    <button id="mobile-nav-templates" onclick="window.switchView('templates'); window.toggleMobileMoreMenu(false);" class="bg-white hover:bg-[#fff8e0] p-3 rounded-2xl flex flex-col items-center text-center gap-1.5 border border-[#e6d5a8] cursor-pointer shadow-sm">
                         <span class="material-symbols-outlined text-primary text-[26px]">dashboard_customize</span>
-                        <span class="text-[10px] font-bold uppercase text-[#1f1f1f] leading-tight">Modelos e<br>Formulários</span>
+                        <span class="text-[10px] font-bold uppercase text-[#1f1f1f] leading-tight">Formulários</span>
                     </button>
-                    <button onclick="window.switchView('users'); window.toggleMobileMoreMenu(false);" class="bg-white hover:bg-[#fff8e0] p-3 rounded-2xl flex flex-col items-center text-center gap-1.5 border border-[#e6d5a8] cursor-pointer shadow-sm">
+                    <button id="mobile-nav-users" onclick="window.switchView('users'); window.toggleMobileMoreMenu(false);" class="bg-white hover:bg-[#fff8e0] p-3 rounded-2xl flex flex-col items-center text-center gap-1.5 border border-[#e6d5a8] cursor-pointer shadow-sm">
                         <span class="material-symbols-outlined text-primary text-[26px]">person</span>
                         <span class="text-[10px] font-bold uppercase text-[#1f1f1f] leading-tight">Cadastro<br>Interno</span>
                     </button>
@@ -1998,6 +1998,81 @@
         </div>
     </div>
 
+    <!-- Modal Ficha Técnica Completa do Ativo (z-[850] - Somente Leitura / Apenas Visualização) -->
+    <div id="asset-details-modal" class="fixed inset-0 z-[850] hidden overflow-y-auto">
+        <div class="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity" onclick="window.closeAssetDetailsModal()"></div>
+        <div class="flex min-h-full items-center justify-center p-2 sm:p-4 text-center">
+            <div class="relative transform overflow-hidden rounded-2xl bg-white border border-[#e6d5a8] text-left shadow-2xl transition-all w-full max-w-xl flex flex-col max-h-[90vh]">
+                <!-- Cabeçalho -->
+                <div class="px-5 py-3.5 border-b border-[#e6d5a8] flex justify-between items-center bg-[#fff8e0] shrink-0">
+                    <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-[#fa520f] text-[22px]">precision_manufacturing</span>
+                        <div>
+                            <h2 class="text-sm font-extrabold uppercase text-[#1f1f1f] tracking-wide">FICHA TÉCNICA DO ATIVO</h2>
+                            <p class="text-[10px] font-bold text-zinc-500 uppercase">MODO SOMENTE LEITURA</p>
+                        </div>
+                    </div>
+                    <button onclick="window.closeAssetDetailsModal()" class="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60 transition-colors cursor-pointer" title="Fechar">
+                        <span class="material-symbols-outlined text-[20px]">close</span>
+                    </button>
+                </div>
+
+                <!-- Conteúdo -->
+                <div class="flex-1 overflow-y-auto p-4 space-y-4">
+                    <!-- Resumo Principal: Foto e Identificadores -->
+                    <div class="bg-[#fffdf7] p-3.5 rounded-xl border border-[#e6d5a8] flex gap-3.5 items-center">
+                        <div class="w-20 h-20 rounded-xl bg-white border border-[#e6d5a8] flex-shrink-0 overflow-hidden flex items-center justify-center shadow-xs">
+                            <img id="asset-details-img" src="" alt="Ativo" class="w-full h-full object-cover">
+                        </div>
+                        <div class="flex-1 min-w-0 text-left space-y-1">
+                            <div id="asset-details-nome" class="font-black text-[#1f1f1f] text-sm uppercase truncate">EQUIPAMENTO</div>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="font-mono font-bold text-[#fa520f] bg-[#fff0c2] px-2 py-0.5 rounded border border-[#e6d5a8] text-[11px] leading-none" id="asset-details-id">#ID</span>
+                                <span class="text-[11px] font-bold uppercase text-zinc-600 bg-zinc-100 px-2 py-0.5 rounded" id="asset-details-template">MODELO PADRÃO</span>
+                            </div>
+                            <div class="text-[11.5px] text-zinc-600 truncate">
+                                <span class="font-bold uppercase text-zinc-500">Empresa:</span>
+                                <span id="asset-details-empresa" class="font-extrabold text-zinc-900 uppercase ml-1">---</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dados Gerais (Localização e Fabricante) -->
+                    <div class="grid grid-cols-2 gap-2.5">
+                        <div class="bg-zinc-50 p-2.5 rounded-xl border border-zinc-200">
+                            <span class="text-[10px] font-bold uppercase text-zinc-500 block">Fabricante</span>
+                            <span id="asset-details-fabricante" class="text-xs font-bold uppercase text-zinc-900 truncate block mt-0.5">---</span>
+                        </div>
+                        <div class="bg-zinc-50 p-2.5 rounded-xl border border-zinc-200">
+                            <span class="text-[10px] font-bold uppercase text-zinc-500 block">Localização</span>
+                            <span id="asset-details-local" class="text-xs font-bold uppercase text-zinc-900 truncate block mt-0.5">---</span>
+                        </div>
+                    </div>
+
+                    <!-- Especificações Técnicas Completas do Modelo -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-xs font-black uppercase text-zinc-800 tracking-wider flex items-center gap-1.5">
+                                <span class="material-symbols-outlined text-[16px] text-[#fa520f]">tune</span>
+                                ESPECIFICAÇÕES TÉCNICAS DO MODELO
+                            </h3>
+                        </div>
+                        <div id="asset-details-specs-container" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                            <!-- Preenchido dinamicamente via getAssetTechnicalFields -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Rodapé -->
+                <div class="px-5 py-3 border-t border-[#e6d5a8] bg-[#fff8e0]/60 flex justify-end shrink-0">
+                    <button type="button" onclick="window.closeAssetDetailsModal()" class="w-full sm:w-auto bg-zinc-900 hover:bg-black text-white font-extrabold py-2.5 px-6 rounded-xl text-xs uppercase transition-all shadow-sm cursor-pointer">
+                        FECHAR
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal Editar Agendamento (z-800) -->
     <div id="edit-asset-modal" class="fixed inset-0 z-[800] hidden overflow-hidden">
         <div id="edit-asset-overlay" class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="window.closeEditAssetModal()"></div>
@@ -2068,8 +2143,8 @@
                             <textarea id="edit-asset-justificativa" rows="3" class="w-full bg-error-container border border-error p-3.5 text-body-lg font-bold uppercase text-on-error-container focus:ring-2 focus:ring-error outline-none rounded-xl" placeholder="MOTIVO..."></textarea>
                         </div>
                         <div class="grid grid-cols-2 gap-3">
-                            <button onclick="window.confirmDeleteModal()" class="w-full bg-white border border-zinc-300 text-zinc-700 font-extrabold py-3.5 px-4 text-xs uppercase hover:bg-zinc-50 transition-all rounded-xl text-center cursor-pointer">EXCLUIR</button>
-                            <button onclick="window.updateEventFromIndustrial()" class="w-full bg-[#fa520f] hover:bg-[#e04505] text-white font-extrabold py-3.5 px-4 text-xs uppercase shadow-md transition-all rounded-xl text-center cursor-pointer">SALVAR</button>
+                            <button id="btn-edit-asset-delete" onclick="window.confirmDeleteModal()" class="w-full bg-white border border-zinc-300 text-zinc-700 font-extrabold py-3.5 px-4 text-xs uppercase hover:bg-zinc-50 transition-all rounded-xl text-center cursor-pointer">EXCLUIR</button>
+                            <button id="btn-edit-asset-save" onclick="window.updateEventFromIndustrial()" class="w-full bg-[#fa520f] hover:bg-[#e04505] text-white font-extrabold py-3.5 px-4 text-xs uppercase shadow-md transition-all rounded-xl text-center cursor-pointer">SALVAR</button>
                         </div>
                     </div>
                 </div>
@@ -2729,24 +2804,27 @@
     </div>
 
     <!-- Menu de Ações Global para Relatórios (Relatórios - Conforme Imagem 2 de Referência) -->
-    <div id="global-action-menu" class="fixed z-[1000] hidden bg-white border border-zinc-200 shadow-2xl rounded-2xl w-44 py-2 px-1 select-none">
-        <button onclick="window.execMenuAction('edit')" class="w-full text-left px-3 py-2 text-xs font-extrabold uppercase hover:bg-zinc-100 text-zinc-900 rounded-xl transition-colors flex items-center gap-2.5 cursor-pointer">
+    <div id="global-action-menu" class="fixed z-[1000] hidden bg-white border border-zinc-200 shadow-2xl rounded-2xl w-48 py-2 px-1 select-none">
+        <button id="menu-action-edit-btn" onclick="window.execMenuAction('edit')" class="w-full text-left px-3 py-2 text-xs font-extrabold uppercase hover:bg-zinc-100 text-zinc-900 rounded-xl transition-colors flex items-center gap-2.5 cursor-pointer">
             <span class="material-symbols-outlined text-[20px] text-zinc-800">edit</span> EDITAR
         </button>
-        <button onclick="window.execMenuAction('pdf')" class="w-full text-left px-3 py-2 text-xs font-extrabold uppercase hover:bg-zinc-100 text-zinc-900 rounded-xl transition-colors flex items-center gap-2.5 cursor-pointer">
+        <button id="menu-action-pdf-btn" onclick="window.execMenuAction('pdf')" class="w-full text-left px-3 py-2 text-xs font-extrabold uppercase hover:bg-zinc-100 text-zinc-900 rounded-xl transition-colors flex items-center gap-2.5 cursor-pointer">
             <span class="material-symbols-outlined text-[20px] text-zinc-800">picture_as_pdf</span> PDF
         </button>
-        <button onclick="window.execMenuAction('delete')" class="w-full text-left px-3 py-2 text-xs font-extrabold uppercase hover:bg-red-50 text-red-600 rounded-xl transition-colors flex items-center gap-2.5 cursor-pointer">
+        <button id="menu-action-extend-btn" onclick="window.execMenuAction('extend')" class="w-full text-left px-3 py-2 text-xs font-extrabold uppercase hover:bg-zinc-100 text-[#fa520f] rounded-xl transition-colors flex items-center gap-2.5 cursor-pointer">
+            <span class="material-symbols-outlined text-[20px] text-[#fa520f]">more_time</span> PRAZO EDIÇÃO + 10 DIAS
+        </button>
+        <button id="menu-action-delete-btn" onclick="window.execMenuAction('delete')" class="w-full text-left px-3 py-2 text-xs font-extrabold uppercase hover:bg-red-50 text-red-600 rounded-xl transition-colors flex items-center gap-2.5 cursor-pointer">
             <span class="material-symbols-outlined text-[20px] text-red-600">delete</span> EXCLUIR
         </button>
     </div>
 
     <!-- Menu de Ações Flutuante do Dashboard (Programação e Exportar) -->
     <div id="dashboard-action-menu" class="fixed z-[1000] hidden bg-white border border-zinc-200 shadow-2xl rounded-2xl w-48 py-2 px-1 select-none">
-        <button onclick="window.execDashboardMenuAction('programacao')" class="w-full text-left px-3 py-2 text-xs font-extrabold uppercase hover:bg-zinc-100 text-zinc-900 rounded-xl transition-colors flex items-center gap-2.5 cursor-pointer">
+        <button id="dashboard-menu-programacao-btn" onclick="window.execDashboardMenuAction('programacao')" class="w-full text-left px-3 py-2 text-xs font-extrabold uppercase hover:bg-zinc-100 text-zinc-900 rounded-xl transition-colors flex items-center gap-2.5 cursor-pointer">
             <span class="material-symbols-outlined text-[20px] text-[#fa520f]">event</span> PROGRAMAÇÃO
         </button>
-        <button onclick="window.execDashboardMenuAction('exportar')" class="w-full text-left px-3 py-2 text-xs font-extrabold uppercase hover:bg-zinc-100 text-zinc-900 rounded-xl transition-colors flex items-center gap-2.5 cursor-pointer">
+        <button id="dashboard-menu-exportar-btn" onclick="window.execDashboardMenuAction('exportar')" class="w-full text-left px-3 py-2 text-xs font-extrabold uppercase hover:bg-zinc-100 text-zinc-900 rounded-xl transition-colors flex items-center gap-2.5 cursor-pointer">
             <span class="material-symbols-outlined text-[20px] text-[#fa520f]">download</span> EXPORTAR
         </button>
     </div>
