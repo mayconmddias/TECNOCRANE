@@ -1164,7 +1164,7 @@
                 <!-- AVATAR DO USUÁRIO -->
                 <div class="relative flex items-center select-none">
                     <div class="w-9 h-9 rounded-full bg-[#fff8e0] flex items-center justify-center overflow-hidden border border-[#ffa110] text-[#1f1f1f] font-bold text-xs" id="mobile-user-avatar">
-                        <span id="mobile-avatar-initials">MD</span>
+                        <span id="mobile-avatar-initials">--</span>
                     </div>
                     <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[#fff8e0]"></span>
                 </div>
@@ -1762,11 +1762,11 @@
     </div>
 
     <!-- Modal Importação de Dados da Última Inspeção (z-650) -->
-    <div id="import-last-inspection-modal" class="fixed inset-0 z-[650] hidden overflow-hidden">
-        <div id="import-last-inspection-overlay" class="absolute inset-0 bg-black/60 opacity-0 transition-opacity duration-300" onclick="window.closeImportLastInspectionModal()"></div>
-        <div class="flex items-center justify-center min-h-screen p-0 md:p-container_gutter">
-            <div id="import-last-inspection-panel" class="relative bg-surface w-full h-screen md:h-auto md:max-w-lg shadow-2xl border-0 md:border md:border-outline-variant rounded-none md:rounded-2xl transform scale-95 opacity-0 transition-all duration-300 flex flex-col overflow-hidden max-h-screen">
-                <div class="p-card_padding border-b border-outline-variant flex justify-between items-center bg-surface-container shrink-0">
+    <div id="import-last-inspection-modal" class="fixed inset-0 z-[650] hidden overflow-y-auto">
+        <div id="import-last-inspection-overlay" class="fixed inset-0 bg-black/60 opacity-0 transition-opacity duration-300" onclick="window.closeImportLastInspectionModal()"></div>
+        <div class="relative flex items-center justify-center min-h-full p-4 sm:p-6 md:p-container_gutter">
+            <div id="import-last-inspection-panel" class="relative bg-surface w-full max-w-lg h-auto max-h-[calc(100dvh-2rem)] md:max-h-[85vh] shadow-2xl border border-outline-variant rounded-2xl transform scale-95 opacity-0 transition-all duration-300 flex flex-col overflow-hidden my-auto">
+                <div class="p-4 md:p-card_padding border-b border-outline-variant flex justify-between items-center bg-surface-container shrink-0">
                     <div class="flex items-center gap-2">
                         <span class="material-symbols-outlined text-primary text-[26px]">history</span>
                         <div>
@@ -1778,11 +1778,11 @@
                     </button>
                 </div>
                 
-                <div class="p-4 md:p-card_padding space-y-4 bg-surface-container-low flex-1 overflow-y-auto">
+                <div class="p-4 md:p-card_padding space-y-3 bg-surface-container-low flex-1 overflow-y-auto">
                     <p class="text-body-md text-on-surface-variant font-medium">Selecione as informações do relatório anterior que você deseja carregar para a nova preventiva:</p>
                     
-                    <div class="space-y-3">
-                        <label class="flex items-center gap-3 p-3.5 bg-surface border border-outline rounded-xl cursor-pointer hover:border-primary transition-all">
+                    <div class="space-y-2.5">
+                        <label class="flex items-center gap-3 p-3 bg-surface border border-outline rounded-xl cursor-pointer hover:border-primary transition-all">
                             <input type="checkbox" id="import-chk-checklist" checked class="w-5 h-5 text-primary rounded border-outline focus:ring-primary accent-primary">
                             <div>
                                 <span class="font-bold uppercase text-on-surface text-body-md block">CHECKLIST</span>
@@ -1790,7 +1790,7 @@
                             </div>
                         </label>
                         
-                        <label class="flex items-center gap-3 p-3.5 bg-surface border border-outline rounded-xl cursor-pointer hover:border-primary transition-all">
+                        <label class="flex items-center gap-3 p-3 bg-surface border border-outline rounded-xl cursor-pointer hover:border-primary transition-all">
                             <input type="checkbox" id="import-chk-obs" checked class="w-5 h-5 text-primary rounded border-outline focus:ring-primary accent-primary">
                             <div>
                                 <span class="font-bold uppercase text-on-surface text-body-md block">CAMPOS DE OBSERVAÇÕES</span>
@@ -1798,7 +1798,7 @@
                             </div>
                         </label>
                         
-                        <label class="flex items-center gap-3 p-3.5 bg-surface border border-outline rounded-xl cursor-pointer hover:border-primary transition-all">
+                        <label class="flex items-center gap-3 p-3 bg-surface border border-outline rounded-xl cursor-pointer hover:border-primary transition-all">
                             <input type="checkbox" id="import-chk-fotos" checked class="w-5 h-5 text-primary rounded border-outline focus:ring-primary accent-primary">
                             <div>
                                 <span class="font-bold uppercase text-on-surface text-body-md block">FOTOS</span>
@@ -1808,8 +1808,8 @@
                     </div>
                 </div>
 
-                <div class="p-card_padding border-t border-outline-variant bg-surface-container flex flex-col gap-3 shrink-0 pb-6 md:pb-card_padding">
-                    <button type="button" onclick="window.confirmImportLastInspection()" class="w-full bg-primary text-on-primary font-bold p-3.5 uppercase hover:brightness-110 transition-all duration-200 shadow-lg rounded-xl text-center cursor-pointer">INICIAR</button>
+                <div class="p-4 md:p-card_padding border-t border-outline-variant bg-surface-container flex flex-col gap-2.5 shrink-0 pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
+                    <button type="button" onclick="window.confirmImportLastInspection()" class="w-full bg-primary text-on-primary font-bold p-3.5 uppercase hover:brightness-110 transition-all duration-200 shadow-md rounded-xl text-center cursor-pointer">INICIAR</button>
                     <button type="button" onclick="window.closeImportLastInspectionModal()" class="w-full border border-outline text-on-surface-variant font-bold p-3.5 uppercase hover:bg-surface-container transition-all duration-200 rounded-xl text-center cursor-pointer">CANCELAR</button>
                 </div>
             </div>

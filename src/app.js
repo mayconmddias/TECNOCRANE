@@ -331,10 +331,18 @@ window.updateMobileUserInfo = function(user) {
     const role = (user.permission || 'Técnico').toUpperCase();
     const initials = name.split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('') || 'CP';
 
+    let avatarImg = user.avatar || user.foto || '';
+    if (!avatarImg && typeof usersList !== 'undefined' && Array.isArray(usersList)) {
+        const matched = usersList.find(u => (u && u.id && user.id && String(u.id) === String(user.id)) || (u && u.email && user.email && String(u.email).toLowerCase() === String(user.email).toLowerCase()));
+        if (matched && (matched.avatar || matched.foto)) {
+            avatarImg = matched.avatar || matched.foto;
+        }
+    }
+
     const avatarContainer = document.getElementById('mobile-user-avatar');
     if (avatarContainer) {
-        if (user.avatar || user.foto) {
-            avatarContainer.innerHTML = `<img src="${user.avatar || user.foto}" class="w-full h-full object-cover" alt="${name}">`;
+        if (avatarImg) {
+            avatarContainer.innerHTML = `<img src="${avatarImg}" class="w-full h-full object-cover" alt="${name}">`;
         } else {
             avatarContainer.innerHTML = `<span id="mobile-avatar-initials">${initials}</span>`;
         }
@@ -343,8 +351,8 @@ window.updateMobileUserInfo = function(user) {
     const sheetAvatar = document.getElementById('mobile-sheet-avatar');
     const sheetInitials = document.getElementById('mobile-sheet-avatar-initials');
     if (sheetAvatar) {
-        if (user.avatar || user.foto) {
-            sheetAvatar.innerHTML = `<img src="${user.avatar || user.foto}" class="w-full h-full object-cover" alt="${name}">`;
+        if (avatarImg) {
+            sheetAvatar.innerHTML = `<img src="${avatarImg}" class="w-full h-full object-cover" alt="${name}">`;
         } else {
             sheetAvatar.innerHTML = `<span id="mobile-sheet-avatar-initials">${initials}</span>`;
         }
@@ -2817,9 +2825,20 @@ window.reassignOpenOrder = async function(orderId, newTechName) {
     }
     const order = openOrders.find(o => String(o.id) === String(orderId));
     if (!order) return;
+    const nowIso = new Date().toISOString();
     order.assignedTo = newTechName;
     order.assigned_to = newTechName;
+    order.assigned_at = nowIso;
+    order.tecnico = newTechName;
+    order.responses = order.responses || {};
+    order.responses.__meta = {
+        ...(order.responses.__meta || {}),
+        assignedTo: newTechName,
+        assigned_to: newTechName,
+        assigned_at: nowIso
+    };
     await setDBValue('crane_open_orders', openOrders);
+    setStoredData('crane_open_orders', openOrders, true);
     await syncKeyToSupabase('crane_open_orders', openOrders);
     renderOpenOrders();
     window.showAlert(`ORDEM ATRIBUÍDA A "${newTechName.toUpperCase()}".`, 'success');
@@ -4161,6 +4180,14 @@ window.reloadAppDataAndUI = async function() {
     if (typeof window.renderCalendar === 'function') window.renderCalendar();
     if (typeof renderAtivosView === 'function') renderAtivosView();
     if (typeof renderReportsView === 'function') renderReportsView();
+    if (typeof renderOpenOrders === 'function') renderOpenOrders();
+
+    const curUser = getCurrentUser();
+    if (curUser && curUser.id && curUser.id !== 'anon') {
+        if (typeof window.updateMobileUserInfo === 'function') {
+            window.updateMobileUserInfo(curUser);
+        }
+    }
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -4223,6 +4250,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
     
+    // Atualiza imediatamente informações visuais do usuário logado
+    const curUser = getCurrentUser();
+    if (curUser && curUser.id && curUser.id !== 'anon') {
+        if (typeof window.updateMobileUserInfo === 'function') {
+            window.updateMobileUserInfo(curUser);
+        }
+        if (typeof window.applyUserRolePermissions === 'function') {
+            window.applyUserRolePermissions(curUser);
+        }
+    }
+
     console.log('CRANE PRO: Aplicação inicializada com sucesso.');
 });
 

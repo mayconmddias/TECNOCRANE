@@ -470,32 +470,39 @@ export async function syncKeyToSupabase(key, data) {
             await setDBValue(tenantKey, data);
         } else if (key === 'crane_open_orders') {
             const processedData = await Promise.all(data.map(o => processReportImages(o)));
-            const rows = processedData.map(o => ({
-                id: String(o.id),
-                status: o.status || 'EM ABERTO',
-                type: o.type || 'PREVENTIVA',
-                empresa: o.empresa || '',
-                equipamentoId: o.equipamentoId || o.equipamento || '',
-                equipamentoNome: o.equipamentoNome || o.equipamento || '',
-                assetInfo: o.assetInfo || `${o.equipamentoNome || o.equipamento || ''} — ${o.empresa || ''}`,
-                date: o.date || '',
-                responsaveis: o.responsaveis || [],
-                responses: {
-                    ...(o.responses || {}),
-                    __meta: {
-                        schema: o.schema_snapshot || o.schema || null,
-                        schema_snapshot: o.schema_snapshot || o.schema || null,
-                        templateId: o.templateId || null,
-                        templateName: o.templateName || null
-                    }
-                },
-                generalObservation: o.generalObservation || '',
-                generalImages: o.generalImages || [],
-                customSections: o.customSections || [],
-                customItems: o.customItems || [],
-                tecnico: o.tecnico || '',
-                revisions: o.revisions || {}
-            }));
+            const rows = processedData.map(o => {
+                const assigned = o.assignedTo || o.assigned_to || (o.responses && o.responses.__meta && (o.responses.__meta.assignedTo || o.responses.__meta.assigned_to)) || o.tecnico || '';
+                const assignedAt = o.assigned_at || (o.responses && o.responses.__meta && o.responses.__meta.assigned_at) || null;
+                return {
+                    id: String(o.id),
+                    status: o.status || 'EM ABERTO',
+                    type: o.type || 'PREVENTIVA',
+                    empresa: o.empresa || '',
+                    equipamentoId: o.equipamentoId || o.equipamento || '',
+                    equipamentoNome: o.equipamentoNome || o.equipamento || '',
+                    assetInfo: o.assetInfo || `${o.equipamentoNome || o.equipamento || ''} — ${o.empresa || ''}`,
+                    date: o.date || '',
+                    responsaveis: o.responsaveis || [],
+                    responses: {
+                        ...(o.responses || {}),
+                        __meta: {
+                            schema: o.schema_snapshot || o.schema || null,
+                            schema_snapshot: o.schema_snapshot || o.schema || null,
+                            templateId: o.templateId || null,
+                            templateName: o.templateName || null,
+                            assignedTo: assigned,
+                            assigned_to: assigned,
+                            assigned_at: assignedAt
+                        }
+                    },
+                    generalObservation: o.generalObservation || '',
+                    generalImages: o.generalImages || [],
+                    customSections: o.customSections || [],
+                    customItems: o.customItems || [],
+                    tecnico: assigned || o.tecnico || '',
+                    revisions: o.revisions || {}
+                };
+            });
             await dbUpsert('open_orders', rows);
         } else if (key === 'crane_reports') {
             const processedData = await Promise.all(data.map(r => processReportImages(r)));
@@ -1107,6 +1114,9 @@ export async function syncAllFromSupabase() {
                         mergedResp = { ...parsedResp, ...localResp };
                     }
                 }
+                const assigned = o.assignedTo || o.assigned_to || meta.assignedTo || meta.assigned_to || (localMatch ? (localMatch.assignedTo || localMatch.assigned_to) : null) || o.tecnico || '';
+                const assignedAt = o.assigned_at || meta.assigned_at || (localMatch ? localMatch.assigned_at : null) || null;
+
                 return {
                     ...o,
                     equipamentoId: o.equipamentoId || o.equipamentoid || '',
@@ -1119,7 +1129,10 @@ export async function syncAllFromSupabase() {
                     generalImages: parseIfNeeded(o.generalImages) || parseIfNeeded(o.generalimages) || (localMatch ? localMatch.generalImages : []),
                     customSections: parseIfNeeded(o.customSections) || parseIfNeeded(o.customsections) || (localMatch ? localMatch.customSections : []),
                     customItems: parseIfNeeded(o.customItems) || parseIfNeeded(o.customitems) || (localMatch ? localMatch.customItems : []),
-                    tecnico: o.tecnico || (localMatch ? localMatch.tecnico : ''),
+                    assignedTo: assigned,
+                    assigned_to: assigned,
+                    assigned_at: assignedAt,
+                    tecnico: assigned || o.tecnico || (localMatch ? localMatch.tecnico : ''),
                     revisions: parseIfNeeded(o.revisions) || meta.revisions || (localMatch ? localMatch.revisions : null)
                 };
             });

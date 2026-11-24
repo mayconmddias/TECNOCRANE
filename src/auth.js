@@ -7,6 +7,63 @@ import { validateCredentials, updateUserPasswordInCloud, fetchUsersFromCloud } f
 console.log('CRANE PRO: Módulo de Autenticação Carregado.');
 
 /**
+ * Atualiza o avatar e os textos de identificação do usuário em toda a interface
+ */
+export function updateUserDisplay(user) {
+    if (!user) return;
+    const name = (user.name || 'Usuário').toUpperCase();
+    const role = (user.permission || 'Técnico').toUpperCase();
+    const initials = name.split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('') || 'CP';
+
+    let avatarImg = user.avatar || user.foto || '';
+    if (!avatarImg && typeof usersList !== 'undefined' && Array.isArray(usersList)) {
+        const matched = usersList.find(u => (u && u.id && user.id && String(u.id) === String(user.id)) || (u && u.email && user.email && String(u.email).toLowerCase() === String(user.email).toLowerCase()));
+        if (matched && (matched.avatar || matched.foto)) {
+            avatarImg = matched.avatar || matched.foto;
+        }
+    }
+
+    const roleEl = document.getElementById('user-role-display');
+    const nameEl = document.getElementById('user-name-display');
+    if (roleEl) roleEl.innerText = role;
+    if (nameEl) nameEl.innerText = name;
+
+    const avatarContainer = document.getElementById('mobile-user-avatar');
+    if (avatarContainer) {
+        if (avatarImg) {
+            avatarContainer.innerHTML = `<img src="${avatarImg}" class="w-full h-full object-cover" alt="${name}">`;
+        } else {
+            avatarContainer.innerHTML = `<span id="mobile-avatar-initials">${initials}</span>`;
+        }
+    }
+
+    const sheetAvatar = document.getElementById('mobile-sheet-avatar');
+    const sheetInitials = document.getElementById('mobile-sheet-avatar-initials');
+    if (sheetAvatar) {
+        if (avatarImg) {
+            sheetAvatar.innerHTML = `<img src="${avatarImg}" class="w-full h-full object-cover" alt="${name}">`;
+        } else {
+            sheetAvatar.innerHTML = `<span id="mobile-sheet-avatar-initials">${initials}</span>`;
+        }
+    } else if (sheetInitials) {
+        sheetInitials.innerText = initials;
+    }
+
+    const sheetName = document.getElementById('mobile-sheet-user-name');
+    if (sheetName) sheetName.innerText = name;
+
+    const sheetRole = document.getElementById('mobile-sheet-user-role');
+    if (sheetRole) sheetRole.innerText = role;
+}
+
+if (typeof window !== 'undefined') {
+    window.updateUserDisplay = updateUserDisplay;
+    if (typeof window.updateMobileUserInfo !== 'function') {
+        window.updateMobileUserInfo = updateUserDisplay;
+    }
+}
+
+/**
  * Restaura a sessão do usuário logado caso exista no localStorage/sessionStorage
  */
 export function restoreUserSession() {
@@ -21,10 +78,7 @@ export function restoreUserSession() {
             if (loginView) loginView.classList.add('hidden');
             if (mainApp) mainApp.classList.remove('hidden');
 
-            const roleEl = document.getElementById('user-role-display');
-            const nameEl = document.getElementById('user-name-display');
-            if (roleEl) roleEl.innerText = user.permission || 'TECNICO';
-            if (nameEl) nameEl.innerText = user.name || 'USUÁRIO';
+            updateUserDisplay(user);
             if (typeof window.updateMobileUserInfo === 'function') {
                 window.updateMobileUserInfo(user);
             }
@@ -225,13 +279,21 @@ window.handleLogin = async function() {
         });
     }
 
+    // Se o usuário não tiver avatar no login, busca se já existe em usersList
+    if (!foundUser.avatar && Array.isArray(usersList)) {
+        const localMatch = usersList.find(u => (u && u.id && foundUser.id && String(u.id) === String(foundUser.id)) || (u && u.email && foundUser.email && String(u.email).toLowerCase() === String(foundUser.email).toLowerCase()));
+        if (localMatch && (localMatch.avatar || localMatch.foto)) {
+            foundUser.avatar = localMatch.avatar || localMatch.foto;
+        }
+    }
+
     // Registra o usuário logado no sistema de travas
     setCurrentUser(foundUser);
 
     // Atualiza/Sincroniza o usuário encontrado no array local usersList
     const idx = usersList.findIndex(u => String(u.id) === String(foundUser.id));
     if (idx !== -1) {
-        usersList[idx] = foundUser;
+        usersList[idx] = { ...usersList[idx], ...foundUser };
     } else {
         usersList.push(foundUser);
     }
@@ -241,10 +303,7 @@ window.handleLogin = async function() {
     document.getElementById('main-app').classList.remove('hidden');
     
     // Atualiza perfil na sidebar e no mobile
-    const roleEl = document.getElementById('user-role-display');
-    const nameEl = document.getElementById('user-name-display');
-    if (roleEl) roleEl.innerText = foundUser.permission || 'TECNICO';
-    if (nameEl) nameEl.innerText = foundUser.name || 'USUÁRIO';
+    updateUserDisplay(foundUser);
     if (typeof window.updateMobileUserInfo === 'function') {
         window.updateMobileUserInfo(foundUser);
     }
@@ -274,5 +333,15 @@ window.handleLogout = function() {
     const passInput = document.getElementById('login-password');
     if (emailInput) emailInput.value = '';
     if (passInput) passInput.value = '';
+
+    // Reseta visual do avatar e dados do usuário na tela
+    const avatarContainer = document.getElementById('mobile-user-avatar');
+    if (avatarContainer) avatarContainer.innerHTML = '<span id="mobile-avatar-initials">--</span>';
+    const sheetAvatar = document.getElementById('mobile-sheet-avatar');
+    if (sheetAvatar) sheetAvatar.innerHTML = '<span id="mobile-sheet-avatar-initials">--</span>';
+    const roleEl = document.getElementById('user-role-display');
+    const nameEl = document.getElementById('user-name-display');
+    if (roleEl) roleEl.innerText = 'TECNICO';
+    if (nameEl) nameEl.innerText = 'USUÁRIO';
 };
 

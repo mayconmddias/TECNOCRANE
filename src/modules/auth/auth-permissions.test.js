@@ -183,6 +183,18 @@ describe('auth-permissions module (RBAC)', () => {
 
             expect(canReassignOpenOrder(techUser1)).toBe(false);
         });
+
+        it('allows technician Jose Santos to manage order created by Maycon Dias when reassigned to him', () => {
+            const joseUser = { id: 'user-jose', name: 'Jose Santos Maria', permission: 'TECNICO' };
+            const orderCreatedByMaycon = {
+                id: 'ORD-002',
+                tecnico: 'Maycon Dias',
+                createdBy: 'Maycon Dias',
+                assignedTo: 'Jose Santos Maria'
+            };
+            expect(canManageOpenOrder(orderCreatedByMaycon, joseUser)).toBe(true);
+            expect(canManageOpenOrder(orderCreatedByMaycon, techUser1)).toBe(false);
+        });
     });
 
     describe('Section permissions: Programação, Empresas/Ativos, Formulários, Cadastro Interno', () => {
