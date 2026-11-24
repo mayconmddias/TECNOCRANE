@@ -1111,10 +1111,17 @@ export async function syncAllFromSupabase() {
                 if (localMatch) {
                     const localResp = parseIfNeeded(localMatch.responses) || {};
                     if (hasValidKeys(localResp)) {
-                        mergedResp = { ...parsedResp, ...localResp };
+                        mergedResp = {
+                            ...localResp,
+                            ...parsedResp,
+                            __meta: {
+                                ...(localResp.__meta || {}),
+                                ...(parsedResp.__meta || {})
+                            }
+                        };
                     }
                 }
-                const assigned = o.assignedTo || o.assigned_to || meta.assignedTo || meta.assigned_to || (localMatch ? (localMatch.assignedTo || localMatch.assigned_to) : null) || o.tecnico || '';
+                const assigned = o.assignedTo || o.assigned_to || meta.assignedTo || meta.assigned_to || o.tecnico || (localMatch ? (localMatch.assignedTo || localMatch.assigned_to) : null) || '';
                 const assignedAt = o.assigned_at || meta.assigned_at || (localMatch ? localMatch.assigned_at : null) || null;
 
                 return {

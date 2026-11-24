@@ -5,7 +5,7 @@ import { renderObservationBlock, renderNode, renderCustomChecklistItemRow, rende
 import { mountChecklistForm, getFormRoot, collectFormData } from './checklist-ui.js';
 import { createInspectionDocument, validateBeforeSend, validateTechniciansSelected, mergeLegacyReport, shouldReconcileTemplateSchema } from './checklist-state.js';
 import { acquireLock, releaseLock, getCurrentUser, setCurrentUser } from './locks.js';
-import { getTenantCode, isSupabaseConfigured, getActiveSupabase } from './supabase.js';
+import { getTenantCode, isSupabaseConfigured, getActiveSupabase, dbUpsert } from './supabase.js';
 import { CHECKLIST_SCHEMA } from './checklist-schema.js';
 import { showPrintLoadingOverlay, hidePrintLoadingOverlay, collectAllReportImageUrls, preloadImageUrls, printReportPDF, getChecklistPrintHTML } from './modules/reports/reports-pdf.js';
 import { filterReports, formatReportNumber, normalizeComp as normCompReports, normalizeAssetId as normAssetReports, getReportTechniciansDisplay, getNextAvailableReportId } from './modules/reports/reports-service.js';
@@ -2837,9 +2837,37 @@ window.reassignOpenOrder = async function(orderId, newTechName) {
         assigned_to: newTechName,
         assigned_at: nowIso
     };
+
+    // Gravação atômica imediata no Supabase (garantia de persistência na nuvem em tempo real)
+    if (isSupabaseConfigured) {
+        try {
+            await dbUpsert('open_orders', [{
+                id: String(order.id),
+                status: order.status || 'EM ABERTO',
+                type: order.type || 'PREVENTIVA',
+                empresa: order.empresa || '',
+                equipamentoId: order.equipamentoId || order.equipamento || '',
+                equipamentoNome: order.equipamentoNome || order.equipamento || '',
+                assetInfo: order.assetInfo || '',
+                date: order.date || '',
+                responsaveis: order.responsaveis || [],
+                responses: order.responses,
+                generalObservation: order.generalObservation || '',
+                generalImages: order.generalImages || [],
+                customSections: order.customSections || [],
+                customItems: order.customItems || [],
+                tecnico: newTechName,
+                revisions: order.revisions || {}
+            }]);
+        } catch (err) {
+            console.error('SUPABASE: Erro ao reatribuir ordem diretamente:', err);
+            window.showAlert('ERRO AO SALVAR REATRIBUIÇÃO NA NUVEM. VERIFIQUE SUA CONEXÃO.', 'warning');
+            return;
+        }
+    }
+
     await setDBValue('crane_open_orders', openOrders);
-    setStoredData('crane_open_orders', openOrders, true);
-    await syncKeyToSupabase('crane_open_orders', openOrders);
+    setStoredData('crane_open_orders', openOrders, false);
     renderOpenOrders();
     window.showAlert(`ORDEM ATRIBUÍDA A "${newTechName.toUpperCase()}".`, 'success');
 };
