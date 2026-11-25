@@ -1528,15 +1528,13 @@ export function populateAssetTemplateDropdown(selectEl, selectedId = null) {
     
     allOptions.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
 
-    let html = '';
-    if (allOptions.length === 0) {
-        html = '<option value="">NENHUM MODELO DE ATIVO CADASTRADO</option>';
-    } else {
-        allOptions.forEach((tpl) => {
-            const isSel = (selectedId !== null && selectedId !== undefined && selectedId !== '' && String(tpl.id) === String(selectedId)) ? 'selected' : '';
-            html += `<option value="${tpl.id}" ${isSel}>${escapeHTML(tpl.nome.toUpperCase())}</option>`;
-        });
-    }
+    const isDefaultSel = (!selectedId || selectedId === SYSTEM_ASSET_TEMPLATE_ID || selectedId === '') ? 'selected' : '';
+    let html = `<option value="" ${isDefaultSel}>PONTE ROLANTE VIGA DUPLA</option>`;
+
+    allOptions.forEach((tpl) => {
+        const isSel = (selectedId !== null && selectedId !== undefined && selectedId !== '' && String(tpl.id) === String(selectedId)) ? 'selected' : '';
+        html += `<option value="${tpl.id}" ${isSel}>${escapeHTML(tpl.nome.toUpperCase())}</option>`;
+    });
 
     selectEl.innerHTML = html;
 }

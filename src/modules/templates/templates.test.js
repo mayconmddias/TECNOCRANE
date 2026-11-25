@@ -468,6 +468,8 @@ describe('Modelos Padrão do Sistema (Ponte Rolante Viga Dupla)', () => {
             expect(selectEl.innerHTML.includes(SYSTEM_ASSET_TEMPLATE_ID)).toBe(false);
             // Garante que o modelo padrão exato não é listado como uma option
             expect(selectEl.innerHTML.includes(`>${SYSTEM_ASSET_TEMPLATE.nome.toUpperCase()}<`)).toBe(false);
+            // Garante que a opção padrão legível de Ponte Rolante está presente
+            expect(selectEl.innerHTML.includes('>PONTE ROLANTE VIGA DUPLA<')).toBe(true);
         });
     });
 

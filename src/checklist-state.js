@@ -519,10 +519,22 @@ export function mergeLegacyReport(report) {
 
 /**
  * Determina se o documento em edição deve reconciliar sua estrutura com o modelo padrão vivo.
- * Inspeções CORRETIVA que já possuem schema filtrado ou personalizado não devem ser sobrescritas.
+ * 1. Relatórios Finalizados (status FINALIZED ou ID iniciando com REL) possuem schema_snapshot histórico
+ *    sagrado e NUNCA devem ser sobrescritos pelo modelo vivo quando reabertos para edição.
+ * 2. Inspeções CORRETIVA que já possuem schema filtrado ou personalizado não devem ser sobrescritas.
  */
 export function shouldReconcileTemplateSchema(doc, context = null) {
     if (!doc) return false;
+
+    // 1. Relatórios Finalizados: Preservação do Schema Snapshot Histórico
+    const isFinalized = String(doc.status || '').toUpperCase() === 'FINALIZED' ||
+                        String(doc.id || context?.id || '').trim().toUpperCase().startsWith('REL');
+    const existingSchema = doc.schema_snapshot || doc.schema;
+    if (isFinalized && Array.isArray(existingSchema) && existingSchema.length > 0) {
+        return false;
+    }
+
+    // 2. Inspeções CORRETIVA que já possuem schema filtrado ou personalizado
     const docType = String(doc.type || context?.tipo || '').trim().toUpperCase();
     if (docType === 'CORRETIVA' && Array.isArray(doc.schema) && doc.schema.length > 0) {
         return false;

@@ -10,7 +10,7 @@ import { CHECKLIST_SCHEMA } from './checklist-schema.js';
 import { showPrintLoadingOverlay, hidePrintLoadingOverlay, collectAllReportImageUrls, preloadImageUrls, printReportPDF, getChecklistPrintHTML } from './modules/reports/reports-pdf.js';
 import { filterReports, formatReportNumber, normalizeComp as normCompReports, normalizeAssetId as normAssetReports, getReportTechniciansDisplay, getNextAvailableReportId } from './modules/reports/reports-service.js';
 import { renderTemplatesView, populateAssetTemplateDropdown, openCorretivaItemsPicker, autoResizeTextarea } from './modules/templates/templates-ui.js';
-import { getTemplates, getTemplateById, getTemplateByName, convertTemplateToChecklistSchema, loadTemplates, getAssetTemplates, getAssetTemplateById, loadAssetTemplates, SYSTEM_INSPECTION_TEMPLATE_ID } from './modules/templates/templates-module.js';
+import { getTemplates, getTemplateById, getTemplateByName, convertTemplateToChecklistSchema, loadTemplates, getAssetTemplates, getUserAssetTemplates, getAssetTemplateById, loadAssetTemplates, SYSTEM_INSPECTION_TEMPLATE_ID, SYSTEM_ASSET_TEMPLATE_ID } from './modules/templates/templates-module.js';
 import { reserveNextAssetId, prepareAssetPayload, parseAssetSequenceNumber, getAssetTechnicalFields } from './modules/assets/assets-service.js';
 import { generateNextOrderId, saveDraftOrder, deleteDraftOrder, saveFastLocalDraft, getFastLocalDraft, clearFastLocalDraft } from './modules/orders/orders-service.js';
 import { initNativeFeatures } from './native.js';
@@ -1956,7 +1956,7 @@ window.generateWorkOrder = async function() {
     }
 
     const formData = collectFormData(formRoot);
-    const isEditingRel = editingOrderId && (String(editingOrderId).startsWith('REL-') || String(editingOrderId).startsWith('REL - '));
+    const isEditingRel = editingOrderId && (String(editingOrderId).trim().toUpperCase().startsWith('REL'));
     const reportId = isEditingRel ? editingOrderId : await getNextAvailableReportId(finalizedReports, getActiveSupabase);
 
     const loggedUser = getCurrentUser();
@@ -5101,6 +5101,8 @@ window.handleRegistrationTypeChange = function(keepFields = false) {
         if (dynamicWrapper) dynamicWrapper.classList.add('hidden');
         if (dynamicContainer) dynamicContainer.innerHTML = '';
         if (tplSelect) tplSelect.value = '';
+        const tplDisplay = document.getElementById('reg-ativo-template-display');
+        if (tplDisplay) tplDisplay.value = '';
 
         window.currentAssetFotoBase64 = null;
         const fotoPrev = document.getElementById('ativo-foto-preview-container');
@@ -5137,6 +5139,15 @@ window.handleRegistrationTypeChange = function(keepFields = false) {
             idInput.readOnly = true;
             idInput.classList.add('bg-zinc-100', 'cursor-not-allowed');
         }
+
+        const tplBadge = document.getElementById('reg-ativo-template-badge');
+        const tplDisplay = document.getElementById('reg-ativo-template-display');
+        const tplHelp = document.getElementById('reg-ativo-template-help');
+        if (tplBadge) { tplBadge.classList.add('hidden'); tplBadge.classList.remove('flex'); }
+        if (tplSelect) tplSelect.classList.remove('hidden');
+        if (tplDisplay) tplDisplay.classList.add('hidden');
+        if (tplHelp) tplHelp.textContent = 'Selecione um modelo de formulário para carregar os campos de ficha técnica do ativo.';
+
         if (!keepFields) {
             clearAtivoFields();
             // Preenche automaticamente o próximo ID sequencial
@@ -5158,6 +5169,14 @@ window.handleRegistrationTypeChange = function(keepFields = false) {
             idInput.readOnly = true;
             idInput.classList.add('bg-zinc-100', 'cursor-not-allowed');
         }
+
+        const tplBadge = document.getElementById('reg-ativo-template-badge');
+        const tplDisplay = document.getElementById('reg-ativo-template-display');
+        const tplHelp = document.getElementById('reg-ativo-template-help');
+        if (tplBadge) { tplBadge.classList.remove('hidden'); tplBadge.classList.add('flex'); }
+        if (tplSelect) tplSelect.classList.add('hidden');
+        if (tplDisplay) tplDisplay.classList.remove('hidden');
+        if (tplHelp) tplHelp.textContent = 'Modelo de ficha técnica vinculado automaticamente a este ativo.';
         
         if (!keepFields) {
             const selectEditEmpresa = document.getElementById('reg-edit-empresa');
@@ -5404,35 +5423,55 @@ window.loadAssetDataForEdit = function() {
 
         // Carrega template de ativo e campos customizados se existirem
         const tplSelect = document.getElementById('reg-ativo-template-select');
-        if (tplSelect) {
+        const tplDisplay = document.getElementById('reg-ativo-template-display');
+        if (tplSelect || tplDisplay) {
             let targetTemplateId = asset.template_id || asset.templateId || '';
-            
-            // Se não houver template_id explícito gravado, busca template correspondente por tipo de equipamento ou nome
+            let templateDisplayName = asset.template_name || asset.templateName || '';
+
+            // Se não houver template_id explícito gravado, busca modelo customizado correspondente por tipo de equipamento ou nome
+            const assetTipoNorm = (asset.tipo || asset.nome || '').trim().toLowerCase();
             if (!targetTemplateId) {
-                const assetTipoNorm = (asset.tipo || asset.nome || '').trim().toLowerCase();
-                const availableTemplates = getAssetTemplates() || [];
-                const matchedTpl = availableTemplates.find(t => {
+                const userTemplates = (typeof getUserAssetTemplates === 'function' ? getUserAssetTemplates() : []) || [];
+                const matchedTpl = userTemplates.find(t => {
                     const tNome = (t.nome || '').trim().toLowerCase();
                     const tTipo = (t.tipoEquipamento || '').trim().toLowerCase();
-                    return tNome === assetTipoNorm || tTipo === assetTipoNorm ||
+                    return (tNome && tNome === assetTipoNorm) || (tTipo && tTipo === assetTipoNorm) ||
                            (assetTipoNorm && tNome && (assetTipoNorm === tNome || assetTipoNorm.includes(tNome) || tNome.includes(assetTipoNorm)));
                 });
                 if (matchedTpl) {
                     targetTemplateId = matchedTpl.id;
+                    templateDisplayName = matchedTpl.nome || matchedTpl.tipoEquipamento || '';
                 }
             }
 
-            populateAssetTemplateDropdown(tplSelect, targetTemplateId);
-            tplSelect.value = targetTemplateId || '';
+            if (!templateDisplayName && targetTemplateId) {
+                const tpl = getAssetTemplateById(targetTemplateId);
+                if (tpl && !tpl.isSystemDefault && String(tpl.id) !== SYSTEM_ASSET_TEMPLATE_ID) {
+                    templateDisplayName = tpl.nome || tpl.tipoEquipamento || '';
+                }
+            }
 
-            if (targetTemplateId) {
-                window.handleAssetTemplateChange({ ...(asset.custom_fields || asset.customFields || {}), ...asset });
-            } else {
-                window.handleAssetTemplateChange();
-                // Se nenhum template customizado foi casado, garante que o tipo original do ativo seja preservado no input
-                const tipoInput = document.getElementById('reg-ativo-tipo');
-                if (tipoInput && (asset.tipo || asset.nome)) {
-                    tipoInput.value = (asset.tipo || asset.nome).toUpperCase();
+            if (!templateDisplayName) {
+                templateDisplayName = (asset.tipo || asset.nome || 'PONTE ROLANTE VIGA DUPLA').toUpperCase();
+            }
+
+            if (tplDisplay) {
+                tplDisplay.value = templateDisplayName.toUpperCase();
+            }
+
+            if (tplSelect) {
+                populateAssetTemplateDropdown(tplSelect, targetTemplateId);
+                tplSelect.value = targetTemplateId || '';
+
+                if (targetTemplateId) {
+                    window.handleAssetTemplateChange({ ...(asset.custom_fields || asset.customFields || {}), ...asset });
+                } else {
+                    window.handleAssetTemplateChange();
+                    // Se nenhum template customizado foi casado, garante que o tipo original do ativo seja preservado no input
+                    const tipoInput = document.getElementById('reg-ativo-tipo');
+                    if (tipoInput && (asset.tipo || asset.nome)) {
+                        tipoInput.value = (asset.tipo || asset.nome).toUpperCase();
+                    }
                 }
             }
         }

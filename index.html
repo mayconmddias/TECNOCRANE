@@ -2356,15 +2356,21 @@
                     <!-- CAMPOS: ATIVO -->
                     <div id="reg-fields-ativo" class="hidden space-y-stack_md">
                         <!-- Seleção do Modelo / Template de Ativo -->
-                        <div class="space-y-stack_sm bg-surface-container/60 p-3 rounded-xl border border-outline-variant">
-                            <label class="text-label-md font-bold text-primary uppercase flex items-center gap-1.5">
-                                <span class="material-symbols-outlined text-[18px]">view_quilt</span>
-                                MODELO DE FICHA TÉCNICA DO ATIVO
+                        <div class="space-y-stack_sm bg-surface-container/60 p-3 rounded-xl border border-outline-variant" id="reg-ativo-template-container">
+                            <label class="text-label-md font-bold text-primary uppercase flex items-center justify-between">
+                                <span class="flex items-center gap-1.5">
+                                    <span class="material-symbols-outlined text-[18px]">view_quilt</span>
+                                    MODELO DE FICHA TÉCNICA DO ATIVO
+                                </span>
+                                <span id="reg-ativo-template-badge" class="hidden text-xs text-zinc-500 font-medium items-center gap-1">
+                                    <span class="material-symbols-outlined text-xs">lock</span> AUTOMÁTICO
+                                </span>
                             </label>
                             <select id="reg-ativo-template-select" onchange="window.handleAssetTemplateChange()" class="w-full bg-surface-container-low border border-outline py-2 px-3 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-all rounded-xl cursor-pointer">
                                 <option value="">PONTE ROLANTE VIGA DUPLA</option>
                             </select>
-                            <p class="text-label-sm text-on-surface-variant uppercase">Selecione um modelo de formulário para carregar os campos de ficha técnica do ativo.</p>
+                            <input type="text" id="reg-ativo-template-display" readonly tabindex="-1" class="hidden w-full bg-zinc-100 dark:bg-zinc-800 border border-outline py-2.5 px-4 text-body-md font-bold uppercase text-on-surface cursor-not-allowed select-none outline-none transition-all rounded-xl" placeholder="AUTOMÁTICO CONFORME TIPO DO ATIVO">
+                            <p id="reg-ativo-template-help" class="text-label-sm text-on-surface-variant uppercase">Selecione um modelo de formulário para carregar os campos de ficha técnica do ativo.</p>
                         </div>
 
                         <!-- Grupo 1: 5 Campos Fixos Obrigatórios -->

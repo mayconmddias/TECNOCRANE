@@ -242,6 +242,22 @@ describe('Checklist Schema e Renderização Unificada', () => {
         });
         expect(shouldReconcileTemplateSchema(preventivaDoc, { tipo: 'PREVENTIVA' })).toBe(true);
 
+        // Relatório finalizado (REL-xxx ou status FINALIZED) NUNCA deve sofrer reconciliação
+        const finalizedPreventivaDoc = {
+            id: 'REL-0001',
+            status: 'FINALIZED',
+            type: 'PREVENTIVA',
+            schema_snapshot: [{ id: '1', title: '1 SISTEMA HISTORICO', children: [] }]
+        };
+        expect(shouldReconcileTemplateSchema(finalizedPreventivaDoc, { tipo: 'PREVENTIVA' })).toBe(false);
+
+        const finalizedByRelIdDoc = {
+            id: 'REL - 12',
+            type: 'PREVENTIVA',
+            schema_snapshot: [{ id: '1', title: '1 SISTEMA HISTORICO', children: [] }]
+        };
+        expect(shouldReconcileTemplateSchema(finalizedByRelIdDoc, { tipo: 'PREVENTIVA' })).toBe(false);
+
         const rendered = renderNode(customCorretivaDoc.schema[0], customCorretivaDoc.schema[0].id, customCorretivaDoc);
         expect(rendered).toContain('TROCA DOS CONTATORES DO PAINEL ELETRICO');
         expect(rendered).toContain('corretiva_custom_123_obs');
