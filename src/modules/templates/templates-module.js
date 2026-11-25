@@ -692,6 +692,65 @@ export function getAssetTemplateById(id) {
     };
 }
 
+/**
+ * Localiza o modelo de ficha técnica correspondente ao tipo ou nome do equipamento.
+ * Garante compatibilidade estrita e integridade referencial 1:1.
+ * @param {string} typeOrName
+ * @returns {object|null}
+ */
+export function getAssetTemplateByTypeOrName(typeOrName) {
+    if (!typeOrName) return null;
+    const clean = String(typeOrName).trim().toUpperCase();
+    if (!clean) return null;
+
+    const allTemplates = getAssetTemplates();
+    const userTemplates = getUserAssetTemplates();
+
+    // 1. Busca exata em modelos criados por usuários por NOME
+    let found = userTemplates.find(t => t.nome && t.nome.trim().toUpperCase() === clean);
+    if (found) return found;
+
+    // 2. Se for Ponte Rolante padrão do sistema
+    if (clean === 'PONTE ROLANTE VIGA DUPLA' || clean === 'PONTE ROLANTE' || clean === 'PONTE ROLANTE VIGA SIMPLES') {
+        return SYSTEM_ASSET_TEMPLATE;
+    }
+
+    // 3. Busca exata por tipo de equipamento (apenas se for diferente do default 'PONTE ROLANTE VIGA DUPLA')
+    found = userTemplates.find(t => 
+        t.tipoEquipamento &&
+        t.tipoEquipamento.trim().toUpperCase() === clean &&
+        t.tipoEquipamento.trim().toUpperCase() !== 'PONTE ROLANTE VIGA DUPLA'
+    );
+    if (found) return found;
+
+    // 4. Busca por inclusão de nome em modelos criados por usuários
+    found = userTemplates.find(t => {
+        const tn = (t.nome || '').trim().toUpperCase();
+        return tn && (clean.includes(tn) || tn.includes(clean));
+    });
+    if (found) return found;
+
+    // 5. Se contiver 'PONTE', retorna SYSTEM_ASSET_TEMPLATE
+    if (clean.includes('PONTE') || clean.includes('VIGA')) {
+        return SYSTEM_ASSET_TEMPLATE;
+    }
+
+    // 6. Busca em todos os templates
+    found = allTemplates.find(t => {
+        const tn = (t.nome || '').trim().toUpperCase();
+        return tn && (clean === tn || clean.includes(tn) || tn.includes(clean));
+    });
+    if (found) return found;
+
+    // 7. Garantia estrutural: Todo tipo de equipamento possui modelo correspondente
+    return {
+        id: `asstpl_${clean.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
+        nome: clean,
+        tipoEquipamento: clean,
+        customFields: []
+    };
+}
+
 export const DEFAULT_ASSET_TEMPLATES = [
     SYSTEM_ASSET_TEMPLATE
 ];

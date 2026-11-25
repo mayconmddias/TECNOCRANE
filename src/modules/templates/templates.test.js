@@ -34,7 +34,8 @@ import {
     SYSTEM_INSPECTION_TEMPLATE,
     SYSTEM_ASSET_TEMPLATE,
     getUserTemplates,
-    getUserAssetTemplates
+    getUserAssetTemplates,
+    getAssetTemplateByTypeOrName
 } from './templates-module.js';
 import { populateAssetTemplateDropdown, autoResizeTextarea } from './templates-ui.js';
 
@@ -556,6 +557,38 @@ describe('Modelos Padrão do Sistema (Ponte Rolante Viga Dupla)', () => {
             expect(schema7[4].title).toContain('Testes Operacionais');
             expect(schema7[5].title).toContain('Recomendações Primordiais');
             expect(schema7[6].title).toContain('Normas Regulamentadoras');
+        });
+    });
+
+    describe('Integridade Referencial: Vínculo Estrito Ativo e Template', () => {
+        it('deve localizar o modelo correspondente por tipo de equipamento ou nome', async () => {
+            const guindasteName = `GUINDASTE DE COLUNA ${Date.now()}`;
+            await saveAssetTemplate({
+                nome: guindasteName,
+                tipoEquipamento: 'GUINDASTE DE COLUNA',
+                customFields: [
+                    { label: 'COMPRIMENTO DA LANÇA', type: 'text' },
+                    { label: 'ÂNGULO DE GIRO', type: 'text' }
+                ]
+            }, 'Maycon');
+
+            const resolved = getAssetTemplateByTypeOrName('GUINDASTE DE COLUNA');
+            expect(resolved).toBeDefined();
+            expect(resolved.tipoEquipamento).toBe('GUINDASTE DE COLUNA');
+            expect(resolved.customFields.length).toBe(2);
+        });
+
+        it('deve retornar o modelo padrão para PONTE ROLANTE VIGA DUPLA', () => {
+            const ponteTpl = getAssetTemplateByTypeOrName('PONTE ROLANTE VIGA DUPLA');
+            expect(ponteTpl).toBeDefined();
+            expect(ponteTpl.id).toBe(SYSTEM_ASSET_TEMPLATE_ID);
+        });
+
+        it('deve garantir que tipos não-ponte nunca retornem modelo de Ponte Rolante', () => {
+            const talhaTpl = getAssetTemplateByTypeOrName('TALHA ELÉTRICA');
+            expect(talhaTpl).toBeDefined();
+            expect(talhaTpl.id).not.toBe(SYSTEM_ASSET_TEMPLATE_ID);
+            expect(talhaTpl.nome).toContain('TALHA');
         });
     });
 });

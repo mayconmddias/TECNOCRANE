@@ -10,7 +10,7 @@ import { CHECKLIST_SCHEMA } from './checklist-schema.js';
 import { showPrintLoadingOverlay, hidePrintLoadingOverlay, collectAllReportImageUrls, preloadImageUrls, printReportPDF, getChecklistPrintHTML } from './modules/reports/reports-pdf.js';
 import { filterReports, formatReportNumber, normalizeComp as normCompReports, normalizeAssetId as normAssetReports, getReportTechniciansDisplay, getNextAvailableReportId } from './modules/reports/reports-service.js';
 import { renderTemplatesView, populateAssetTemplateDropdown, openCorretivaItemsPicker, autoResizeTextarea } from './modules/templates/templates-ui.js';
-import { getTemplates, getTemplateById, getTemplateByName, convertTemplateToChecklistSchema, loadTemplates, getAssetTemplates, getUserAssetTemplates, getAssetTemplateById, loadAssetTemplates, SYSTEM_INSPECTION_TEMPLATE_ID, SYSTEM_ASSET_TEMPLATE_ID } from './modules/templates/templates-module.js';
+import { getTemplates, getTemplateById, getTemplateByName, convertTemplateToChecklistSchema, loadTemplates, getAssetTemplates, getUserAssetTemplates, getAssetTemplateById, getAssetTemplateByTypeOrName, loadAssetTemplates, SYSTEM_INSPECTION_TEMPLATE_ID, SYSTEM_ASSET_TEMPLATE_ID } from './modules/templates/templates-module.js';
 import { reserveNextAssetId, prepareAssetPayload, parseAssetSequenceNumber, getAssetTechnicalFields } from './modules/assets/assets-service.js';
 import { generateNextOrderId, saveDraftOrder, deleteDraftOrder, saveFastLocalDraft, getFastLocalDraft, clearFastLocalDraft } from './modules/orders/orders-service.js';
 import { initNativeFeatures } from './native.js';
@@ -5188,6 +5188,71 @@ window.handleRegistrationTypeChange = function(keepFields = false) {
     }
 };
 
+window.getAssetTemplateById = getAssetTemplateById;
+window.getAssetTemplateByTypeOrName = getAssetTemplateByTypeOrName;
+
+function renderDynamicFieldInputs(customFields, prefilledValues, container) {
+    container.innerHTML = '';
+    customFields.forEach(f => {
+        const fieldDiv = document.createElement('div');
+        fieldDiv.className = 'space-y-stack_sm';
+        const fieldId = f.id || `cf_${(f.label || '').toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+        
+        let val = '';
+        if (prefilledValues && typeof prefilledValues === 'object') {
+            if (prefilledValues[fieldId] !== undefined) {
+                val = prefilledValues[fieldId];
+            } else if (f.label) {
+                const labelKey = Object.keys(prefilledValues).find(k => k.toLowerCase() === f.label.toLowerCase() || k.toLowerCase().replace(/[^a-z0-9]/g, '_') === fieldId);
+                if (labelKey && prefilledValues[labelKey] !== undefined) val = prefilledValues[labelKey];
+            }
+
+            // Fallback para campos canônicos do ativo caso não mapeados por ID explícito
+            if (val === '' || val === undefined || val === null) {
+                const normLabel = (f.label || '').toLowerCase();
+                const normId = String(fieldId).toLowerCase();
+                const check = (term) => normId.includes(term) || normLabel.includes(term);
+
+                if (check('capacidade') && !check('auxiliar')) {
+                    val = prefilledValues.capacidade || prefilledValues.capacidadePrincipal || prefilledValues.cf_2_cap_principal || '';
+                } else if (check('capacidade') && check('auxiliar')) {
+                    val = prefilledValues.capacidadeAuxiliar || prefilledValues.capacidadeauxiliar || prefilledValues.cf_4_cap_auxiliar || '';
+                } else if (check('vao')) {
+                    val = prefilledValues.vao || prefilledValues.vaoPonte || prefilledValues.cf_7_vao_ponte || '';
+                } else if (check('altura')) {
+                    val = prefilledValues.altura || prefilledValues.alturaElevacao || prefilledValues.cf_6_altura_elevacao || '';
+                }
+            }
+        }
+
+        let inputHtml = '';
+        if (f.type === 'number') {
+            inputHtml = `
+                <input type="number" step="any" data-field-id="${fieldId}" value="${val}" class="reg-dynamic-field-input w-full bg-surface-container-low border border-outline py-2.5 px-4 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-all rounded-xl" placeholder="0.00">
+            `;
+        } else if (f.type === 'date') {
+            inputHtml = `
+                <input type="date" data-field-id="${fieldId}" value="${val}" class="reg-dynamic-field-input w-full bg-surface-container-low border border-outline py-2.5 px-4 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-all rounded-xl">
+            `;
+        } else {
+            inputHtml = `
+                <input type="text" data-field-id="${fieldId}" value="${val}" class="reg-dynamic-field-input w-full bg-surface-container-low border border-outline py-2.5 px-4 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-all rounded-xl" placeholder="PREENCHA...">
+            `;
+        }
+
+        const cleanLabel = (f.label || '')
+            .replace(/CAPACIDADE DE PESO PRINCIPAL/gi, 'CAPACIDADE PRINCIPAL')
+            .replace(/CAPACIDADE DE PESO AUXILIAR/gi, 'CAPACIDADE AUXILIAR')
+            .replace(/VÃO DA PONTE/gi, 'VÃO');
+
+        fieldDiv.innerHTML = `
+            <label class="text-label-md text-on-surface-variant uppercase font-bold">${cleanLabel}</label>
+            ${inputHtml}
+        `;
+        container.appendChild(fieldDiv);
+    });
+}
+
 window.handleAssetTemplateChange = function(prefilledValues = null) {
     const templateSelect = document.getElementById('reg-ativo-template-select');
     const templateId = templateSelect ? templateSelect.value : '';
@@ -5195,105 +5260,62 @@ window.handleAssetTemplateChange = function(prefilledValues = null) {
     const container = document.getElementById('reg-ativo-dynamic-fields');
     const defaultExtendedFields = document.getElementById('reg-ativo-default-extended-fields');
     const tipoInput = document.getElementById('reg-ativo-tipo');
+    const isEditMode = document.getElementById('reg-type-select')?.value === 'edit-ativo';
     
     if (!wrapper || !container) return;
 
-    if (!templateId) {
-        // Padrão: PONTE ROLANTE VIGA DUPLA
-        if (defaultExtendedFields) defaultExtendedFields.classList.remove('hidden');
-        wrapper.classList.add('hidden');
-        container.innerHTML = '';
-        if (tipoInput) {
+    // Em modo de edição, o tipo do ativo no campo #reg-ativo-tipo é a referência de verdade
+    const activeType = isEditMode
+        ? (tipoInput?.value || '').trim().toUpperCase()
+        : '';
+
+    let tpl = templateId ? getAssetTemplateById(templateId) : null;
+
+    // Se não encontrou modelo por templateId em modo de edição, resolve pelo tipo real
+    if (!tpl && isEditMode && activeType) {
+        tpl = getAssetTemplateByTypeOrName(activeType);
+    }
+
+    // Se estamos cadastrando um NOVO ativo, atualiza o tipoInput conforme modelo selecionado
+    if (!isEditMode && tipoInput) {
+        if (tpl) {
+            tipoInput.value = (tpl.nome || tpl.tipoEquipamento || '').toUpperCase();
+        } else {
             tipoInput.value = 'PONTE ROLANTE VIGA DUPLA';
         }
-        return;
     }
 
-    const tpl = getAssetTemplateById(templateId);
-    if (!tpl) {
+    // Determina o tipo vigente do equipamento
+    const currentType = (tipoInput?.value || activeType || (tpl ? (tpl.nome || tpl.tipoEquipamento) : '') || '').toUpperCase();
+    const isPonte = currentType.includes('PONTE') || (!currentType && (!tpl || String(tpl?.id) === SYSTEM_ASSET_TEMPLATE_ID));
+
+    // Regra: "os campos visíveis são correspondentes ao modelo de formulário do respectivo ativo"
+    if (isPonte) {
+        // Equipamento Ponte Rolante: exibe os 14 campos padrão de ponte
         if (defaultExtendedFields) defaultExtendedFields.classList.remove('hidden');
-        wrapper.classList.add('hidden');
-        container.innerHTML = '';
-        if (tipoInput) {
-            tipoInput.value = 'PONTE ROLANTE VIGA DUPLA';
+
+        // Se o modelo tiver customFields adicionais além dos 14 legados
+        const customFields = Array.isArray(tpl?.customFields) ? tpl.customFields : [];
+        if (customFields.length > 0) {
+            renderDynamicFieldInputs(customFields, prefilledValues, container);
+            wrapper.classList.remove('hidden');
+        } else {
+            wrapper.classList.add('hidden');
+            container.innerHTML = '';
         }
-        return;
-    }
-
-    // Modelo customizado selecionado: OCULTA SEMPRE os 14 campos estendidos legados do padrão Crane Pro!
-    if (defaultExtendedFields) defaultExtendedFields.classList.add('hidden');
-
-    // Preenche automaticamente o campo Tipo com o nome/tipo do modelo selecionado
-    if (tipoInput) {
-        tipoInput.value = (tpl.nome || tpl.tipoEquipamento || '').toUpperCase();
-    }
-
-    const customFields = Array.isArray(tpl.customFields) ? tpl.customFields : [];
-    if (customFields.length > 0) {
-        container.innerHTML = '';
-        customFields.forEach(f => {
-            const fieldDiv = document.createElement('div');
-            fieldDiv.className = 'space-y-stack_sm';
-            const fieldId = f.id || `cf_${(f.label || '').toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
-            
-            let val = '';
-            if (prefilledValues && typeof prefilledValues === 'object') {
-                if (prefilledValues[fieldId] !== undefined) {
-                    val = prefilledValues[fieldId];
-                } else if (f.label) {
-                    const labelKey = Object.keys(prefilledValues).find(k => k.toLowerCase() === f.label.toLowerCase() || k.toLowerCase().replace(/[^a-z0-9]/g, '_') === fieldId);
-                    if (labelKey && prefilledValues[labelKey] !== undefined) val = prefilledValues[labelKey];
-                }
-
-                // Fallback para campos canônicos do ativo caso não mapeados por ID explícito
-                if (val === '' || val === undefined || val === null) {
-                    const normLabel = (f.label || '').toLowerCase();
-                    const normId = String(fieldId).toLowerCase();
-                    const check = (term) => normId.includes(term) || normLabel.includes(term);
-
-                    if (check('capacidade') && !check('auxiliar')) {
-                        val = prefilledValues.capacidade || prefilledValues.capacidadePrincipal || prefilledValues.cf_2_cap_principal || '';
-                    } else if (check('capacidade') && check('auxiliar')) {
-                        val = prefilledValues.capacidadeAuxiliar || prefilledValues.capacidadeauxiliar || prefilledValues.cf_4_cap_auxiliar || '';
-                    } else if (check('vao')) {
-                        val = prefilledValues.vao || prefilledValues.vaoPonte || prefilledValues.cf_7_vao_ponte || '';
-                    } else if (check('altura')) {
-                        val = prefilledValues.altura || prefilledValues.alturaElevacao || prefilledValues.cf_6_altura_elevacao || '';
-                    }
-                }
-            }
-
-            let inputHtml = '';
-            if (f.type === 'number') {
-                inputHtml = `
-                    <input type="number" step="any" data-field-id="${fieldId}" value="${val}" class="reg-dynamic-field-input w-full bg-surface-container-low border border-outline py-2.5 px-4 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-all rounded-xl" placeholder="0.00">
-                `;
-            } else if (f.type === 'date') {
-                inputHtml = `
-                    <input type="date" data-field-id="${fieldId}" value="${val}" class="reg-dynamic-field-input w-full bg-surface-container-low border border-outline py-2.5 px-4 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-all rounded-xl">
-                `;
-            } else {
-                inputHtml = `
-                    <input type="text" data-field-id="${fieldId}" value="${val}" class="reg-dynamic-field-input w-full bg-surface-container-low border border-outline py-2.5 px-4 text-body-md font-bold uppercase text-on-surface focus:ring-2 focus:ring-primary outline-none transition-all rounded-xl" placeholder="PREENCHA...">
-                `;
-            }
-
-            const cleanLabel = (f.label || '')
-                .replace(/CAPACIDADE DE PESO PRINCIPAL/gi, 'CAPACIDADE PRINCIPAL')
-                .replace(/CAPACIDADE DE PESO AUXILIAR/gi, 'CAPACIDADE AUXILIAR')
-                .replace(/VÃO DA PONTE/gi, 'VÃO');
-
-            fieldDiv.innerHTML = `
-                <label class="text-label-md text-on-surface-variant uppercase font-bold">${cleanLabel}</label>
-                ${inputHtml}
-            `;
-            container.appendChild(fieldDiv);
-        });
-        wrapper.classList.remove('hidden');
     } else {
-        // Modelo com 0 campos customizados adicionais: oculta campos customizados e mantém APENAS os 7 fixos
-        wrapper.classList.add('hidden');
-        container.innerHTML = '';
+        // Qualquer outro tipo (Guindaste, Talha, etc.):
+        // NUNCA exibe os 14 campos de ponte rolante (como Motor Translação Ponte ou Motor Direção Carro)
+        if (defaultExtendedFields) defaultExtendedFields.classList.add('hidden');
+
+        const customFields = Array.isArray(tpl?.customFields) ? tpl.customFields : [];
+        if (customFields.length > 0) {
+            renderDynamicFieldInputs(customFields, prefilledValues, container);
+            wrapper.classList.remove('hidden');
+        } else {
+            wrapper.classList.add('hidden');
+            container.innerHTML = '';
+        }
     }
 };
 
@@ -5421,58 +5443,65 @@ window.loadAssetDataForEdit = function() {
         document.getElementById('reg-ativo-motor-direcao-carro').value = asset.motorDirecaoCarro || asset.motordirecaocarro || '';
         document.getElementById('reg-ativo-motor-translacao-ponte').value = asset.motorTranslacaoPonte || asset.motortranslacaoponte || '';
 
-        // Carrega template de ativo e campos customizados se existirem
+        // Carrega template de ativo e campos customizados com integridade referencial estrita
         const tplSelect = document.getElementById('reg-ativo-template-select');
         const tplDisplay = document.getElementById('reg-ativo-template-display');
+        const realTipo = (asset.tipo || asset.nome || "").trim().toUpperCase();
+
         if (tplSelect || tplDisplay) {
-            let targetTemplateId = asset.template_id || asset.templateId || '';
-            let templateDisplayName = asset.template_name || asset.templateName || '';
+            let targetTemplate = null;
+            const existingTplId = asset.template_id || asset.templateId;
+            if (existingTplId) {
+                const candidate = getAssetTemplateById(existingTplId);
+                if (candidate) {
+                    const cName = (candidate.nome || '').trim().toUpperCase();
+                    const cType = (candidate.tipoEquipamento || '').trim().toUpperCase();
+                    const isPonteAsset = realTipo.includes('PONTE');
+                    const isPonteCandidate = cName.includes('PONTE') || cType.includes('PONTE') || String(candidate.id) === SYSTEM_ASSET_TEMPLATE_ID;
 
-            // Se não houver template_id explícito gravado, busca modelo customizado correspondente por tipo de equipamento ou nome
-            const assetTipoNorm = (asset.tipo || asset.nome || '').trim().toLowerCase();
-            if (!targetTemplateId) {
-                const userTemplates = (typeof getUserAssetTemplates === 'function' ? getUserAssetTemplates() : []) || [];
-                const matchedTpl = userTemplates.find(t => {
-                    const tNome = (t.nome || '').trim().toLowerCase();
-                    const tTipo = (t.tipoEquipamento || '').trim().toLowerCase();
-                    return (tNome && tNome === assetTipoNorm) || (tTipo && tTipo === assetTipoNorm) ||
-                           (assetTipoNorm && tNome && (assetTipoNorm === tNome || assetTipoNorm.includes(tNome) || tNome.includes(assetTipoNorm)));
-                });
-                if (matchedTpl) {
-                    targetTemplateId = matchedTpl.id;
-                    templateDisplayName = matchedTpl.nome || matchedTpl.tipoEquipamento || '';
+                    if (isPonteAsset && isPonteCandidate) {
+                        targetTemplate = candidate;
+                    } else if (!isPonteAsset && !isPonteCandidate && (cName === realTipo || cType === realTipo || realTipo.includes(cName) || cName.includes(realTipo))) {
+                        targetTemplate = candidate;
+                    }
                 }
             }
 
-            if (!templateDisplayName && targetTemplateId) {
-                const tpl = getAssetTemplateById(targetTemplateId);
-                if (tpl && !tpl.isSystemDefault && String(tpl.id) !== SYSTEM_ASSET_TEMPLATE_ID) {
-                    templateDisplayName = tpl.nome || tpl.tipoEquipamento || '';
-                }
+            // Se não havia template_id ou se o template_id do banco era divergente/incompatível:
+            if (!targetTemplate) {
+                targetTemplate = getAssetTemplateByTypeOrName(realTipo);
             }
 
-            if (!templateDisplayName) {
-                templateDisplayName = (asset.tipo || asset.nome || 'PONTE ROLANTE VIGA DUPLA').toUpperCase();
+            // Se for Ponte Rolante e não tiver modelo customizado de ponte:
+            if (!targetTemplate && realTipo.includes('PONTE')) {
+                targetTemplate = SYSTEM_ASSET_TEMPLATE;
             }
+
+            // Garante integridade referencial permanente: o ativo sempre aponta para seu template_id
+            if (targetTemplate) {
+                asset.template_id = targetTemplate.id;
+                asset.template_name = targetTemplate.nome || targetTemplate.tipoEquipamento;
+            }
+
+            const targetTemplateId = targetTemplate ? targetTemplate.id : '';
+            const templateDisplayName = (targetTemplate?.nome || targetTemplate?.tipoEquipamento || realTipo).toUpperCase();
 
             if (tplDisplay) {
-                tplDisplay.value = templateDisplayName.toUpperCase();
+                tplDisplay.value = templateDisplayName;
             }
 
             if (tplSelect) {
                 populateAssetTemplateDropdown(tplSelect, targetTemplateId);
                 tplSelect.value = targetTemplateId || '';
+            }
 
-                if (targetTemplateId) {
-                    window.handleAssetTemplateChange({ ...(asset.custom_fields || asset.customFields || {}), ...asset });
-                } else {
-                    window.handleAssetTemplateChange();
-                    // Se nenhum template customizado foi casado, garante que o tipo original do ativo seja preservado no input
-                    const tipoInput = document.getElementById('reg-ativo-tipo');
-                    if (tipoInput && (asset.tipo || asset.nome)) {
-                        tipoInput.value = (asset.tipo || asset.nome).toUpperCase();
-                    }
-                }
+            // Aciona renderização de campos dinâmicos do modelo com valores preenchidos
+            window.handleAssetTemplateChange({ ...(asset.custom_fields || asset.customFields || {}), ...asset });
+
+            // Garante que o tipo real do ativo nunca seja sobrescrito no input
+            const tipoInput = document.getElementById('reg-ativo-tipo');
+            if (tipoInput) {
+                tipoInput.value = realTipo;
             }
         }
     }
@@ -5661,10 +5690,15 @@ window.saveUnifiedRegistration = async function() {
         const altura = alturaRaw || "";
         const capacidadeAuxiliar = capAuxiliarRaw || "";
 
-        // Coleta campos customizados do template
+        // Coleta campos customizados do template com garantia de vínculo estrito
         const templateSelect = document.getElementById('reg-ativo-template-select');
-        const selectedTemplateId = templateSelect ? templateSelect.value : null;
-        const selectedTemplate = selectedTemplateId ? getAssetTemplateById(selectedTemplateId) : null;
+        let selectedTemplateId = templateSelect ? templateSelect.value : null;
+        let selectedTemplate = selectedTemplateId ? getAssetTemplateById(selectedTemplateId) : null;
+        
+        // Se não selecionado ou em modo edição sem dropdown ativo, vincula automaticamente pelo tipo do equipamento
+        if (!selectedTemplate) {
+            selectedTemplate = getAssetTemplateByTypeOrName(tipo);
+        }
         
         const customFields = {};
         const dynamicInputs = document.querySelectorAll('.reg-dynamic-field-input');
